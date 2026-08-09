@@ -15,7 +15,7 @@ final class AgentBridge: ObservableObject {
     /// 的进度更新才会真正驱动界面刷新。
     private weak var state: AppState?
 
-    /// 当前正在执行的命令（形如 `expunge --scan Cursor`），nil 表示空闲。
+    /// 当前正在执行的命令（形如 `AIMacCleaner --scan Cursor`），nil 表示空闲。
     @Published private(set) var runningCommand: String?
     /// 本次运行已完成的步骤，供 UI 实时展开。
     @Published private(set) var steps: [AgentStep] = []

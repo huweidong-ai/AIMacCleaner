@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - list_apps
 
-/// `expunge --list`
+/// `AIMacCleaner --list`
 struct ListAppsSkill: AgentSkill {
     let spec = SkillSpec(
         name: "list_apps",
@@ -53,7 +53,7 @@ struct ListAppsSkill: AgentSkill {
 
 // MARK: - scan_app
 
-/// `expunge --scan <target>`
+/// `AIMacCleaner --scan <target>`
 struct ScanAppSkill: AgentSkill {
     let spec = SkillSpec(
         name: "scan_app",
@@ -116,7 +116,7 @@ struct ScanAppSkill: AgentSkill {
 
 // MARK: - scan_leftovers
 
-/// `expunge --orphans`
+/// `AIMacCleaner --orphans`
 struct ScanLeftoversSkill: AgentSkill {
     let spec = SkillSpec(
         name: "scan_leftovers",
@@ -170,7 +170,7 @@ struct ScanLeftoversSkill: AgentSkill {
 
 // MARK: - list_processes
 
-/// `expunge --ps`
+/// `AIMacCleaner --ps`
 struct ListProcessesSkill: AgentSkill {
     let spec = SkillSpec(
         name: "list_processes",
@@ -232,7 +232,7 @@ struct ListProcessesSkill: AgentSkill {
 
 // MARK: - show_history
 
-/// `expunge --history`
+/// `AIMacCleaner --history`
 struct ShowHistorySkill: AgentSkill {
     let spec = SkillSpec(
         name: "show_history",

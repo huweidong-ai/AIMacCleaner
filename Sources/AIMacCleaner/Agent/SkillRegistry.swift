@@ -4,7 +4,7 @@ import Foundation
 ///
 /// 它同时是三样东西的来源：
 /// - 模型看到的工具清单（`manifest`，自动生成，加 skill 不用改 prompt）
-/// - `expunge --skills` 打印的人类可读清单
+/// - `AIMacCleaner --skills` 打印的人类可读清单
 /// - 运行时的白名单：`resolve` 找不到的名字一律拒绝执行
 ///
 /// **白名单是安全边界**。Agent 唯一能触发的外部动作就是这张表里的 skill，
@@ -57,7 +57,7 @@ enum SkillRegistry {
         specs.map(\.manifestLine).joined(separator: "\n")
     }
 
-    /// `expunge --skills` 的输出。
+    /// `AIMacCleaner --skills` 的输出。
     static var cliListing: String {
         var out = L10n.t("AI Mac Cleaner Agent 可调用的 skill（共 \(all.count) 个）：\n",
                          "Skills available to the AI Mac Cleaner agent (\(all.count) total):\n")
@@ -74,9 +74,9 @@ enum SkillRegistry {
             }
         }
         out += "\n" + L10n.t(
-            "调用方式：expunge --skill <name> [--args '{\"k\":\"v\"}']，或 expunge --agent \"用一句话说你想干嘛\"。\n" +
+            "调用方式：AIMacCleaner --skill <name> [--args '{\"k\":\"v\"}']，或 AIMacCleaner --agent \"用一句话说你想干嘛\"。\n" +
             "所有 skill 都不会删除文件：删除只发生在你确认之后。\n",
-            "Usage: expunge --skill <name> [--args '{\"k\":\"v\"}'], or expunge --agent \"say what you want in one line\".\n" +
+            "Usage: AIMacCleaner --skill <name> [--args '{\"k\":\"v\"}'], or AIMacCleaner --agent \"say what you want in one line\".\n" +
             "No skill deletes anything: removal happens only after you confirm.\n")
         return out
     }
