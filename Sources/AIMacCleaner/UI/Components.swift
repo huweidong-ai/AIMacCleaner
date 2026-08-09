@@ -173,12 +173,12 @@ struct AINoteRow: View {
     }
 }
 
-// MARK: - 分区标题（右侧带 全选 / 全不选）
+// MARK: - 分区标题（右侧带 展开 / 折叠）
 
 struct SectionLabel: View {
     let text: String
-    var onSelectAll: (() -> Void)?
-    var onDeselectAll: (() -> Void)?
+    var onExpand: (() -> Void)?
+    var onCollapse: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 4) {
@@ -187,15 +187,15 @@ struct SectionLabel: View {
                 .kerning(0.6)
                 .foregroundStyle(.tertiary)
             Spacer()
-            if let selectAll = onSelectAll, let deselectAll = onDeselectAll {
-                Button(L10n.t("全选", "All")) { selectAll() }
+            if let expand = onExpand, let collapse = onCollapse {
+                Button(L10n.t("展开", "Expand")) { expand() }
                     .buttonStyle(.plain)
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundStyle(Theme.accent)
                 Text("/")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.quaternary)
-                Button(L10n.t("全不选", "None")) { deselectAll() }
+                Button(L10n.t("折叠", "Collapse")) { collapse() }
                     .buttonStyle(.plain)
                     .font(.system(size: 10.5, weight: .semibold))
                     .foregroundStyle(Theme.accent)

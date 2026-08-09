@@ -226,8 +226,8 @@ struct LeftoversView: View {
             if !groups.isEmpty {
                 SectionLabel(
                     text: sectionTitle(source),
-                    onSelectAll: { setSection(source, selected: true) },
-                    onDeselectAll: { setSection(source, selected: false) }
+                    onExpand: { expandSection(source, expanded: true) },
+                    onCollapse: { expandSection(source, expanded: false) }
                 )
                 VStack(spacing: 8) {
                     ForEach(groups) { group in
@@ -266,6 +266,16 @@ struct LeftoversView: View {
     private func setSection(_ source: LeftoverSource, selected: Bool) {
         for g in state.leftoverGroups where g.source == source {
             state.setLeftoverGroupSelected(groupId: g.id, selected: selected)
+        }
+    }
+
+    private func expandSection(_ source: LeftoverSource, expanded: Bool) {
+        for g in state.leftoverGroups where g.source == source {
+            if expanded {
+                state.leftoverCollapsed.remove(g.id)
+            } else {
+                state.leftoverCollapsed.insert(g.id)
+            }
         }
     }
 

@@ -242,8 +242,8 @@ struct AppsView: View {
                             aiBar
                         }
                         SectionLabel(text: L10n.t("扫描结果 · 按类别分组", "Results · grouped by category"),
-                                     onSelectAll: { state.selectAll() },
-                                     onDeselectAll: { state.deselectAll() })
+                                     onExpand: { expandAllCategories(expanded: true) },
+                                     onCollapse: { expandAllCategories(expanded: false) })
                         groupCards
                     }
                     .padding(16)
@@ -436,6 +436,17 @@ struct AppsView: View {
     private func setSelected(_ id: UUID, _ on: Bool) {
         guard let idx = state.artifacts.firstIndex(where: { $0.id == id }) else { return }
         state.artifacts[idx].selected = on
+    }
+
+    private func expandAllCategories(expanded: Bool) {
+        let grouped = Dictionary(grouping: state.artifacts, by: \.category)
+        for category in grouped.keys {
+            if expanded {
+                state.appsCollapsed.remove(category)
+            } else {
+                state.appsCollapsed.insert(category)
+            }
+        }
     }
 
     private func runUninstall(userData: UserDataDisposition) {
