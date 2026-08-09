@@ -208,19 +208,22 @@ final class AppState: ObservableObject {
     enum LeftoverFilter: String, CaseIterable, Identifiable {
         case orphan = "orphan"
         case aiTool = "aiTool"
+        case devCache = "devCache"
         var id: String { rawValue }
 
         var displayName: String {
             switch self {
-            case .orphan:  return L10n.t("无主残留", "Orphaned")
-            case .aiTool:  return L10n.t("AI 工具", "AI tools")
+            case .orphan:   return L10n.t("无主残留", "Orphaned")
+            case .aiTool:   return L10n.t("AI 工具", "AI tools")
+            case .devCache: return L10n.t("缓存与模型", "Caches & models")
             }
         }
 
         var source: LeftoverSource? {
             switch self {
-            case .orphan:  return .orphan
-            case .aiTool:  return .aiTool
+            case .orphan:   return .orphan
+            case .aiTool:   return .aiTool
+            case .devCache: return .devCache
             }
         }
     }
@@ -375,7 +378,8 @@ final class AppState: ObservableObject {
             let live = InventoryCache.shared.liveBundleIds()
             async let orphanGroups = OrphanScanner.scanAll(liveIds: live)
             async let aiGroups = AIAgentScanner.scanAll()
-            return await orphanGroups + aiGroups
+            async let toolGroups = AIToolLeftovers.scanGroups()
+            return await orphanGroups + aiGroups + toolGroups
         }.value
         leftoverGroups = groups
         // 每次扫描完默认全部折叠：group id 是本次新生成的，按默认折叠让用户逐一点开。
@@ -413,8 +417,9 @@ final class AppState: ObservableObject {
     /// 当前筛选档下可见的残留分组。
     var visibleLeftoverGroups: [LeftoverGroup] {
         switch leftoverFilter {
-        case .orphan:  return leftoverGroups.filter { $0.source == .orphan }
-        case .aiTool:  return leftoverGroups.filter { $0.source == .aiTool }
+        case .orphan:   return leftoverGroups.filter { $0.source == .orphan }
+        case .aiTool:   return leftoverGroups.filter { $0.source == .aiTool }
+        case .devCache: return leftoverGroups.filter { $0.source == .devCache }
         }
     }
 
@@ -442,6 +447,21 @@ final class AppState: ObservableObject {
     /// 当前筛选档下已选项数。
     var leftoverVisibleSelectedCount: Int {
         visibleLeftoverGroups.reduce(0) { $0 + $1.selectedCount }
+    }
+
+    /// 「AI 专清」卡片用的聚合：AI 工具 + 模型/开发缓存残留的可清理总量与项数。
+    /// 来源 = .aiTool（含 AIAgentScanner 点文件 + AIToolLeftovers 的 AI 工具类）
+    ///      ∪ .devCache（AIToolLeftovers 的 ML 运行时 / 编辑器 / 包管理器 / 浏览器等）。
+    var aiCleanupTotalSize: Int64 {
+        leftoverGroups
+            .filter { $0.source == .aiTool || $0.source == .devCache }
+            .reduce(0) { $0 + $1.totalSize }
+    }
+
+    var aiCleanupTotalCount: Int {
+        leftoverGroups
+            .filter { $0.source == .aiTool || $0.source == .devCache }
+            .reduce(0) { $0 + $1.artifacts.count }
     }
 
     /// 更新某个残留分组的某一项勾选状态。

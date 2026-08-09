@@ -482,6 +482,22 @@ enum AIToolLeftovers {
         }
     }
 
+    /// 把命中结果转成「残留」页用的分组（带来源标签）。
+    /// 来源拆分（诚实，不把 Maven/Chrome 标成「AI 工具」）：
+    ///   • category == "AI Tools" → .aiTool（真·AI 编程工具）
+    ///   • 其余（ML 运行时 / 编辑器 / 语言 / 构建 / 云 / 包管理器 / 系统）→ .devCache
+    static func scanGroups() -> [LeftoverGroup] {
+        scan().compactMap { f in
+            let source: LeftoverSource = (f.entry.category == "AI Tools") ? .aiTool : .devCache
+            let artifacts = f.hits.map { h in
+                Artifact(category: .toolCache, path: h.path, size: h.size,
+                         risk: aiLeftoverRisk(f.entry.risk), selected: false)
+            }
+            guard !artifacts.isEmpty else { return nil }
+            return LeftoverGroup(owner: f.entry.name, source: source, artifacts: artifacts)
+        }
+    }
+
     // MARK: - CLI
 
     /// `--ai-tools`：列出检测到的 AI / 开发工具残留（仅扫描、不删除）。
@@ -510,5 +526,17 @@ enum AIToolLeftovers {
         print("合计可回收：\(fmt.string(fromByteCount: total))")
         print("删除请在图形界面「残留」页确认，或继续用 --orphans；本命令只列出。")
         return 0
+    }
+}
+
+/// aiclean 三级风险 → 本 app 的 `Risk`（模块级函数，避开 enum 内同名 `Risk` 遮蔽）。
+///   • low    → .safe      （纯缓存，可安全删、重建即时）
+///   • medium → .uncertain （重建耗时，谨慎对待）
+///   • high   → .userData  （模型等大文件，删了很贵，按用户数据对待：默认不勾、进废纸篓可找回）
+fileprivate func aiLeftoverRisk(_ r: AIToolLeftovers.Risk) -> Risk {
+    switch r {
+    case .low:    return .safe
+    case .medium: return .uncertain
+    case .high:   return .userData
     }
 }

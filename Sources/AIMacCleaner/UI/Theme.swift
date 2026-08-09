@@ -158,6 +158,9 @@ struct TagPill: View {
         case .orphan:
             return TagPill(icon: "questionmark.folder", text: s.displayName,
                            fg: Theme.accentActive, bg: Theme.accentSubtle, border: Theme.accentBorder)
+        case .devCache:
+            return TagPill(icon: "internaldrive", text: s.displayName,
+                           fg: Theme.riskSafeText, bg: Theme.riskSafeBg, border: Theme.riskSafeBorder)
         }
     }
 

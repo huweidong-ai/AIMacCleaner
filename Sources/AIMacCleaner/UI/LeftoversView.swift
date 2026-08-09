@@ -70,11 +70,11 @@ struct LeftoversView: View {
 
     private var subtitleText: String {
         guard state.hasScannedLeftovers, !state.leftoverGroups.isEmpty else {
-            return L10n.t("已卸载应用留下的孤儿数据 ⊕ 已知 AI 工具残留",
-                          "Orphaned data from uninstalled apps ⊕ traces from known AI tools")
+            return L10n.t("已卸载应用留下的孤儿数据 ⊕ AI 与开发工具残留（含模型/缓存）",
+                          "Orphaned data from uninstalled apps ⊕ AI & dev-tool leftovers (models / caches)")
         }
-        return L10n.t("已卸载应用留下的孤儿数据 ⊕ 已知 AI 工具残留 · 合计 \(SizeFormat.human(state.leftoverTotalSize))",
-                      "Orphaned data from uninstalled apps ⊕ traces from known AI tools · \(SizeFormat.human(state.leftoverTotalSize)) total")
+        return L10n.t("已卸载应用留下的孤儿数据 ⊕ AI 与开发工具残留 · 合计 \(SizeFormat.human(state.leftoverTotalSize))",
+                      "Orphaned data from uninstalled apps ⊕ AI & dev-tool leftovers · \(SizeFormat.human(state.leftoverTotalSize)) total")
     }
 
     private var filterPicker: some View {
@@ -122,6 +122,7 @@ struct LeftoversView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        aiCleanupCard
                         Banner(kind: .warn,
                                title: L10n.t("这些是启发式推断的结果，默认全部不勾选。",
                                              "These are heuristic results — nothing is checked by default."),
@@ -256,8 +257,9 @@ struct LeftoversView: View {
 
     private func sectionTitle(_ s: LeftoverSource) -> String {
         switch s {
-        case .aiTool: return L10n.t("AI 编程工具残留 · 已知清单比对", "AI coding tools · matched against a known list")
-        case .orphan: return L10n.t("无主残留 · 反查无人认领", "Orphaned · no installed app claims them")
+        case .aiTool:   return L10n.t("AI 编程工具残留 · 已知清单比对", "AI coding tools · matched against a known list")
+        case .orphan:   return L10n.t("无主残留 · 反查无人认领", "Orphaned · no installed app claims them")
+        case .devCache: return L10n.t("模型与开发缓存 · 编辑器/包管理器/运行时", "Models & dev caches · editors / package managers / runtimes")
         }
     }
 
@@ -265,6 +267,58 @@ struct LeftoversView: View {
         for g in state.leftoverGroups where g.source == source {
             state.setLeftoverGroupSelected(groupId: g.id, selected: selected)
         }
+    }
+
+    // MARK: - AI 专清卡片
+
+    /// 残留页顶部的「AI 专清」高亮卡片：汇总 AI 工具 + 模型/开发缓存残留的可清理量，
+    /// 提供一键清理。来源拆分保持诚实——AI 编程工具归 .aiTool，其余（ML 运行时 /
+    /// 编辑器 / 包管理器 / 浏览器缓存）归 .devCache，卡片聚合两者。
+    @ViewBuilder
+    private var aiCleanupCard: some View {
+        let total = state.aiCleanupTotalSize
+        let count = state.aiCleanupTotalCount
+        if count > 0 {
+            HStack(spacing: 14) {
+                Image(systemName: "wand.and.rays")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 38, height: 38)
+                    .background(Theme.accentSubtle, in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L10n.t("AI 专清 · 工具残留", "AI cleanup · tool leftovers"))
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(Theme.accentActive)
+                    Text(.init(L10n.t("检测到 **\(count)** 项 AI / 开发工具残留，可清理 **\(SizeFormat.human(total))**",
+                                      "**\(count)** AI / dev-tool leftovers found · **\(SizeFormat.human(total))** reclaimable")))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button {
+                    cleanAITools()
+                } label: {
+                    Label(L10n.t("一键清理", "Clean up"), systemImage: "sparkles")
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
+                .help(L10n.t("选中所有 AI 与开发工具残留并在确认框逐项展示风险",
+                             "Selects all AI & dev-tool leftovers and shows the risk in the confirmation sheet"))
+            }
+            .padding(14)
+            .background(Theme.accentSubtle, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accentBorder, lineWidth: 1))
+        }
+    }
+
+    /// 一键清理：选中所有 AI 工具 + 模型/开发缓存分组，再弹确认框（复用现有删除流程与风险分流）。
+    private func cleanAITools() {
+        for gi in state.leftoverGroups.indices
+            where [LeftoverSource.aiTool, .devCache].contains(state.leftoverGroups[gi].source) {
+            state.setLeftoverGroupSelected(groupId: state.leftoverGroups[gi].id, selected: true)
+        }
+        showConfirm = true
     }
 
     private var bottomBar: some View {

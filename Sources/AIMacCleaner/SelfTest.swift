@@ -50,6 +50,14 @@ enum SelfTest {
                 let _ = AIToolLeftovers.scan()
                 return true
             },
+            Check(name: "AIToolLeftovers.scanGroups() 来源合法且分组非空") {
+                let groups = AIToolLeftovers.scanGroups()
+                guard !groups.isEmpty else { return false }
+                return groups.allSatisfy {
+                    !$0.artifacts.isEmpty &&
+                    [LeftoverSource.aiTool, .devCache].contains($0.source)
+                }
+            },
 
             // ── 别名匹配打分 ──
             Check(name: "MatchScore 精确命中分数最高") {

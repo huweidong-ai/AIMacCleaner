@@ -24,6 +24,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
     case npmGlobal      = "npm global"
     case pipxVenv       = "pipx venv"
     case masApp         = "Mac App Store"
+    case toolCache      = "Tool cache"
 
     /// 界面显示名（双语）。
     var displayName: String {
@@ -44,6 +45,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .npmGlobal:      return L10n.t("npm 全局包", "npm global")
         case .pipxVenv:       return L10n.t("pipx 虚拟环境", "pipx venv")
         case .masApp:         return L10n.t("Mac App Store", "Mac App Store")
+        case .toolCache:      return L10n.t("工具缓存", "Tool cache")
         }
     }
 
@@ -65,6 +67,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .npmGlobal:      return "n.square"
         case .pipxVenv:       return "p.square"
         case .masApp:         return "storefront"
+        case .toolCache:      return "internaldrive"
         }
     }
 }

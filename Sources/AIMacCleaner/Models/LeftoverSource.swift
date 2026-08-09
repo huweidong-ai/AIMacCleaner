@@ -4,13 +4,15 @@ import Foundation
 enum LeftoverSource: String, CaseIterable, Identifiable, Hashable {
     case orphan = "orphan"
     case aiTool = "aiTool"
+    case devCache = "devCache"
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .orphan: return L10n.t("无主残留", "Orphaned")
-        case .aiTool: return L10n.t("AI 工具", "AI tools")
+        case .orphan:   return L10n.t("无主残留", "Orphaned")
+        case .aiTool:   return L10n.t("AI 工具", "AI tools")
+        case .devCache: return L10n.t("缓存与模型", "Caches & models")
         }
     }
 
@@ -22,6 +24,9 @@ enum LeftoverSource: String, CaseIterable, Identifiable, Hashable {
         case .aiTool:
             return L10n.t("已知 AI 编程工具留下的隐藏配置/数据。",
                           "Hidden config or data left by a known AI coding tool.")
+        case .devCache:
+            return L10n.t("AI 模型运行时、编辑器与开发/包管理器的缓存与模型文件。",
+                          "Caches and model files from AI runtimes, editors, and dev / package managers.")
         }
     }
 }
