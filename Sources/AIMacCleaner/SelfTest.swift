@@ -640,6 +640,28 @@ enum SelfTest {
                 return groups.allSatisfy { $0.source == .orphan }
             },
 
+            // ── 新增 P0-1：pkg 收据扫描 ──
+            Check(name: "PkgReceiptScanner 不抛错、产物来源为 .orphan、不碰 /Applications") {
+                // 干净机器上可能为 0，不要求非空；只验证安全性与来源标记。
+                let groups = PkgReceiptScanner.scanAll()
+                return groups.allSatisfy { $0.source == .orphan }
+                    && groups.allSatisfy { $0.artifacts.allSatisfy { !$0.path.hasPrefix("/Applications") } }
+            },
+
+            // ── 新增 P0-3：baseBundleId / stripTrailingVersion 单元 ──
+            Check(name: "baseBundleId 剥掉尾部辅助组件后缀") {
+                OrphanScanner.baseBundleId("com.example.app.helper") == "com.example.app"
+                    && OrphanScanner.baseBundleId("com.example.app") == "com.example.app"
+                    && OrphanScanner.baseBundleId("com.example.app.daemon") == "com.example.app"
+                    && OrphanScanner.baseBundleId("com.apple") == "com.apple"   // 仅 2 段不剥
+            },
+            Check(name: "stripTrailingVersion 去掉尾部版本号") {
+                OrphanScanner.stripTrailingVersion("appname-1.2.3") == "appname"
+                    && OrphanScanner.stripTrailingVersion("appname-2024") == "appname"
+                    && OrphanScanner.stripTrailingVersion("app-name-2") == "app-name"
+                    && OrphanScanner.stripTrailingVersion("appname") == "appname"
+            },
+
             // ── v1.5：AI 编程工具残留 ──
             Check(name: "AIAgentScanner.catalog 覆盖 ≥ 12 个主流工具") {
                 // 初次上线就覆盖 Claude Code、Cursor、Windsurf、Aider、Codex、Gemini 等。

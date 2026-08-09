@@ -87,7 +87,29 @@ enum OrphanScanner {
                     stripSuffix: ".plist", requiresDirectory: false),
             DirSpec(path: "/Library/LaunchDaemons",
                     category: .launchAgent, requiresDotted: true,
-                    stripSuffix: ".plist", requiresDirectory: false)
+                    stripSuffix: ".plist", requiresDirectory: false),
+
+            // P0-2：扩展反向扫描范围，与 Pearcleaner `Locations` 对齐的系统级残留目录。
+            // 这些都是「app 装过、卸载后留下的散落痕迹」的高发地。
+            // 注意：`/usr/local` 与 `/private/tmp` 刻意不加 —— 前者被 Homebrew 全量占用、
+            // 递归扫会大规模误报兼危险；后者易失且被其他进程占用。Pearcleaner 对这两处
+            // 也是按具体子路径精确扫，而非递归整个目录。
+            DirSpec(path: "\(home)/Library/Saved Application State",
+                    category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: true),
+            DirSpec(path: "\(home)/Library/Logs",
+                    category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: true),
+            DirSpec(path: "\(home)/Library/Metadata",
+                    category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: true),
+            DirSpec(path: "/Library/Application Support",
+                    category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: true),
+            DirSpec(path: "/Library/Caches",
+                    category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: true),
+            DirSpec(path: "/Library/Logs",
+                    category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: true),
+            DirSpec(path: "/Library/PrivilegedHelperTools",
+                    category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: false),
+            DirSpec(path: "/Library/Preferences",
+                    category: .libraryData, requiresDotted: true, stripSuffix: ".plist", requiresDirectory: false)
         ]
     }
 
@@ -260,15 +282,23 @@ enum OrphanScanner {
             .replacingOccurrences(of: "-app", with: "")
             .replacingOccurrences(of: "-mac", with: "")
             .replacingOccurrences(of: "-osx", with: "")
+        // P0-3：再去尾部版本号（"appname-1.2.3" / "appname-2024"），否则带版本的
+        // 残留目录名匹配不上活 app 显示名。
+        let baseNoVer = Self.stripTrailingVersion(base)
 
-        // 闸 2：活 app 认领（精确 + 去后缀），认领了就不是孤儿
-        if liveNames.contains(normalized) || (base != normalized && liveNames.contains(base)) {
+        // 闸 2：活 app 认领（精确 + 去后缀 + 去版本），认领了就不是孤儿
+        if liveNames.contains(normalized)
+            || (base != normalized && liveNames.contains(base))
+            || (baseNoVer != base && liveNames.contains(baseNoVer)) {
             return false
         }
         // 双向子串兜底：目录名是 app 名的子串，或反过来。
         // 只在较长一侧 ≥4 时才当作认领信号，免得 "code" 这类短词到处匹配。
         for n in liveNames {
             if (n.contains(normalized) || normalized.contains(n)) && max(n.count, normalized.count) >= 4 {
+                return false
+            }
+            if (n.contains(baseNoVer) || baseNoVer.contains(n)) && max(n.count, baseNoVer.count) >= 4 {
                 return false
             }
         }
@@ -291,6 +321,17 @@ enum OrphanScanner {
     /// 有活着的 app 认领这个名字吗？双向前缀都算。
     static func isClaimed(_ normalized: String, live: Set<String>) -> Bool {
         if live.contains(normalized) { return true }
+        // P0-3：剥掉 helper/agent/daemon 等尾部后缀后，按「基础 bundle id」再认领一次。
+        // 这能兜住 com.example.app.helper（活 app 是 com.example.app）这类被 ./-/_ 之外
+        // 分隔、或尾部后缀拆不出来的认领关系 —— 是 Pearcleaner/Lemon baseBundleId 的等效实现。
+        let nb = Self.baseBundleId(normalized)
+        if live.contains(nb) { return true }
+        for liveId in live {
+            let lb = Self.baseBundleId(liveId)
+            if nb == lb { return true }
+            if nb.hasPrefix("\(lb).") || nb.hasPrefix("\(lb)-") || nb.hasPrefix("\(lb)_") { return true }
+            if lb.hasPrefix("\(nb).") || lb.hasPrefix("\(nb)-") || lb.hasPrefix("\(nb)_") { return true }
+        }
         for liveId in live {
             // 后代：目录是 com.foo.bar.Extension，活 app 是 com.foo.bar
             if normalized.hasPrefix("\(liveId).") || normalized.hasPrefix("\(liveId)-") {
@@ -397,6 +438,39 @@ enum OrphanScanner {
     static func isTeamId(_ s: String) -> Bool {
         guard s.count == 10 else { return false }
         return s.allSatisfy { $0.isUppercase && $0.isLetter || $0.isNumber }
+    }
+
+    /// 尾部「辅助组件」后缀 token。这些常出现在 bundle id 末段，
+    /// 但本质是主 app 的延伸（helper/agent/daemon/xpc/service/extension/...），
+    /// 不应被当作独立的认领主体。
+    private static let helperSuffixes: Set<String> = [
+        "helper", "agent", "daemon", "xpc", "service", "services", "extension", "extensions",
+        "backend", "launcher", "loginhelper", "loginitem", "login-item", "crashhandler",
+        "crashreporter", "updater", "renderer", "worker", "gpu", "nf", "ipc", "sdk", "core",
+        "browserhelper", "helper-launcher", "helpermanager", "menu", "menuextra", "appex"
+    ]
+
+    /// 剥掉尾部连续的辅助组件后缀，得到「基础 bundle id」。
+    /// `com.example.app.helper` → `com.example.app`；至少保留 vendor.product 两段。
+    /// 这是 Pearcleaner / Lemon 共用的 `baseBundleId` 思路的等效实现。
+    static func baseBundleId(_ id: String) -> String {
+        var segs = id.split(separator: ".").map(String.init)
+        while segs.count > 2, helperSuffixes.contains(segs.last!.lowercased()) {
+            segs.removeLast()
+        }
+        return segs.joined(separator: ".")
+    }
+
+    /// 去掉尾部版本号段：`appname-1.2.3` / `appname-2024` → `appname`。
+    /// 仅当末段是纯数字 / 数字点数字 / 4 位年份时才剥，避免误伤正常名字。
+    static func stripTrailingVersion(_ s: String) -> String {
+        let segs = s.split(separator: "-").map(String.init)
+        guard segs.count > 1, let last = segs.last else { return s }
+        let isNum = last.allSatisfy { $0.isNumber }
+        let isYear = last.count == 4 && isNum
+        let isSemver = last.contains(".") && last.split(separator: ".").allSatisfy { $0.allSatisfy { $0.isNumber } }
+        guard isNum || isYear || isSemver else { return s }
+        return segs.dropLast().joined(separator: "-")
     }
 
     /// 从目录名推断归属者：取 bundle id 的前三段作为聚合键，

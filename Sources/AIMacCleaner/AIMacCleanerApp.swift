@@ -75,6 +75,10 @@ struct AIMacCleanerApp: App {
         if userArgs.contains("--orphan-caches") {
             exit(OrphanCacheScanner.scanCLI())
         }
+        // --pkg-receipts：列出孤儿 pkg 收据（.pkg 安装器残留）+ 散落文件（仅扫描、不删除）。
+        if userArgs.contains("--pkg-receipts") {
+            exit(PkgReceiptScanner.scanCLI())
+        }
 
         // ── Agent 子命令：全部复用与 GUI 完全相同的 skill 层 ──
         // 安全边界由 SkillRegistry 白名单兜底：任何未注册的指令都拿不到执行入口，
@@ -127,6 +131,7 @@ struct AIMacCleanerApp: App {
           ai-mac-cleaner --orphans                        查找孤儿残留 / find orphaned leftovers
           ai-mac-cleaner --ai-tools                       列出 AI / 开发工具残留（缓存·模型·包管理器）/ list AI & dev-tool leftovers
           ai-mac-cleaner --orphan-caches                  动态发现孤儿依赖/构建缓存（node_modules 等）/ find orphan dep & build caches
+          ai-mac-cleaner --pkg-receipts                  列出孤儿 pkg 收据与散落残留 / list orphan pkg receipts
           ai-mac-cleaner --history                        卸载历史 / uninstall history
           ai-mac-cleaner --reset <名称>                    重置 app（保留程序本体）/ reset an app
           ai-mac-cleaner --skills                         列出 Agent 可调用的 skill / list agent skills
