@@ -38,13 +38,13 @@ trap cleanup EXIT
 
 echo "━━ 1/4 构建 app 到临时目录 ━━"
 ./build_app.sh "$STAGE/$APP_NAME.app" > /dev/null
-test -x "$STAGE/$APP_NAME.app/Contents/MacOS/$APP_NAME" \
+test -x "$STAGE/$APP_NAME.app/Contents/MacOS/$CLI_NAME" \
     || { echo "✗ app 构建失败"; exit 1; }
 echo "  ✓ $STAGE/$APP_NAME.app"
 
 echo "━━ 2/4 自检（不通过就不发布）━━"
 # 发布前必须跑一遍。构建成功不等于逻辑正确，而这个工具的 bug 会删错文件。
-if "$STAGE/$APP_NAME.app/Contents/MacOS/$APP_NAME" --self-test > "$STAGE/selftest.log" 2>&1; then
+if "$STAGE/$APP_NAME.app/Contents/MacOS/$CLI_NAME" --self-test > "$STAGE/selftest.log" 2>&1; then
     tail -1 "$STAGE/selftest.log" | sed 's/^/  /'
 else
     echo "  ✗ 自检未通过，中止发布："

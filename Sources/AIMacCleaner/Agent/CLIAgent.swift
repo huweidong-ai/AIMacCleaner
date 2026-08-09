@@ -2,19 +2,19 @@ import Foundation
 
 /// Agent 的命令行入口。
 ///
-/// 把 `AIMacCleaner --agent` / `--skills` / `--skill` / `--ps` / `--review` 接到
+/// 把 `ai-mac-cleaner --agent` / `--skills` / `--skill` / `--ps` / `--review` 接到
 /// 与 GUI 完全相同的 skill 层上。CLI 下不创建 `AgentBridge`，整条链不触碰
 /// MainActor，用 `Task.detached` + 信号量在 `init()` 里同步退出 —— 和
 /// `CLIScan` 里其它子命令的写法保持一致。
 enum CLIAgent {
 
-    /// `AIMacCleaner --skills`：打印 Agent 可调用的 skill 清单。
+    /// `ai-mac-cleaner --skills`：打印 Agent 可调用的 skill 清单。
     static func printSkills() -> Int32 {
         print(SkillRegistry.cliListing)
         return 0
     }
 
-    /// `AIMacCleaner --agent "<目标>" [--model <名称>]`：自然语言驱动的多轮 Agent。
+    /// `ai-mac-cleaner --agent "<目标>" [--model <名称>]`：自然语言驱动的多轮 Agent。
     ///
     /// 纯 AI Agent：必须先在 GUI 的「问 AI」页（或 `defaults` 写入
     /// `expunge.aimodels`）配置好至少一个模型与 API Key，否则直接提示并退出。
@@ -56,7 +56,7 @@ enum CLIAgent {
         return code
     }
 
-    /// `AIMacCleaner --skill <名称> [--args '{...}']` / `--ps` / `--review`：
+    /// `ai-mac-cleaner --skill <名称> [--args '{...}']` / `--ps` / `--review`：
     /// 直接调一个注册过的 skill（白名单之外一律拒绝）。
     static func runSkill(name: String, args: SkillArgs) -> Int32 {
         guard let skill = SkillRegistry.resolve(name) else {
@@ -110,8 +110,8 @@ enum CLIAgent {
         if let note = run.note { print("\n" + note) }
         if run.awaitingApproval {
             print("\n" + L10n.t(
-                "⚠ 上面只是计划，没有任何删除发生。请到「应用」页核对清单后点确认，或自行运行 AIMacCleaner --uninstall <目标>。",
-                "⚠ The above is only a plan. Nothing was deleted. Review the list in the Apps tab and confirm, or run AIMacCleaner --uninstall <target> yourself."))
+                "⚠ 上面只是计划，没有任何删除发生。请到「应用」页核对清单后点确认，或自行运行 ai-mac-cleaner --uninstall <目标>。",
+                "⚠ The above is only a plan. Nothing was deleted. Review the list in the Apps tab and confirm, or run ai-mac-cleaner --uninstall <target> yourself."))
         }
     }
 
@@ -124,7 +124,7 @@ enum CLIAgent {
     }
 
     /// 收集 `--flag` 之后直到下一个 `--` 开头的 token 的所有词，拼成一个字符串。
-    /// 让 `AIMacCleaner --agent 卸载 Cursor` 也能工作，而不必加引号。
+    /// 让 `ai-mac-cleaner --agent 卸载 Cursor` 也能工作，而不必加引号。
     static func collectGoal(after flag: String, in args: [String]) -> String {
         guard let idx = args.firstIndex(of: flag) else { return "" }
         let rest = args.dropFirst(idx + 1)

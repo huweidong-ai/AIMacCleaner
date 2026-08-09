@@ -8,8 +8,12 @@ set -e
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TARGET="${1:-/Applications/AIMacCleaner.app}"
 APP_NAME="AIMacCleaner"
+# CLI 命令名（也是编译出的二进制文件名）。与 APP_NAME（GUI app 显示名/品牌，驼峰）解耦：
+# 行业 CLI 惯例用全小写连字符（kebab-case，如 docker/brew/kubectl），驼峰不符合规范，
+# 所以命令名用 ai-mac-cleaner；app 显示名 AIMacCleaner 是品牌，保持驼峰不动。
+CLI_NAME="ai-mac-cleaner"
 # 版本号只在这里写一次。build_release.sh 会 source 本文件的这个值来命名 DMG，
-# 所以改版本只需改这一处。（v1.3 之前这里写死成 1.1，`--scan AIMacCleaner` 一直
+# 所以改版本只需改这一处。（v1.3 之前这里写死成 1.1，`--scan ai-mac-cleaner` 一直
 # 显示 v1.1 —— 打包元数据和 README 各说各话是典型的失实。）
 APP_VERSION="1.0"
 
@@ -23,7 +27,7 @@ cd "$PROJECT_DIR"
 echo "━━ 1/5 编译 release ━━"
 swift build -c release
 
-BIN="$PROJECT_DIR/.build/release/$APP_NAME"
+BIN="$PROJECT_DIR/.build/release/$CLI_NAME"
 test -f "$BIN" || { echo "✗ 编译产物未找到: $BIN"; exit 1; }
 
 echo "━━ 2/5 生成 icon ━━"
@@ -54,8 +58,8 @@ ICON_SRC="$ICON_DIR/$APP_NAME.icns"
 echo "━━ 3/5 组装 .app bundle ━━"
 rm -rf "$TARGET"
 mkdir -p "$TARGET/Contents/MacOS" "$TARGET/Contents/Resources"
-cp "$BIN" "$TARGET/Contents/MacOS/$APP_NAME"
-chmod +x "$TARGET/Contents/MacOS/$APP_NAME"
+cp "$BIN" "$TARGET/Contents/MacOS/$CLI_NAME"
+chmod +x "$TARGET/Contents/MacOS/$CLI_NAME"
 
 # icon（用 2/5 从静态源图生成的 icns）
 if [ ! -f "$ICON_SRC" ]; then
@@ -78,7 +82,7 @@ cat > "$TARGET/Contents/Info.plist" <<PLIST
 	<key>CFBundleDisplayName</key>
 	<string>AIMacCleaner</string>
 	<key>CFBundleExecutable</key>
-	<string>AIMacCleaner</string>
+	<string>ai-mac-cleaner</string>
 	<key>CFBundleIconFile</key>
 	<string>AIMacCleaner</string>
 	<key>CFBundleIdentifier</key>
@@ -120,7 +124,7 @@ echo "━━ 4/5 稳定 adhoc 签名 ━━"
 # 于是「想访问『下载』文件夹」这类授权框每次扫描都重弹。
 #
 # --identifier 显式给 com.aicleaner.app（和 Info.plist 的 CFBundleIdentifier 一致；
-# 不给的话 codesign 会用可执行文件名 "AIMacCleaner"，与 bundle id 不符）。
+# 不给的话 codesign 会用可执行文件名 "ai-mac-cleaner"，与 bundle id 不符）。
 # 不加 --deep：本 bundle 里没有嵌套的 .app / framework，--deep 对它没意义
 # 而且 Apple 已不推荐。
 #
@@ -140,7 +144,7 @@ else
 fi
 
 echo "━━ 5/5 验证 ━━"
-test -x "$TARGET/Contents/MacOS/$APP_NAME" && echo "  ✓ 可执行文件就绪"
+test -x "$TARGET/Contents/MacOS/$CLI_NAME" && echo "  ✓ 可执行文件就绪"
 test -f "$TARGET/Contents/Info.plist" && echo "  ✓ Info.plist 就绪"
 test -f "$TARGET/Contents/Resources/$APP_NAME.icns" && echo "  ✓ 图标就绪"
 

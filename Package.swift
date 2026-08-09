@@ -5,7 +5,7 @@ let package = Package(
     name: "AIMacCleaner",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "AIMacCleaner", targets: ["AIMacCleaner"])
+        .executable(name: "ai-mac-cleaner", targets: ["AIMacCleaner"])
     ],
     dependencies: [
         // OpenAI 兼容协议（customOpenAI）的成熟社区 SDK。

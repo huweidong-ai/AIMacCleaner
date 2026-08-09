@@ -111,19 +111,19 @@ struct AIMacCleanerApp: App {
 
         用法 / Usage:
           AIMacCleaner                                  启动图形界面 / launch the GUI
-          AIMacCleaner --list                           列出已安装 app / list installed apps
-          AIMacCleaner --scan <名称>                     只扫描，不删除 / scan only
-          AIMacCleaner --uninstall <名称> [选项]          扫描并卸载 / scan and uninstall
-          AIMacCleaner --orphans                        查找孤儿残留 / find orphaned leftovers
-          AIMacCleaner --history                        卸载历史 / uninstall history
-          AIMacCleaner --reset <名称>                    重置 app（保留程序本体）/ reset an app
-          AIMacCleaner --skills                         列出 Agent 可调用的 skill / list agent skills
-          AIMacCleaner --agent "自然语言目标" [--model <档名>]   启动 Agent：自动决定调哪些 skill / launch the agent
-          AIMacCleaner --skill <名称> [--args '{...}']    直接调一个 skill / call a skill directly
-          AIMacCleaner --ps [--filter background|user|system] [--keyword <名>] [--limit <N>]   列出进程 / list processes
-          AIMacCleaner --review [--scope apps|leftovers]   复核删除清单 / review a removal plan
-          AIMacCleaner --self-test                      运行自检 / run self-test
-          AIMacCleaner --help                           显示本帮助 / show this help
+          ai-mac-cleaner --list                           列出已安装 app / list installed apps
+          ai-mac-cleaner --scan <名称>                     只扫描，不删除 / scan only
+          ai-mac-cleaner --uninstall <名称> [选项]          扫描并卸载 / scan and uninstall
+          ai-mac-cleaner --orphans                        查找孤儿残留 / find orphaned leftovers
+          ai-mac-cleaner --history                        卸载历史 / uninstall history
+          ai-mac-cleaner --reset <名称>                    重置 app（保留程序本体）/ reset an app
+          ai-mac-cleaner --skills                         列出 Agent 可调用的 skill / list agent skills
+          ai-mac-cleaner --agent "自然语言目标" [--model <档名>]   启动 Agent：自动决定调哪些 skill / launch the agent
+          ai-mac-cleaner --skill <名称> [--args '{...}']    直接调一个 skill / call a skill directly
+          ai-mac-cleaner --ps [--filter background|user|system] [--keyword <名>] [--limit <N>]   列出进程 / list processes
+          ai-mac-cleaner --review [--scope apps|leftovers]   复核删除清单 / review a removal plan
+          ai-mac-cleaner --self-test                      运行自检 / run self-test
+          ai-mac-cleaner --help                           显示本帮助 / show this help
 
         --uninstall / --reset 的选项 / Options:
           --dry-run                预演：只列出会做什么，什么都不改 / preview only

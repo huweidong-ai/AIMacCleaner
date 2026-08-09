@@ -102,9 +102,9 @@ To build a DMG for distribution:
 
 ```bash
 swift build -c release
-.build/release/AIMacCleaner --scan "WeChat"   # Scan an app
-.build/release/AIMacCleaner --self-test       # Run self-tests
-.build/release/AIMacCleaner --skills          # List agent skills
+.build/release/ai-mac-cleaner --scan "WeChat"   # Scan an app
+.build/release/ai-mac-cleaner --self-test       # Run self-tests
+.build/release/ai-mac-cleaner --skills          # List agent skills
 ```
 
 ---

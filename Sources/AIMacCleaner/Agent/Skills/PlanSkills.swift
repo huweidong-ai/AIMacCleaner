@@ -7,7 +7,7 @@ import Foundation
 
 // MARK: - review_plan
 
-/// `AIMacCleaner --review <target>`
+/// `ai-mac-cleaner --review <target>`
 struct ReviewPlanSkill: AgentSkill {
     let spec = SkillSpec(
         name: "review_plan",
@@ -96,7 +96,7 @@ struct ReviewPlanSkill: AgentSkill {
 
 // MARK: - plan_uninstall
 
-/// `AIMacCleaner --uninstall <target> --dry-run`
+/// `ai-mac-cleaner --uninstall <target> --dry-run`
 ///
 /// 名字里的 `plan` 是承诺：这个 skill **永远只出计划**。
 /// Agent 拿不到「真的删掉」这个动作 —— 那需要用户在确认弹窗上点一下，
@@ -186,8 +186,8 @@ struct PlanUninstallSkill: AgentSkill {
                 + skipped.prefix(5).map { ($0.path as NSString).lastPathComponent }.joined(separator: ", ")
         }
         obs += "\n" + L10n.t(
-            "【重要】这只是计划。你没有执行删除的权限 —— 请让用户到「应用」页核对清单后点确认，或自行运行 AIMacCleaner --uninstall \(resolvedName)。",
-            "[IMPORTANT] This is only a plan. You cannot execute deletions — ask the user to review the list in the Apps tab and confirm, or run AIMacCleaner --uninstall \(resolvedName) themselves.")
+            "【重要】这只是计划。你没有执行删除的权限 —— 请让用户到「应用」页核对清单后点确认，或自行运行 ai-mac-cleaner --uninstall \(resolvedName)。",
+            "[IMPORTANT] This is only a plan. You cannot execute deletions — ask the user to review the list in the Apps tab and confirm, or run ai-mac-cleaner --uninstall \(resolvedName) themselves.")
 
         return SkillResult(ok: true, summary: summary, observation: obs,
                            effect: .appScan(target: resolvedName, app: matched, artifacts: artifacts),

@@ -1,6 +1,6 @@
 import Foundation
 
-/// 内置自检。`AIMacCleaner --self-test`
+/// 内置自检。`ai-mac-cleaner --self-test`
 enum SelfTest {
     struct Check {
         let name: String
@@ -1228,7 +1228,7 @@ enum SelfTest {
             },
 
             Check(name: "AIMessage Codable 往返（除 id 外全等）") {
-                let step = AgentStep(skill: "scan_app", command: "AIMacCleaner --scan Cursor",
+                let step = AgentStep(skill: "scan_app", command: "ai-mac-cleaner --scan Cursor",
                                      summary: "扫到 12 项", ok: true, risk: .readOnly)
                 let m = AIMessage(role: .me, text: "卸载 Cursor", steps: [step],
                                   redirect: .apps, awaitingApproval: true, isAnchor: false)
@@ -1267,7 +1267,7 @@ enum SelfTest {
                     && !list[0].awaitingApproval && !list[0].isAnchor
             },
             Check(name: "AgentStep Codable 往返 + 缺字段兜底") {
-                let s = AgentStep(skill: "plan_uninstall", command: "AIMacCleaner --uninstall X",
+                let s = AgentStep(skill: "plan_uninstall", command: "ai-mac-cleaner --uninstall X",
                                   summary: "预演 30 项", ok: false, risk: .destructive)
                 guard let data = try? JSONEncoder().encode(s),
                       let back = try? JSONDecoder().decode(AgentStep.self, from: data)

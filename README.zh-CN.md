@@ -102,9 +102,9 @@ open /Applications/AIMacCleaner.app
 
 ```bash
 swift build -c release
-.build/release/AIMacCleaner --scan 微信       # 扫描某个应用
-.build/release/AIMacCleaner --self-test       # 跑自检
-.build/release/AIMacCleaner --skills          # 列出 Agent 能调用的 skill
+.build/release/ai-mac-cleaner --scan 微信       # 扫描某个应用
+.build/release/ai-mac-cleaner --self-test       # 跑自检
+.build/release/ai-mac-cleaner --skills          # 列出 Agent 能调用的 skill
 ```
 
 ---
