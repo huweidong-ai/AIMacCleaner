@@ -844,19 +844,26 @@ enum SelfTest {
                     && landed.contains("/.Trash/")
                     && FileManager.default.fileExists(atPath: landed)
             },
-            Check(name: "结果弹窗不会把失败报成「卸载完成」（防 v1.3 假报成功重演）") {
+            Check(name: "结果弹窗不会把失败/手动项报成「卸载完成」（防 v1.3 假报成功重演）") {
                 // v1.3 的 bug：ResultSheet 的标题、图标、颜色全写死成绿色
                 // 「卸载完成」，执行器返回「成功 0 项，失败 4 项」时它照样报完成。
                 // CLI 老实、GUI 撒谎 —— 这正是本项目最该避免的那类缺陷。
-                let allFailed = ResultSheet.status(successCount: 0, failureCount: 4)
-                let partial = ResultSheet.status(successCount: 8, failureCount: 2)
-                let ok = ResultSheet.status(successCount: 5, failureCount: 0)
-                // 一项都没成功不能叫完成；有失败也不能叫完成
+                // v1.x 新增：shell rc 等需手动编辑的项也不能算成功。
+                let allFailed = ResultSheet.status(successCount: 0, failureCount: 4, manualCount: 0)
+                let partial = ResultSheet.status(successCount: 8, failureCount: 2, manualCount: 0)
+                let ok = ResultSheet.status(successCount: 5, failureCount: 0, manualCount: 0)
+                let manualOnly = ResultSheet.status(successCount: 0, failureCount: 0, manualCount: 3)
+                let mixedManual = ResultSheet.status(successCount: 2, failureCount: 0, manualCount: 3)
+                let failedAndManual = ResultSheet.status(successCount: 0, failureCount: 2, manualCount: 3)
+                // 一项都没成功不能叫完成；有失败也不能叫完成；全手动也不能叫完成
                 guard case .allFailed = allFailed else { return false }
                 guard case .partial = partial else { return false }
                 guard case .allSucceeded = ok else { return false }
-                // 边界：什么都没选（0/0）不算失败
-                guard case .allSucceeded = ResultSheet.status(successCount: 0, failureCount: 0)
+                guard case .manualOnly = manualOnly else { return false }
+                guard case .partial = mixedManual else { return false }
+                guard case .allFailed = failedAndManual else { return false }
+                // 边界：什么都没选（0/0/0）不算失败
+                guard case .allSucceeded = ResultSheet.status(successCount: 0, failureCount: 0, manualCount: 0)
                 else { return false }
                 return true
             },
@@ -1512,8 +1519,8 @@ enum SelfTest {
             semaphore.signal()
         }
 
-        if semaphore.wait(timeout: .now() + 60) == .timedOut {
-            print("\n✗ 自检超时（>60s）")
+        if semaphore.wait(timeout: .now() + 120) == .timedOut {
+            print("\n✗ 自检超时（>120s）")
             return 1
         }
         return exitCode

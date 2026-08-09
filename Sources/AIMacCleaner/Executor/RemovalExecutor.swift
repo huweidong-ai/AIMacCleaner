@@ -39,8 +39,12 @@ class RemovalExecutor {
 
     struct Outcome {
         let record: HistoryStore.RemovalRecord
+        /// 真正被自动删除/处理掉的项数。
         let successCount: Int
+        /// 自动处理失败（如权限不足、进程杀不掉）的项数。
         let failureCount: Int
+        /// 未自动处理、需用户按日志提示手动操作的项数（如 ~/.zshrc 配置行）。
+        let manualCount: Int
     }
 
     func execute() -> Outcome {
@@ -55,6 +59,7 @@ class RemovalExecutor {
         // v1.1 栽过的那种假报成功（UI 说释放了 3.6 GB，其实一个字节都没少）。
         var trashedBytes: Int64 = 0
         var failures = 0
+        var manualCount = 0
 
         if dryRun {
             log(L10n.t("\n※ 预演模式（--dry-run）：以下全部只列出，不会真的执行。\n",
@@ -90,7 +95,8 @@ class RemovalExecutor {
                 messages.append("\(pid): \(r.message)")
             }
             deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label,
-                                 success: allOK, message: messages.joined(separator: "; ")))
+                                 success: allOK, requiresManual: false,
+                                 message: messages.joined(separator: "; ")))
         }
 
         // 3. unload launch agents
@@ -101,7 +107,8 @@ class RemovalExecutor {
                 continue
             }
             let r = LaunchAgentManager.unload(plistPath: a.path)
-            deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label, success: r.success, message: r.message))
+            deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label,
+                                 success: r.success, requiresManual: false, message: r.message))
             if r.success { log("  ✓ \(a.path)") }
             else { log("  ! \(a.path): \(r.message)"); failures += 1 }
         }
@@ -161,7 +168,8 @@ class RemovalExecutor {
                 default:
                     continue
                 }
-                deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label, success: r.success, message: r.message))
+                deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label,
+                                     success: r.success, requiresManual: false, message: r.message))
                 if r.success { log("  ✓ \(a.path)") }
                 else { log("  ! \(a.path): \(r.message)"); failures += 1 }
             }
@@ -174,12 +182,16 @@ class RemovalExecutor {
             if [.brewFormula, .brewCask, .npmGlobal, .pipxVenv, .masApp, .launchAgent, .runningProcess].contains(a.category) {
                 continue
             }
-            // shell rc 是文本片段，不删整文件，只打印提示
+            // shell rc 是文本片段，不能整文件删，只能提示用户手动编辑。
+            // 这些项必须和「真正成功删除」区分开，否则结果弹窗会假报成功。
             if a.category == .shellRc {
                 if !dryRun {
-                    deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label, success: true, message: L10n.t("需手动编辑", "Edit manually")))
+                    deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label,
+                                         success: false, requiresManual: true,
+                                         message: L10n.t("需手动编辑", "Edit manually")))
+                    manualCount += 1
                 }
-                log(L10n.t("  · \(a.path)（请手动编辑）", "  · \(a.path) (edit manually)"))
+                log(L10n.t("  ⚠️ \(a.path) — 请手动编辑", "  ⚠️ \(a.path) — edit manually"))
                 continue
             }
             if dryRun {
@@ -194,7 +206,8 @@ class RemovalExecutor {
             }
             let goesToTrash = (a.risk == .userData && trashUserData)
             let r = FileDeleter.delete(a.path, disposition: goesToTrash ? .trash : .permanent)
-            deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label, success: r.success, message: r.message))
+            deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label,
+                                 success: r.success, requiresManual: false, message: r.message))
             if r.success {
                 if goesToTrash {
                     if r.trashedTo != nil {
@@ -253,6 +266,7 @@ class RemovalExecutor {
             finishedAt: Date(),
             deletedCount: deleted.filter(\.success).count,
             failedCount: failures,
+            manualCount: manualCount,
             freedBytes: freedBytes,
             trashedBytes: trashedBytes,
             deletedArtifacts: deleted
@@ -277,11 +291,16 @@ class RemovalExecutor {
                            "  · \(SizeFormat.human(freedBytes)) permanently deleted (not recoverable)"))
             }
             log(L10n.t("去掉 --dry-run 即真正执行。", "Re-run without --dry-run to apply."))
-            return Outcome(record: record, successCount: 0, failureCount: 0)
+            return Outcome(record: record, successCount: 0, failureCount: 0, manualCount: 0)
         }
 
         log(L10n.t("\n━━ 完成 ━━", "\n━━ Done ━━"))
-        log(L10n.t("成功 \(record.deletedCount) 项，失败 \(record.failedCount) 项", "\(record.deletedCount) succeeded, \(record.failedCount) failed"))
+        if manualCount > 0 {
+            log(L10n.t("※ \(manualCount) 项需手动处理（见上方 ⚠️ 标记），未计入「已处理」。",
+                       "※ \(manualCount) item(s) require manual action (see ⚠️ above) and are not counted as processed."))
+        }
+        log(L10n.t("成功 \(record.deletedCount) 项，失败 \(record.failedCount) 项，需手动 \(manualCount) 项",
+                   "\(record.deletedCount) succeeded, \(record.failedCount) failed, \(manualCount) manual"))
         if trashedBytes > 0 {
             // 措辞不能说「已释放」—— 东西还在废纸篓里占着盘。
             log(L10n.t("已移到废纸篓：\(SizeFormat.human(trashedBytes))（清空废纸篓后才真正释放）", "Moved to Trash: \(SizeFormat.human(trashedBytes)) (disk space reclaimed only after emptying the Trash)"))
@@ -290,7 +309,7 @@ class RemovalExecutor {
             // 这些是被直接彻底删除的「可安全删除」项，磁盘空间这次真的释放了。
             log(L10n.t("已彻底删除：\(SizeFormat.human(freedBytes))（磁盘空间已释放）", "Permanently deleted: \(SizeFormat.human(freedBytes)) (disk space reclaimed)"))
         }
-        return Outcome(record: record, successCount: record.deletedCount, failureCount: failures)
+        return Outcome(record: record, successCount: record.deletedCount, failureCount: failures, manualCount: manualCount)
     }
 
     /// 设为 true 时完全不输出（自检用）。

@@ -12,30 +12,51 @@ struct ResultSheet: View {
     /// 「成功 0 项，失败 4 项」也一样 —— 正是本项目最该避免的假报成功。
     let successCount: Int
     let failureCount: Int
+    /// 需用户手动处理的项数（如 shell rc 配置行）。未自动删除，不能算成功。
+    let manualCount: Int
     /// 直接删除释放的字节数与移入废纸篓的字节数（执行器统计，可为 0）。
     var freedBytes: Int64 = 0
     var trashedBytes: Int64 = 0
 
-    /// 三态：全失败 / 部分失败 / 全成功。部分失败单独成一态，
+    /// 四态：全失败 / 部分失败 / 全手动 / 全成功。部分失败单独成一态，
     /// 因为「删了 8 项、剩 2 项没删掉」既不能报完成、也不该报失败。
     /// 抽成 `nonisolated static` 纯函数是为了让自检能直接断言它 ——
     /// View 的私有计算属性测不到，而这正是出过 bug 的地方。
-    enum Status { case allFailed, partial, allSucceeded }
+    enum Status { case allFailed, partial, manualOnly, allSucceeded }
 
-    nonisolated static func status(successCount: Int, failureCount: Int) -> Status {
+    nonisolated static func status(successCount: Int, failureCount: Int, manualCount: Int) -> Status {
+        // 真正的失败优先于「需手动」——失败是意外，手动是预期内但需用户介入。
         if failureCount > 0 && successCount == 0 { return .allFailed }
         if failureCount > 0 { return .partial }
+        // 没有真实成功、也没有真实失败，但有手动项：整单都没自动完成。
+        if manualCount > 0 && successCount == 0 { return .manualOnly }
+        // 有真实成功，同时有手动项：部分自动完成，部分需手动。
+        if manualCount > 0 { return .partial }
         return .allSucceeded
     }
 
     private var display: (title: String, icon: String, color: Color) {
-        switch Self.status(successCount: successCount, failureCount: failureCount) {
+        switch Self.status(successCount: successCount, failureCount: failureCount, manualCount: manualCount) {
         case .allFailed:
             return (L10n.t("卸载失败", "Uninstall failed"),
                     "xmark.octagon.fill", Theme.destructive)
         case .partial:
-            return (L10n.t("部分完成（\(failureCount) 项失败）",
-                           "Partially complete (\(failureCount) failed)"),
+            // 部分完成时，标题要告诉用户到底是哪类未完成。
+            let title: String
+            if failureCount > 0 && manualCount > 0 {
+                title = L10n.t("部分完成（\(failureCount) 项失败、\(manualCount) 项需手动）",
+                               "Partially complete (\(failureCount) failed, \(manualCount) manual)")
+            } else if failureCount > 0 {
+                title = L10n.t("部分完成（\(failureCount) 项失败）",
+                               "Partially complete (\(failureCount) failed)")
+            } else {
+                title = L10n.t("部分完成（\(manualCount) 项需手动）",
+                               "Partially complete (\(manualCount) manual)")
+            }
+            return (title, "exclamationmark.triangle.fill", Theme.warning)
+        case .manualOnly:
+            return (L10n.t("需手动完成（\(manualCount) 项未自动处理）",
+                           "Manual action required (\(manualCount) not auto-removed)"),
                     "exclamationmark.triangle.fill", Theme.warning)
         case .allSucceeded:
             return (L10n.t("卸载完成", "Uninstall complete"),
@@ -63,6 +84,9 @@ struct ResultSheet: View {
                 if failureCount > 0 {
                     statCard(value: "\(failureCount)", label: L10n.t("失败", "Failed"), tint: Theme.destructive)
                 }
+                if manualCount > 0 {
+                    statCard(value: "\(manualCount)", label: L10n.t("需手动", "Manual"), tint: Theme.warning)
+                }
             }
             .padding(.horizontal)
             .padding(.bottom, 12)
@@ -72,6 +96,14 @@ struct ResultSheet: View {
                 Text(L10n.t("失败项的原因见下方日志。", "See the log below for the reasons."))
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
+            }
+            if manualCount > 0 {
+                Text(L10n.t("以下 \(manualCount) 项涉及 shell 配置等文本，未自动删除，请按日志中的 ⚠️ 提示手动编辑。",
+                           "\(manualCount) item(s) involve shell config text and were not auto-removed. Follow the ⚠️ prompts in the log to edit them manually."))
+                    .font(.callout)
+                    .foregroundStyle(Theme.warning)
                     .padding(.horizontal)
                     .padding(.bottom, 8)
             }

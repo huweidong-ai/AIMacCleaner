@@ -38,6 +38,7 @@ struct LeftoversView: View {
             ResultSheet(output: executorOutput,
                         successCount: state.lastResult?.successCount ?? 0,
                         failureCount: state.lastResult?.failureCount ?? 0,
+                        manualCount: state.lastResult?.manualCount ?? 0,
                         freedBytes: state.lastResult?.record.freedBytes ?? 0,
                         trashedBytes: state.lastResult?.record.trashedBytes ?? 0)
         }

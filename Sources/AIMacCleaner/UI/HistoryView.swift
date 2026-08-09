@@ -131,6 +131,10 @@ struct HistoryRow: View {
                     .foregroundStyle(Theme.success)
                 Label(L10n.t("\(record.failedCount) 失败", "\(record.failedCount) failed"), systemImage: "xmark.circle")
                     .foregroundStyle(record.failedCount > 0 ? Theme.destructive : .secondary)
+                if let manual = record.manualCount, manual > 0 {
+                    Label(L10n.t("\(manual) 需手动", "\(manual) manual"), systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(Theme.warning)
+                }
                 // v1.3 起走废纸篓，trashedBytes 才是有值的那个；旧记录（v1.2 及
                 // 更早）没有这个字段，回落到 freedBytes 才不会显示成 0 B。
                 if let trashed = record.trashedBytes, trashed > 0 {

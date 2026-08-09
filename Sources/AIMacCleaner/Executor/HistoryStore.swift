@@ -16,6 +16,9 @@ enum HistoryStore {
         let finishedAt: Date
         let deletedCount: Int
         let failedCount: Int
+        /// 需要用户手动处理的项数（如 ~/.zshrc 里的 shell 配置污染）。
+        /// 可选是为了兼容旧历史记录：没这个字段时视为 0。
+        let manualCount: Int?
         /// 真正释放的磁盘字节数。v1.3 起绝大多数删除走废纸篓，这个值通常是 0。
         let freedBytes: Int64
         /// 移到废纸篓的字节数 —— **还占着磁盘**，清空废纸篓后才真正释放。
@@ -30,6 +33,9 @@ enum HistoryStore {
         let path: String
         let risk: String
         let success: Bool
+        /// true 表示该项未自动删除，需用户按提示手动处理（如编辑 shell rc）。
+        /// 可选是为了兼容旧历史记录；新写入手动项时应显式传 true。
+        let requiresManual: Bool?
         let message: String
     }
 
