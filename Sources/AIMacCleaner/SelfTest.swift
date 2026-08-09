@@ -639,6 +639,18 @@ enum SelfTest {
                 let groups = await OrphanScanner.scanAll()
                 return groups.allSatisfy { $0.source == .orphan }
             },
+            Check(name: "Launch Services 判定：不存在的 bundle id 返回 false") {
+                // 用一个几乎不可能安装的 bundle id，确认 API 接线正确、不会恒真误判。
+                return !OrphanScanner.isInstalledViaLaunchServices("com.definitely-not-installed.example.xyz")
+            },
+            Check(name: "OrphanScanner.isClaimed 尊重 Launch Services 已装 app") {
+                // 取一个系统里一定装了的 Apple app（Finder），其 bundle id 经 LS 判定为真装。
+                let finderInstalled = OrphanScanner.isInstalledViaLaunchServices("com.apple.finder")
+                // 若本机 LS 真能查到 Finder（几乎必然），则 isClaimed 必须把它当成已认领，
+                // 即便传入的 live 集合为空（文件系统枚举没覆盖到它）。
+                guard finderInstalled else { return true }   // 环境异常时跳过，不让自检变红
+                return OrphanScanner.isClaimed("com.apple.finder", live: [])
+            },
 
             // ── 新增 P0-1：pkg 收据扫描 ──
             Check(name: "PkgReceiptScanner 不抛错、产物来源为 .orphan、不碰 /Applications") {

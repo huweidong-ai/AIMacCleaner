@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 // 孤儿分组的数据结构已并入 `LeftoverGroup`（见 Models/LeftoverSource.swift），
 // 这里产出 `source == .orphan` 的分组，和 AI 工具残留共用「残留」页。
@@ -351,6 +352,13 @@ enum OrphanScanner {
         // 前两段相同就算同一家 app 的东西。
         // 真机案例：jetbrains.pycharm.3a396865 —— PyCharm 装着（com.jetbrains.pycharm），
         // 但偏好文件少了 com. 前缀，逐段比对匹配不上。
+        // Launch Services 权威兜底：文件系统枚举漏掉的已装 app（装在 ~/Applications、
+        // 被移到别处、或仅存在于 Launch Services 缓存里的旧记录）。
+        // 对应 Pearcleaner / Lemon 的 `absolutePathForAppBundleWithIdentifier` 维度 ——
+        // 用系统级数据库权威判定 bundle id 是否真装过，比按目录名字符串比对更准。
+        if isInstalledViaLaunchServices(normalized) || isInstalledViaLaunchServices(nb) {
+            return true
+        }
         if isClaimedByVendorPrefix(normalized, live: live) { return true }
         // 最后一道：同厂商还有活 app 就不判孤儿（宁可漏报）
         return hasLiveSibling(normalized, live: live)
@@ -459,6 +467,36 @@ enum OrphanScanner {
             segs.removeLast()
         }
         return segs.joined(separator: ".")
+    }
+
+    // MARK: - Launch Services 权威判定
+
+    /// 用 Launch Services（经 `NSWorkspace.urlForApplication(withBundleIdentifier:)`）权威判定
+    /// 某个 bundle id 是否真的被系统认领（app 装过且仍在）。
+    ///
+    /// 解决的缺口：本 app 的 `liveBundleIds()` 只枚举文件系统（/Applications、/System 等），
+    /// 装在非标准位置（如 `~/Applications`）、或被移动过的 app 会漏判，进而被误报成孤儿残留。
+    /// Launch Services 数据库是 macOS 维护的「app 注册表」，能补上这部分盲区 ——
+    /// 这正是 Pearcleaner 与 Lemon 卸载引擎共用的 `absolutePathForAppBundleWithIdentifier` 维度。
+    ///
+    /// 取舍：Launch Services 可能有陈旧记录（卸载后未及时清），但这只会让判定「偏保守」
+    /// （宁可少报孤儿、不误删活 app 数据），与全局策略一致。
+    /// 结果按 bundle id 记忆化，避免一次扫描里对同一 id 反复查库。
+    private static var lsCache: [String: Bool] = [:]
+    private static let lsLock = NSLock()
+
+    static func isInstalledViaLaunchServices(_ bundleId: String) -> Bool {
+        guard !bundleId.isEmpty else { return false }
+        lsLock.lock()
+        if let cached = lsCache[bundleId] { lsLock.unlock(); return cached }
+        lsLock.unlock()
+
+        let installed = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) != nil
+
+        lsLock.lock()
+        lsCache[bundleId] = installed
+        lsLock.unlock()
+        return installed
     }
 
     /// 去掉尾部版本号段：`appname-1.2.3` / `appname-2024` → `appname`。
