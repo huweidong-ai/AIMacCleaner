@@ -35,6 +35,21 @@ enum SelfTest {
             Check(name: "字节格式化非空") {
                 !SizeFormat.human(0).isEmpty && !SizeFormat.human(1_500_000).isEmpty
             },
+            Check(name: "AIToolLeftovers 注册表健全（非空、字段完整、每条有路径）") {
+                let r = AIToolLeftovers.registry
+                guard !r.isEmpty else { return false }
+                for e in r {
+                    guard !e.id.isEmpty, !e.name.isEmpty, !e.category.isEmpty,
+                          AIToolLeftovers.Risk.allCases.contains(e.risk),
+                          !e.paths.isEmpty
+                    else { return false }
+                }
+                return true
+            },
+            Check(name: "AIToolLeftovers.scan() 不抛错") {
+                let _ = AIToolLeftovers.scan()
+                return true
+            },
 
             // ── 别名匹配打分 ──
             Check(name: "MatchScore 精确命中分数最高") {

@@ -65,6 +65,11 @@ struct AIMacCleanerApp: App {
         if userArgs.contains("--orphans") {
             exit(CLIScan.scanOrphans())
         }
+        // --ai-tools：列出已知的 AI / 开发工具残留（macOS Library 缓存、ML 模型、
+        // 开发包管理器缓存），与 AIAgentScanner 互补、不重复。仅扫描不删除。
+        if userArgs.contains("--ai-tools") {
+            exit(AIToolLeftovers.scanCLI())
+        }
 
         // ── Agent 子命令：全部复用与 GUI 完全相同的 skill 层 ──
         // 安全边界由 SkillRegistry 白名单兜底：任何未注册的指令都拿不到执行入口，
@@ -115,6 +120,7 @@ struct AIMacCleanerApp: App {
           ai-mac-cleaner --scan <名称>                     只扫描，不删除 / scan only
           ai-mac-cleaner --uninstall <名称> [选项]          扫描并卸载 / scan and uninstall
           ai-mac-cleaner --orphans                        查找孤儿残留 / find orphaned leftovers
+          ai-mac-cleaner --ai-tools                       列出 AI / 开发工具残留（缓存·模型·包管理器）/ list AI & dev-tool leftovers
           ai-mac-cleaner --history                        卸载历史 / uninstall history
           ai-mac-cleaner --reset <名称>                    重置 app（保留程序本体）/ reset an app
           ai-mac-cleaner --skills                         列出 Agent 可调用的 skill / list agent skills
