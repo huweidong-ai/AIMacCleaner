@@ -9,6 +9,7 @@ struct MainView: View {
     @EnvironmentObject var state: AppState
     @State private var showHistory = false
     @State private var showFeedback = false
+    @State private var showMacTools = false
     // 直接订阅语言键 —— AppState 也会推 objectWillChange，但本视图里的 DiskCard
     // 嵌套较深、SwiftUI 不一定传透。这里双保险：自己再观察一次，切换时强制重建。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
@@ -24,14 +25,14 @@ struct MainView: View {
                 .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 880, minHeight: 560)
-        .task { state.startScreenshotHotkey() }
-        .overlay(alignment: .bottom) { screenshotToast }
-        .animation(.easeOut(duration: 0.18), value: state.toast)
         .sheet(isPresented: $showHistory) {
             HistorySheet()
         }
         .sheet(isPresented: $showFeedback) {
             FeedbackHistorySheet()
+        }
+        .sheet(isPresented: $showMacTools) {
+            MacToolkitSheet()
         }
         .sheet(isPresented: $state.showAbout) {
             AboutSheet()
@@ -106,8 +107,8 @@ struct MainView: View {
                      title: L10n.t("卸载历史", "History")) { showHistory = true }
             SideLink(icon: "flag",
                      title: L10n.t("反馈记录", "Feedback")) { showFeedback = true }
-            SideLink(icon: "camera.viewfinder",
-                     title: L10n.t("截图", "Screenshot")) { state.takeScreenshot(.selection) }
+            SideLink(icon: "keyboard",
+                     title: L10n.t("macOS 工具", "macOS Tools")) { showMacTools = true }
         }
         .padding(.horizontal, 8)
         .padding(.bottom, 10)
@@ -236,38 +237,6 @@ private struct SideLink: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-    }
-}
-
-// MARK: - 截图完成提示
-
-/// 底部浮出的轻提示：截图保存成功后显示，点击可在访达中定位该截图。
-private extension MainView {
-    var screenshotToast: some View {
-        Group {
-            if let message = state.toast {
-                Button {
-                    if let url = state.lastScreenshotURL {
-                        RevealService.revealDataFile(url)
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(Theme.success)
-                        Text(message)
-                    }
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
-                    .shadow(color: .black.opacity(0.15), radius: 6, y: 2)
-                }
-                .buttonStyle(.plain)
-                .padding(.bottom, 22)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
     }
 }
 
