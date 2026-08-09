@@ -10,12 +10,12 @@
 
 | 文件 | 大小 | 说明 |
 |------|------|------|
-| `index.html` | ~97 KB | **主交付物**，可独立运行的高保真原型 |
+| `ui-prototype.html` | ~97 KB | **主交付物**，可独立运行的高保真原型 |
 | `design-tokens.md` | ~31 KB | 设计令牌唯一真源（色彩 / 字体 / 间距 / 阴影 / 圆角） |
 | `requirement-summary.md` | ~5.7 KB | 需求摘要与功能边界 |
 | `review-report.md` | ~8 KB | 质量审查报告（已通过） |
 | `export-readme.md` | 本文件 | 导出与使用说明 |
-| `expunge-design-prototype.zip` | — | 以上全部文件的打包版本 |
+| （归档） | — | 本目录即完整交付物，仓库未提供打包 zip |
 
 ---
 
@@ -23,24 +23,24 @@
 
 ### 方式 1：双击打开（推荐）
 
-在访达（Finder）中找到 `index.html`，**双击**即可用默认浏览器打开。
+在访达（Finder）中找到 `ui-prototype.html`，**双击**即可用默认浏览器打开。
 
 无需安装任何依赖，无需启动本地服务器，无需联网。
 
 ### 方式 2：指定浏览器打开
 
-在 `index.html` 上点右键 → **打开方式** → 选择 Safari / Chrome / Edge。
+在 `ui-prototype.html` 上点右键 → **打开方式** → 选择 Safari / Chrome / Edge。
 
 ### 方式 3：终端命令
 
 ```bash
-open "/Users/hwd7500/Documents/AIMacCleaner/design-prototype/index.html"
+open "/Users/hwd7500/Documents/AIMacCleaner/docs/archive/design-prototype/ui-prototype.html"
 ```
 
-### 从 ZIP 解压后使用
+### 文件位置
 
-双击 `expunge-design-prototype.zip` 解压，进入解压出的文件夹，双击其中的 `index.html` 即可。
-四个 Markdown 文档与 HTML 位于同级目录，**不影响 HTML 独立运行**——即使只把 `index.html` 单独拷走，也能完整显示。
+直接双击 `ui-prototype.html` 即可浏览全部内容（无需解压，仓库未提供打包 zip）。
+四个 Markdown 文档与 HTML 位于同级目录，**不影响 HTML 独立运行**——即使只把 `ui-prototype.html` 单独拷走，也能完整显示。
 
 ---
 
@@ -65,7 +65,7 @@ open "/Users/hwd7500/Documents/AIMacCleaner/design-prototype/index.html"
 
 ## 四、独立化校验结论
 
-对 `index.html` 逐项审计，**全部达标，零外部资源请求**：
+对 `ui-prototype.html` 逐项审计，**全部达标，零外部资源请求**：
 
 | # | 校验项 | 结果 | 实测证据 |
 |---|--------|------|---------|

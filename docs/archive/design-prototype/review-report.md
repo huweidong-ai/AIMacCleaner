@@ -1,7 +1,7 @@
 # AI Mac Cleaner 高保真原型 — 质量审查报告
 
 **审查官**：严过审（Yan）· 质量审查官
-**审查对象**：`design-prototype/index.html`（1,642 行，自包含单文件）
+**审查对象**：`docs/archive/design-prototype/ui-prototype.html`（1,642 行，自包含单文件）
 **对照基准**：`design-tokens.md` v1.0（Linear 为骨 · Stripe 为魂 · Apple HIG 为地）
 **审查方式**：逐行通读 HTML/CSS/JS，逐 token 比对设计令牌，含轻交互行为验证
 
