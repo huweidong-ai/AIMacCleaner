@@ -25,6 +25,9 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
     case pipxVenv       = "pipx venv"
     case masApp         = "Mac App Store"
     case toolCache      = "Tool cache"
+    /// pkg 安装收据（/var/db/receipts 下的 *.plist / *.bom）。root 所有，
+    /// app 无权限直接删除（也无提权机制），只能提示用户用 sudo 手动清理。
+    case pkgReceipt     = "Pkg receipt"
 
     /// 界面显示名（双语）。
     var displayName: String {
@@ -46,6 +49,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .pipxVenv:       return L10n.t("pipx 虚拟环境", "pipx venv")
         case .masApp:         return L10n.t("Mac App Store", "Mac App Store")
         case .toolCache:      return L10n.t("工具缓存", "Tool cache")
+        case .pkgReceipt:     return L10n.t("pkg 安装收据", "Pkg receipt")
         }
     }
 
@@ -68,6 +72,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .pipxVenv:       return "p.square"
         case .masApp:         return "storefront"
         case .toolCache:      return "internaldrive"
+        case .pkgReceipt:     return "doc.badge.ellipsis"
         }
     }
 }

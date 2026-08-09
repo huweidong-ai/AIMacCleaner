@@ -55,7 +55,11 @@ enum PkgReceiptScanner {
     }
 
     private static func makeArtifact(path: String, meta: String) -> Artifact {
-        Artifact(category: .libraryData, path: path, size: fileSize(path),
+        // 收据位于 /var/db/receipts，属 root 所有，app 以普通用户身份运行、
+        // 也没有提权机制，无法直接删除。所以这里只「发现并报告」，
+        // 删除动作由 RemovalExecutor 路由到「需手动」并给出 sudo 命令，
+        // 不会假报失败（见 RemovalExecutor 的 .pkgReceipt 分支）。
+        Artifact(category: .pkgReceipt, path: path, size: fileSize(path),
                  risk: .userData, meta: meta, selected: false)
     }
 

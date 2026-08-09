@@ -194,6 +194,23 @@ class RemovalExecutor {
                 log(L10n.t("  ⚠️ \(a.path) — 请手动编辑", "  ⚠️ \(a.path) — edit manually"))
                 continue
             }
+            // pkg 收据位于 /var/db/receipts，属 root 所有，app 以普通用户身份运行、
+            // 也没有提权机制，强行走 FileDeleter 只会触发「路径不在白名单内」的假失败。
+            // 这里改为标记「需手动」，并给出精确的 sudo 命令——用户在自己授权下清理。
+            // 不能算成功、也不能算失败：它是预期内、需要用户介入的动作。
+            if a.category == .pkgReceipt {
+                let cmd = "sudo rm \(a.path)"
+                if !dryRun {
+                    deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label,
+                                         success: false, requiresManual: true,
+                                         message: L10n.t("需要管理员权限，终端执行：\(cmd)",
+                                                        "Requires admin; run in Terminal: \(cmd)")))
+                    manualCount += 1
+                }
+                log(L10n.t("  ⚠️ \(a.path) — 需管理员权限，终端执行：\(cmd)",
+                           "  ⚠️ \(a.path) — requires admin; in Terminal: \(cmd)"))
+                continue
+            }
             if dryRun {
                 let goesToTrash = (a.risk == .userData && trashUserData)
                 let verb = goesToTrash

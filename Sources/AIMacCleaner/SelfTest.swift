@@ -393,6 +393,26 @@ enum SelfTest {
                 try? FileManager.default.removeItem(atPath: trashed)
                 return gone
             },
+            Check(name: "pkg 收据路由到「需手动」而非「失败」（不碰磁盘）") {
+                // /var/db/receipts 属 root，app 无权限删除、也无提权机制。
+                // 选中 pkg 收据点删除时，必须计入 manualCount、failureCount 为 0，
+                // 且绝不能真的去删文件——路径不存在也不该报错（修复前会报
+                // 「路径不在白名单内」的假失败）。
+                let a = Artifact(category: .pkgReceipt,
+                                 path: "/var/db/receipts/com.example.nonexistent.plist",
+                                 size: 0, risk: .userData, selected: true)
+                let plan = RemovalPlan(targetName: "expunge-pkgreceipt-probe", artifacts: [a])
+                let ex = RemovalExecutor(plan: plan, runPackageUninstallers: false, dryRun: false)
+                ex.silent = true
+                let outcome = ex.execute()
+                // 收尾：手动项仍会写一条历史，清掉它，避免污染 --history。
+                if let rec = HistoryStore.listAll().first(where: { $0.targetName == "expunge-pkgreceipt-probe" }) {
+                    HistoryStore.remove(rec)
+                }
+                return outcome.failureCount == 0
+                    && outcome.manualCount == 1
+                    && outcome.successCount == 0
+            },
             Check(name: "--reset 过滤掉 app bundle 和包管理器条目") {
                 // 重置的语义是「清数据、留安装」。app bundle / CLI 程序 /
                 // brew / npm / pipx / mas 都属于「安装」，不能被 reset 带走。
@@ -653,10 +673,11 @@ enum SelfTest {
             },
 
             // ── 新增 P0-1：pkg 收据扫描 ──
-            Check(name: "PkgReceiptScanner 不抛错、产物来源为 .orphan、不碰 /Applications") {
-                // 干净机器上可能为 0，不要求非空；只验证安全性与来源标记。
+            Check(name: "PkgReceiptScanner 不抛错、产物来源为 .orphan、类别为 .pkgReceipt、不碰 /Applications") {
+                // 干净机器上可能为 0，不要求非空；只验证安全性、来源与类别标记。
                 let groups = PkgReceiptScanner.scanAll()
                 return groups.allSatisfy { $0.source == .orphan }
+                    && groups.allSatisfy { $0.artifacts.allSatisfy { $0.category == .pkgReceipt } }
                     && groups.allSatisfy { $0.artifacts.allSatisfy { !$0.path.hasPrefix("/Applications") } }
             },
 

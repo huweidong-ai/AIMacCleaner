@@ -100,8 +100,8 @@ struct ResultSheet: View {
                     .padding(.bottom, 8)
             }
             if manualCount > 0 {
-                Text(L10n.t("以下 \(manualCount) 项涉及 shell 配置等文本，未自动删除，请按日志中的 ⚠️ 提示手动编辑。",
-                           "\(manualCount) item(s) involve shell config text and were not auto-removed. Follow the ⚠️ prompts in the log to edit them manually."))
+                Text(L10n.t("以下 \(manualCount) 项未能自动删除（涉及系统权限或需手动编辑），请按日志中的 ⚠️ 提示处理。",
+                           "\(manualCount) item(s) could not be auto-removed (require system privileges or manual edit). Follow the ⚠️ prompts in the log."))
                     .font(.callout)
                     .foregroundStyle(Theme.warning)
                     .padding(.horizontal)
