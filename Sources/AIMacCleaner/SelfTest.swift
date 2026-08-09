@@ -58,6 +58,17 @@ enum SelfTest {
                     [LeftoverSource.aiTool, .devCache].contains($0.source)
                 }
             },
+            Check(name: "OrphanCacheScanner.scan() 不抛错") {
+                let _ = OrphanCacheScanner.scan()
+                return true
+            },
+            Check(name: "OrphanCacheScanner.scanGroups() 来源合法") {
+                let groups = OrphanCacheScanner.scanGroups()
+                return groups.allSatisfy {
+                    !$0.artifacts.isEmpty &&
+                    [LeftoverSource.aiTool, .devCache].contains($0.source)
+                }
+            },
 
             // ── 别名匹配打分 ──
             Check(name: "MatchScore 精确命中分数最高") {

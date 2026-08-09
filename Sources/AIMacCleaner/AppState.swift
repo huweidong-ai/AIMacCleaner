@@ -379,7 +379,8 @@ final class AppState: ObservableObject {
             async let orphanGroups = OrphanScanner.scanAll(liveIds: live)
             async let aiGroups = AIAgentScanner.scanAll()
             async let toolGroups = AIToolLeftovers.scanGroups()
-            return await orphanGroups + aiGroups + toolGroups
+            async let orphanCacheGroups = OrphanCacheScanner.scanGroups()
+            return await orphanGroups + aiGroups + toolGroups + orphanCacheGroups
         }.value
         leftoverGroups = groups
         // 每次扫描完默认全部折叠：group id 是本次新生成的，按默认折叠让用户逐一点开。
