@@ -90,11 +90,10 @@ enum OrphanScanner {
                     category: .launchAgent, requiresDotted: true,
                     stripSuffix: ".plist", requiresDirectory: false),
 
-            // P0-2：扩展反向扫描范围，与 Pearcleaner `Locations` 对齐的系统级残留目录。
+            // 扩展反向扫描范围的系统级残留目录。
             // 这些都是「app 装过、卸载后留下的散落痕迹」的高发地。
             // 注意：`/usr/local` 与 `/private/tmp` 刻意不加 —— 前者被 Homebrew 全量占用、
-            // 递归扫会大规模误报兼危险；后者易失且被其他进程占用。Pearcleaner 对这两处
-            // 也是按具体子路径精确扫，而非递归整个目录。
+            // 递归扫会大规模误报兼危险；后者易失且被其他进程占用，按具体子路径精确扫更安全。
             DirSpec(path: "\(home)/Library/Saved Application State",
                     category: .libraryData, requiresDotted: true, stripSuffix: nil, requiresDirectory: true),
             DirSpec(path: "\(home)/Library/Logs",
@@ -324,7 +323,7 @@ enum OrphanScanner {
         if live.contains(normalized) { return true }
         // P0-3：剥掉 helper/agent/daemon 等尾部后缀后，按「基础 bundle id」再认领一次。
         // 这能兜住 com.example.app.helper（活 app 是 com.example.app）这类被 ./-/_ 之外
-        // 分隔、或尾部后缀拆不出来的认领关系 —— 是 Pearcleaner/Lemon baseBundleId 的等效实现。
+        // 分隔、或尾部后缀拆不出来的认领关系 —— 按基础 bundle id 认领的等效实现。
         let nb = Self.baseBundleId(normalized)
         if live.contains(nb) { return true }
         for liveId in live {
@@ -354,7 +353,6 @@ enum OrphanScanner {
         // 但偏好文件少了 com. 前缀，逐段比对匹配不上。
         // Launch Services 权威兜底：文件系统枚举漏掉的已装 app（装在 ~/Applications、
         // 被移到别处、或仅存在于 Launch Services 缓存里的旧记录）。
-        // 对应 Pearcleaner / Lemon 的 `absolutePathForAppBundleWithIdentifier` 维度 ——
         // 用系统级数据库权威判定 bundle id 是否真装过，比按目录名字符串比对更准。
         if isInstalledViaLaunchServices(normalized) || isInstalledViaLaunchServices(nb) {
             return true
@@ -460,7 +458,7 @@ enum OrphanScanner {
 
     /// 剥掉尾部连续的辅助组件后缀，得到「基础 bundle id」。
     /// `com.example.app.helper` → `com.example.app`；至少保留 vendor.product 两段。
-    /// 这是 Pearcleaner / Lemon 共用的 `baseBundleId` 思路的等效实现。
+    /// 这是按基础 bundle id 认领的等效实现。
     static func baseBundleId(_ id: String) -> String {
         var segs = id.split(separator: ".").map(String.init)
         while segs.count > 2, helperSuffixes.contains(segs.last!.lowercased()) {
@@ -477,7 +475,7 @@ enum OrphanScanner {
     /// 解决的缺口：本 app 的 `liveBundleIds()` 只枚举文件系统（/Applications、/System 等），
     /// 装在非标准位置（如 `~/Applications`）、或被移动过的 app 会漏判，进而被误报成孤儿残留。
     /// Launch Services 数据库是 macOS 维护的「app 注册表」，能补上这部分盲区 ——
-    /// 这正是 Pearcleaner 与 Lemon 卸载引擎共用的 `absolutePathForAppBundleWithIdentifier` 维度。
+    /// 这正是系统 app 注册表权威判定的维度。
     ///
     /// 取舍：Launch Services 可能有陈旧记录（卸载后未及时清），但这只会让判定「偏保守」
     /// （宁可少报孤儿、不误删活 app 数据），与全局策略一致。

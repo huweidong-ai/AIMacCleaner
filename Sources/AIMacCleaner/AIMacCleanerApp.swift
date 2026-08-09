@@ -70,7 +70,7 @@ struct AIMacCleanerApp: App {
         if userArgs.contains("--ai-tools") {
             exit(AIToolLeftovers.scanCLI())
         }
-        // --orphan-caches：动态发现 scratch 根下的孤儿依赖 / 构建缓存（npkill 思路）。
+        // --orphan-caches：动态发现 scratch 根下的孤儿依赖 / 构建缓存。
         // 仅扫描不删除。
         if userArgs.contains("--orphan-caches") {
             exit(OrphanCacheScanner.scanCLI())

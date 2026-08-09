@@ -95,7 +95,7 @@ enum Risk: String, Codable, Hashable {
         }
     }
 
-    /// 一句话解释「为什么是这个等级」。竞品把这个放进 UI 逐项可展开，
+    /// 一句话解释「为什么是这个等级」。一些工具把这个放进 UI 逐项可展开，
     /// 我们的保守取舍原先只写在 README 里，用户看不到。
     var explanation: String {
         switch self {
