@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// AI Mac Cleaner 设计令牌（与 `design-prototype/design-tokens.md` 逐一对应）。
+/// AI Mac Cleaner 设计令牌（与 `docs/archive/design-prototype/design-tokens.md` 逐一对应）。
 ///
 /// 配方：Linear(Light) 为骨 · Stripe 为魂 · Apple HIG 为地。
 /// 配色源自原型：Petrol Blue 强调色 + 锁定的风险语义色 + 系统语义色。

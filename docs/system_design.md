@@ -40,7 +40,7 @@ D5 通过把"派生发模型 history"收进一个纯函数解决，二分映射�
 
 | 需求 | 选型 | 理由 |
 |------|------|------|
-| 本地持久化 | `Foundation` 的 `JSONEncoder/Decoder` + `Data.write(to:)` | 直接复刻 `FeedbackStore` 的成熟模式（同目录 `~/Library/Application Support/AI Mac Cleaner/`、同容错策略）。引 SQLite/CoreData 对一个上限 30 条消息的数组是荒谬的。 |
+| 本地持久化 | `Foundation` 的 `JSONEncoder/Decoder` + `Data.write(to:)` | 直接复刻 `FeedbackStore` 的成熟模式（同目录 `~/Library/Application Support/AIMacCleaner/`、同容错策略）。引 SQLite/CoreData 对一个上限 30 条消息的数组是荒谬的。 |
 | 状态管理 | 既有 `AppState: ObservableObject` + `@Published` | 项目已统一用它，`AskAIView` 已经 `@EnvironmentObject` 拿到了 —— 上提是零成本的。 |
 | 命令匹配 | Swift 原生 `switch` 精确匹配（**不用 `NSRegularExpression`**） | 见 §3.4，这是安全项，正则的锚点/元字符陷阱不值得冒。 |
 | 文案 | 既有 `L10n.t(zh, en)` | 不改 L10n.swift，全部内联。 |
@@ -164,7 +164,7 @@ classDiagram
         +save(AIMessage[]) Void
         +clearAll() Void
     }
-    note for ChatStore "哑 I/O，不做裁剪不做判断\n~/Library/Application Support/AI Mac Cleaner/askai-history.json\n目录自动创建 · 读写失败静默降级"
+    note for ChatStore "哑 I/O，不做裁剪不做判断\n~/Library/Application Support/AIMacCleaner/askai-history.json\n目录自动创建 · 读写失败静默降级"
 
     class ChatCommand {
         <<enumeration>>
@@ -176,9 +176,9 @@ classDiagram
 
     class ChatPolicy {
         <<enum, namespace>>
-        +static Int maxContextTurns$
-        +static Int maxInputChars$
-        +static Int inputWarnThreshold$
+        +static Int maxContextTurns
+        +static Int maxInputChars
+        +static Int inputWarnThreshold
         +static trim(AIMessage[]) AIMessage[]
         +static afterAnchor(AIMessage[]) AIMessage[]
         +static modelHistory(AIMessage[]) Tuple[]
@@ -293,7 +293,7 @@ struct ChatArchive: Codable {
 
 final class ChatStore {
     static let shared = ChatStore()
-    private let url: URL      // ~/Library/Application Support/AI Mac Cleaner/askai-history.json
+    private let url: URL      // ~/Library/Application Support/AIMacCleaner/askai-history.json
 
     private init()            // 目录不存在时 createDirectory(withIntermediateDirectories: true)
 
@@ -838,7 +838,7 @@ sequenceDiagram
 
 ### K9 存储路径与容错
 
-- 路径：`~/Library/Application Support/AI Mac Cleaner/askai-history.json`（与 `feedback.json` 同目录）
+- 路径：`~/Library/Application Support/AIMacCleaner/askai-history.json`（与 `feedback.json` 同目录）
 - 目录不存在时 `createDirectory(withIntermediateDirectories: true)`
 - 所有读写用 `try?`：**失败静默降级**（读失败 → `[]`；写失败 → 无声）。**不崩溃、不弹窗、不打断用户**。
 - 与 `FeedbackStore` 保持完全一致的形状，谁来看都不会误会。
@@ -893,7 +893,7 @@ sequenceDiagram
   1. 发几条消息 → 切到「应用」tab → 切回 → **对话完整还在**，且已滚到最后一条
   2. 退出 app → 重启 → **对话自动恢复**，`isThinking` 为 false，无转圈残留
   3. 发消息中途切走再切回 → AI 回复最终**正确落地**（实时 step 流丢失是已知限制）
-  4. 手动删除 `~/Library/Application Support/AI Mac Cleaner/askai-history.json` → 重启 → 正常显示空态首屏，不崩
+  4. 手动删除 `~/Library/Application Support/AIMacCleaner/askai-history.json` → 重启 → 正常显示空态首屏，不崩
   5. 手动把该 JSON 改成一堆乱码 → 重启 → 静默降级为空会话，不崩不弹窗
 
 ---

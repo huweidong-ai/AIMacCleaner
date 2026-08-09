@@ -80,9 +80,9 @@ classDiagram
 
     class ChatPolicy {
         <<enum, namespace>>
-        +static Int maxContextTurns$
-        +static Int maxInputChars$
-        +static Int inputWarnThreshold$
+        +static Int maxContextTurns
+        +static Int maxInputChars
+        +static Int inputWarnThreshold
         +static trim(AIMessage[], Int) AIMessage[]
         +static afterAnchor(AIMessage[]) AIMessage[]
         +static modelHistory(AIMessage[]) Tuple[]
