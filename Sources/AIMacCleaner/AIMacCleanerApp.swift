@@ -200,6 +200,22 @@ struct AIMacCleanerApp: App {
                     state.showAIModelSettings = true
                 }
             }
+            // ── 截图（系统 screencapture 封装）──
+            // 选区走全局快捷键 ⌘⇧6（即使 app 在后台也能截）；窗口 / 全屏仅
+            // 在 app 前台时用菜单快捷键触发，避免与全局热键重复触发。
+            CommandMenu(L10n.t("截图", "Screenshot")) {
+                Button(L10n.t("选区（⌘⇧6）", "Selection (⌘⇧6)")) {
+                    state.takeScreenshot(.selection)
+                }
+                Button(L10n.t("窗口", "Window")) {
+                    state.takeScreenshot(.window)
+                }
+                .keyboardShortcut("7", modifiers: [.command, .shift])
+                Button(L10n.t("全屏", "Full Screen")) {
+                    state.takeScreenshot(.full)
+                }
+                .keyboardShortcut("8", modifiers: [.command, .shift])
+            }
         }
     }
 }

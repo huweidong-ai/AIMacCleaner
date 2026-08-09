@@ -182,6 +182,13 @@ final class AppState: ObservableObject {
     /// 是否展示「需要完全磁盘访问权限」引导页（替代系统硬弹窗）。
     @Published var showFDAGuidance: Bool = false
 
+    // ── 截图（系统 screencapture 封装）──
+    /// App 级轻提示（截图完成等），跨 tab 可见。点击 toast 可在访达中显示截图。
+    @Published var toast: String? = nil
+    /// 最近一次截图保存位置；toast 点击时用于在访达中显示。
+    @Published var lastScreenshotURL: URL?
+    private var toastClearTask: Task<Void, Never>?
+
     /// 监听语言切换，触发整棵视图树重建，使 L10n.t() 重新求值。
     private var cancellables = Set<AnyCancellable>()
     private var lastLanguage: String = L10n.override.rawValue
@@ -712,5 +719,38 @@ final class AppState: ObservableObject {
                 self?.fullDiskAccessGranted = PrivacyAccess.hasFullDiskAccess()
             }
             .store(in: &cancellables)
+    }
+
+    // MARK: - 截图
+
+    /// 注册全局快捷键（⌘⇧6 → 选区截图）。在 MainView 出现时调用一次；
+    /// 内部有「只注册一次」的保护，重复调用无害。
+    func startScreenshotHotkey() {
+        ScreenshotHotkey.shared.register { [weak self] in
+            self?.takeScreenshot(.selection)
+        }
+    }
+
+    /// 调系统截图。交互模式（选区 / 窗口）下用户按 Esc 取消则不打扰。
+    func takeScreenshot(_ mode: ScreenshotMode) {
+        ScreenshotService.capture(mode) { [weak self] url in
+            guard let self else { return }
+            if let url {
+                self.lastScreenshotURL = url
+                self.flashToast(L10n.t("截图已保存到「图片 › AI Mac Cleaner Screenshots」",
+                                       "Screenshot saved to Pictures › AI Mac Cleaner Screenshots"))
+            }
+        }
+    }
+
+    /// 底部浮出、约 2s 自动消失的轻提示。
+    func flashToast(_ message: String) {
+        toast = message
+        toastClearTask?.cancel()
+        toastClearTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            DispatchQueue.main.async { self?.toast = nil }
+        }
     }
 }

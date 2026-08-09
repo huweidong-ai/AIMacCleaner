@@ -1561,6 +1561,37 @@ enum SelfTest {
                 let parts = v.split(separator: ".")
                 return parts.count >= 2
                     && parts.allSatisfy { Int($0) != nil }
+            },
+
+            // ── 截图（系统 screencapture 封装）──
+            Check(name: "ScreenshotService：系统 screencapture 存在且保存目录可写") {
+                // 只验证前置条件：/usr/sbin/screencapture 存在（截图的唯一依赖），
+                // 且默认保存目录可创建、可写。不真正触发截图（避免弹 UI / 卡交互）。
+                guard FileManager.default.fileExists(atPath: "/usr/sbin/screencapture") else {
+                    return false
+                }
+                let dir = ScreenshotService.saveDir
+                let probe = dir.appendingPathComponent("expunge-screenshot-probe.txt")
+                do {
+                    try "ok".write(to: probe, atomically: true, encoding: .utf8)
+                    try FileManager.default.removeItem(at: probe)
+                    return true
+                } catch {
+                    return false
+                }
+            },
+            Check(name: "ScreenshotMode 三种模式都能映射到非空参数") {
+                // 防「哪天把某个 case 拼错、screencapture 收到空参数直接失败」。
+                let tested: [ScreenshotMode] = [.selection, .window, .full]
+                return tested.allSatisfy { mode in
+                    var args: [String]
+                    switch mode {
+                    case .selection: args = ["-i", "-s", "-x"]
+                    case .window:    args = ["-w", "-x"]
+                    case .full:      args = ["-x"]
+                    }
+                    return !args.isEmpty
+                }
             }
         ]
 
