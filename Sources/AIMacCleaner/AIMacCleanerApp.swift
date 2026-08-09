@@ -15,10 +15,6 @@ struct AIMacCleanerApp: App {
     /// 否则要重启 app 才看到新文案。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
 
-    /// 和 `Prefs.scanDownloads` 读写同一个 key。这里再声明一次是为了拿到
-    /// `@AppStorage` 的 Binding 给 Toggle 用。
-    @AppStorage(Prefs.scanDownloadsKey) private var scanDownloads: Bool = false
-
     private var languageBinding: Binding<L10n.Language> {
         Binding(
             get: { L10n.Language(rawValue: languageRaw) ?? .system },
@@ -191,11 +187,6 @@ struct AIMacCleanerApp: App {
                 .pickerStyle(.inline)
             }
             CommandMenu(L10n.t("设置", "Settings")) {
-                Toggle(L10n.t("扫描「下载」文件夹", "Scan the Downloads folder"),
-                       isOn: $scanDownloads)
-                    .help(L10n.t("打开后在扫描时检查 ~/Downloads 目录，能找到手动下载的命令行工具。每次扫描会触发一次系统授权弹窗。",
-                                 "When on, AI Mac Cleaner also scans ~/Downloads for manually downloaded CLI tools. Triggers one system permission prompt per scan."))
-                Divider()
                 Button(L10n.t("配置 AI 模型…", "Configure AI model…")) {
                     state.showAIModelSettings = true
                 }

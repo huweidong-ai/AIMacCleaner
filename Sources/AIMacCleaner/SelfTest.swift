@@ -433,23 +433,11 @@ enum SelfTest {
                     && kept.contains(where: { $0.category == .libraryData })
                     && kept.contains(where: { $0.category == .container })
             },
-            Check(name: "默认不扫 ~/Downloads（避免 TCC 授权框）") {
-                // ~/Downloads 受 TCC 保护，扫它每次都会弹「想访问『下载』
-                // 文件夹中的文件」。收益（找手动下载的 CLI 工具）远小于代价，
-                // 所以默认关。~/.local/bin 不受 TCC 管，必须一直在。
-                let saved = Prefs.scanDownloads
-                defer { Prefs.scanDownloads = saved }
-
-                Prefs.scanDownloads = false
-                let off = RawBinaryScanner().searchPaths
-                Prefs.scanDownloads = true
-                let on = RawBinaryScanner().searchPaths
-
+            Check(name: "RawBinaryScanner 始终包含 ~/.local/bin 与 ~/Downloads") {
+                let paths = RawBinaryScanner().searchPaths
                 let home = NSHomeDirectory()
-                return !off.contains("\(home)/Downloads")
-                    && off.contains("\(home)/.local/bin")
-                    && on.contains("\(home)/Downloads")
-                    && on.contains("\(home)/.local/bin")
+                return paths.contains("\(home)/Downloads")
+                    && paths.contains("\(home)/.local/bin")
             },
             Check(name: "SignatureStore 包含 mimo 和 cc-connect") {
                 SignatureStore.match(target: "mimo") != nil
@@ -1575,9 +1563,6 @@ enum SelfTest {
                 let tools = MacToolCatalog.systemTools
                 let keys = tools.map { "\($0.category):\($0.name)" }
                 return Set(keys).count == keys.count
-            },
-            Check(name: "MacToolCatalog：AIMacCleaner 对照小节非空") {
-                MacToolCatalog.appTools.count >= 1
             },
             Check(name: "MacToolkit 动作：活动监视器路径存在（可打开）") {
                 FileManager.default.fileExists(atPath: "/System/Applications/Utilities/Activity Monitor.app")

@@ -7,15 +7,13 @@ struct RawBinaryScanner: Scanner {
 
     /// 要扫的目录。
     ///
-    /// `~/Downloads` 受 TCC 保护，扫它会弹「想访问「下载」文件夹中的文件」，
-    /// 所以由 `Prefs.scanDownloads` 控制，**默认不扫**。理由写在 `Prefs` 里。
+    /// 手动下载的 CLI 二进制（如 `~/Downloads/mimo`）也可能需要被卸载，
+    /// 因此 `~/Downloads` 现在默认加入扫描范围。它受 TCC 保护，首次扫描会
+    /// 弹一次「想访问「下载」文件夹中的文件」授权框。
     /// `~/.local/bin` 不受 TCC 管，一直照扫。
     var searchPaths: [String] {
-        var paths = ["\(NSHomeDirectory())/.local/bin"]
-        if Prefs.scanDownloads {
-            paths.append("\(NSHomeDirectory())/Downloads")
-        }
-        return paths
+        ["\(NSHomeDirectory())/.local/bin",
+         "\(NSHomeDirectory())/Downloads"]
     }
 
     func scan(query: ScanQuery) async -> [Artifact] {

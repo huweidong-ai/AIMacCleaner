@@ -24,7 +24,6 @@ struct MacToolkitSheet: View {
 
     /// 数据来自非隔离的 `MacToolCatalog`，避免 self-test 触碰 @MainActor 的 View。
     private var systemTools: [MacTool] { MacToolCatalog.systemTools }
-    private var appTools: [MacTool] { MacToolCatalog.appTools }
 
     // MARK: - 视图
 
@@ -42,11 +41,6 @@ struct MacToolkitSheet: View {
                             sectionTitle(cat.title)
                             ForEach(items) { toolRow($0) }
                         }
-                    }
-                    let appItems = applyQuery(appTools)
-                    if !appItems.isEmpty {
-                        sectionTitle(L10n.t("AI Mac Cleaner 快捷键", "AI Mac Cleaner shortcuts"))
-                        ForEach(appItems) { toolRow($0) }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -372,28 +366,6 @@ enum MacToolCatalog {
         ]
     }
 
-    /// AI Mac Cleaner 自身快捷键（对照小节）：本应用尽量复用系统能力，不加多余全局快捷键。
-    static var appTools: [MacTool] {
-        [
-            MacTool(category: "app",
-                    name: L10n.t("截图", "Screenshots"),
-                    shortcuts: ["⌘⇧3", "⌘⇧4", "⌘⇧5"],
-                    description: L10n.t("直接用 macOS 系统截图，本应用不重复实现",
-                                        "Just use the system screenshot — this app doesn't reimplement it"),
-                    note: L10n.t("本应用复用系统能力，无需额外截图工具",
-                                "This app reuses the system — no extra screenshot tool needed")),
-            MacTool(category: "app",
-                    name: L10n.t("提交反馈", "Submit feedback"),
-                    shortcuts: ["↵"],
-                    description: L10n.t("反馈表单按回车提交，Esc 取消",
-                                        "In the feedback form, Return submits and Esc cancels")),
-            MacTool(category: "app",
-                    name: L10n.t("扫描下载文件夹开关", "Scan Downloads toggle"),
-                    shortcuts: ["—"],
-                    description: L10n.t("菜单栏「设置」中切换，无独立快捷键",
-                                        "Toggled in the menu bar “Settings”; no dedicated shortcut")),
-        ]
-    }
 }
 
 /// 单条能力。

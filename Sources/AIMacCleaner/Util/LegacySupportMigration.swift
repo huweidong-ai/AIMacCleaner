@@ -57,11 +57,11 @@ enum LegacySupportMigration {
     /// 跨 bundle id 迁移 UserDefaults 偏好。
     ///
     /// 模型配置（key `expunge.aimodels` / 历史 `expunge.aimodel`）、语言
-    /// （`expunge.language`）、扫描设置（`expunge.scanDownloads`）都写在
-    /// `UserDefaults.standard` 里，而 macOS 会按当前 app 的 bundle id 把它
-    /// 落盘到 `~/Library/Preferences/<bundle-id>.plist`。改名后 bundle id 从
-    /// `com.expunge.app` 变成 `com.aicleaner.app`，于是新 app 读自己的空 plist，
-    /// 旧配置被锁在 `com.expunge.app.plist` 里 —— 表现就是「改名后配置不见了」。
+    /// （`expunge.language`）都写在 `UserDefaults.standard` 里，而 macOS 会按
+    /// 当前 app 的 bundle id 把它落盘到 `~/Library/Preferences/<bundle-id>.plist`。
+    /// 改名后 bundle id 从 `com.expunge.app` 变成 `com.aicleaner.app`，于是新 app
+    /// 读自己的空 plist，旧配置被锁在 `com.expunge.app.plist` 里 —— 表现就是
+    /// 「改名后配置不见了」。
     ///
     /// 这里在启动时把旧域里这几个 `expunge.` 前缀的键搬到当前域，再删除旧域，
     /// 让配置无缝回归，并顺手清掉旧 plist（卸载 .app 不会删 Preferences，会一直残留）。
@@ -75,7 +75,7 @@ enum LegacySupportMigration {
         let cur = UserDefaults.standard
 
         let keys = ["expunge.aimodels", "expunge.aimodel",
-                    "expunge.language", "expunge.scanDownloads"]
+                    "expunge.language"]
         for key in keys {
             guard old.object(forKey: key) != nil else { continue }
             if let data = old.data(forKey: key) {
