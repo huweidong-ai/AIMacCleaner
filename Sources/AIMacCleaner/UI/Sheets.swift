@@ -748,7 +748,7 @@ struct FeedbackHistorySheet: View {
                 SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
             }
         }
-        .frame(width: 620, height: 460)
+        .frame(width: SheetPreset.historyList.width, height: SheetPreset.historyList.height)
         .onAppear { entries = FeedbackStore.shared.all() }
         .onChange(of: showComposer) { _, open in
             // 提交表单关闭后刷新列表，让新记录立刻出现。
@@ -775,7 +775,7 @@ struct FeedbackHistorySheet: View {
         }
         .blanketDismiss { dismiss() }
         .presentationBackground(Theme.bgSurface)
-        .frame(width: 700, height: 540)
+        .frame(width: SheetPreset.historyListOuter.width, height: SheetPreset.historyListOuter.height)
     }
 
     private func reasonTag(_ text: String) -> some View {

@@ -91,3 +91,16 @@ struct SheetCloseButton: View {
             .keyboardShortcut(.cancelAction)
     }
 }
+
+// MARK: - 统一尺寸预设
+
+/// 历史 / 记录类弹窗的统一尺寸，以 `FeedbackHistorySheet` 为基准。
+///
+/// 用这套预设而不是在三个 sheet 里各写一遍魔法数字，能保证它们永远一致、
+/// 不会随手改其中一个而漂开。内容尺寸再叠 40pt 留白环即外层尺寸。
+enum SheetPreset {
+    /// 内容尺寸：FeedbackHistorySheet 基准 620×460。
+    static let historyList = CGSize(width: 620, height: 460)
+    /// 含点空白关闭留白环（四周各 +40）的外层尺寸：700×540。
+    static let historyListOuter = CGSize(width: 700, height: 540)
+}

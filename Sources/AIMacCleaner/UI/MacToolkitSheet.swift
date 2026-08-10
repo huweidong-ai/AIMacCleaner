@@ -49,10 +49,10 @@ struct MacToolkitSheet: View {
             Divider()
             footer
         }
-        .frame(width: 560, height: 600)
+        .frame(width: SheetPreset.historyList.width, height: SheetPreset.historyList.height)
         .blanketDismiss { dismiss() }
         .presentationBackground(Theme.bgSurface)
-        .frame(width: 640, height: 680)
+        .frame(width: SheetPreset.historyListOuter.width, height: SheetPreset.historyListOuter.height)
     }
 
     private var header: some View {

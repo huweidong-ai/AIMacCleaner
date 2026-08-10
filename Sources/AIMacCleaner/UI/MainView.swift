@@ -315,9 +315,9 @@ struct HistorySheet: View {
                 SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
             }
         }
-        .frame(width: 760, height: 520)
+        .frame(width: SheetPreset.historyList.width, height: SheetPreset.historyList.height)
         .blanketDismiss { dismiss() }
         .presentationBackground(Theme.bgSurface)
-        .frame(width: 840, height: 600)
+        .frame(width: SheetPreset.historyListOuter.width, height: SheetPreset.historyListOuter.height)
     }
 }
