@@ -29,7 +29,7 @@ final class AppState: ObservableObject {
     @Published private(set) var isScanningLeftovers = false
     /// 是否已经扫过一次（区分「没扫」和「扫了但没有」）
     @Published private(set) var hasScannedLeftovers = false
-    @Published var leftoverFilter: LeftoverFilter = .orphan
+    @Published var leftoverFilter: LeftoverFilter = .all
     /// 残留分组的折叠状态（按 group id）。提升到 AppState：切 tab 后视图被重建，
     /// 若用页面内 @State 会在初始化时重置为全展开，丢失「默认折叠」设定。
     @Published var leftoverCollapsed: Set<UUID> = []
@@ -207,6 +207,7 @@ final class AppState: ObservableObject {
 
     /// 残留 tab 的筛选档。
     enum LeftoverFilter: String, CaseIterable, Identifiable {
+        case all = "all"
         case orphan = "orphan"
         case aiTool = "aiTool"
         case devCache = "devCache"
@@ -214,6 +215,7 @@ final class AppState: ObservableObject {
 
         var displayName: String {
             switch self {
+            case .all:      return L10n.t("全部", "All")
             case .orphan:   return L10n.t("无主残留", "Orphaned")
             case .aiTool:   return L10n.t("AI 编程工具", "AI coding tools")
             case .devCache: return L10n.t("开发工具缓存", "Dev-tool caches")
@@ -222,6 +224,7 @@ final class AppState: ObservableObject {
 
         var source: LeftoverSource? {
             switch self {
+            case .all:      return nil
             case .orphan:   return .orphan
             case .aiTool:   return .aiTool
             case .devCache: return .devCache
@@ -420,6 +423,7 @@ final class AppState: ObservableObject {
     /// 当前筛选档下可见的残留分组。
     var visibleLeftoverGroups: [LeftoverGroup] {
         switch leftoverFilter {
+        case .all:      return leftoverGroups
         case .orphan:   return leftoverGroups.filter { $0.source == .orphan }
         case .aiTool:   return leftoverGroups.filter { $0.source == .aiTool }
         case .devCache: return leftoverGroups.filter { $0.source == .devCache }
@@ -450,21 +454,6 @@ final class AppState: ObservableObject {
     /// 当前筛选档下已选项数。
     var leftoverVisibleSelectedCount: Int {
         visibleLeftoverGroups.reduce(0) { $0 + $1.selectedCount }
-    }
-
-    /// 「AI 编程工具」快速清理卡片用的聚合：只统计 `.aiTool`（Claude / Cursor 等
-    /// 真·AI 编程助手），与「AI 编程工具」筛选档同口径。开发工具缓存（npm / Xcode /
-    /// 浏览器等）不属于 AI，单独走「开发工具缓存」筛选档，不进这张卡片。
-    var aiCleanupTotalSize: Int64 {
-        leftoverGroups
-            .filter { $0.source == .aiTool }
-            .reduce(0) { $0 + $1.totalSize }
-    }
-
-    var aiCleanupTotalCount: Int {
-        leftoverGroups
-            .filter { $0.source == .aiTool }
-            .reduce(0) { $0 + $1.artifacts.count }
     }
 
     /// 更新某个残留分组的某一项勾选状态。

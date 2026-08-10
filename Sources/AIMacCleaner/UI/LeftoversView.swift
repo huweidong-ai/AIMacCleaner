@@ -123,7 +123,6 @@ struct LeftoversView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        aiCleanupCard
                         Banner(kind: .warn,
                                title: L10n.t("这些是启发式推断的结果，默认全部不勾选。",
                                              "These are heuristic results — nothing is checked by default."),
@@ -278,58 +277,6 @@ struct LeftoversView: View {
                 state.leftoverCollapsed.insert(g.id)
             }
         }
-    }
-
-    // MARK: - AI 编程工具快速清理卡片
-
-    /// 残留页顶部的「AI 编程工具」快速清理卡片：只聚合 `.aiTool`（Claude / Cursor 等
-    /// 真·AI 编程助手），与「AI 编程工具」筛选档同口径，提供一键清理。开发工具缓存
-    /// （npm / Xcode / 浏览器等）不属 AI，单独走「开发工具缓存」筛选档，不进这张卡片。
-    @ViewBuilder
-    private var aiCleanupCard: some View {
-        let total = state.aiCleanupTotalSize
-        let count = state.aiCleanupTotalCount
-        if count > 0 {
-            HStack(spacing: 14) {
-                Image(systemName: "wand.and.rays")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 38, height: 38)
-                    .background(Theme.accentSubtle, in: RoundedRectangle(cornerRadius: 9))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(L10n.t("AI 编程工具 · 快速清理", "AI coding tools · quick clean"))
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(Theme.accentActive)
-                    Text(.init(L10n.t("检测到 **\(count)** 项 AI 编程工具残留，可清理 **\(SizeFormat.human(total))**",
-                                      "**\(count)** AI coding-tool leftovers found · **\(SizeFormat.human(total))** reclaimable")))
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 8)
-                Button {
-                    cleanAITools()
-                } label: {
-                    Label(L10n.t("一键清理", "Clean up"), systemImage: "sparkles")
-                }
-                .controlSize(.small)
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
-                .help(L10n.t("选中所有 AI 编程工具残留并在确认框逐项展示风险",
-                             "Selects all AI coding-tool leftovers and shows the risk in the confirmation sheet"))
-            }
-            .padding(14)
-            .background(Theme.accentSubtle, in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.accentBorder, lineWidth: 1))
-        }
-    }
-
-    /// 一键清理：选中所有 AI 编程工具分组，再弹确认框（复用现有删除流程与风险分流）。
-    private func cleanAITools() {
-        for gi in state.leftoverGroups.indices
-            where state.leftoverGroups[gi].source == .aiTool {
-            state.setLeftoverGroupSelected(groupId: state.leftoverGroups[gi].id, selected: true)
-        }
-        showConfirm = true
     }
 
     private var bottomBar: some View {
