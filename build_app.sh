@@ -12,10 +12,13 @@ APP_NAME="AIMacCleaner"
 # 行业 CLI 惯例用全小写连字符（kebab-case，如 docker/brew/kubectl），驼峰不符合规范，
 # 所以命令名用 ai-mac-cleaner；app 显示名 AIMacCleaner 是品牌，保持驼峰不动。
 CLI_NAME="ai-mac-cleaner"
-# 版本号只在这里写一次。build_release.sh 会 source 本文件的这个值来命名 DMG，
-# 所以改版本只需改这一处。（v1.3 之前这里写死成 1.1，`--scan ai-mac-cleaner` 一直
-# 显示 v1.1 —— 打包元数据和 README 各说各话是典型的失实。）
-APP_VERSION="1.0"
+# 版本号采用「日期制」：YYYY.M.D（如 2026.8.10），同一天多次构建追加序号
+# 变成 YYYY.M.D-2、YYYY.M.D-3 …… 由下方在真正构建时按当天日期算出，并写进
+# 生成的 Swift 文件（AppVersion.generated.swift）与 Info.plist。
+#
+# 下面这个 APP_VERSION 只是给「仅取变量」路径（EXPUNGE_VARS_ONLY=1，被
+# build_release.sh source 时）用的占位，真正的值在早退块之后计算。
+APP_VERSION="0.0.0-dev"
 
 # 允许 build_release.sh 只取变量、不真的构建
 if [ "${EXPUNGE_VARS_ONLY:-}" = "1" ]; then
@@ -23,6 +26,49 @@ if [ "${EXPUNGE_VARS_ONLY:-}" = "1" ]; then
 fi
 
 cd "$PROJECT_DIR"
+
+# ── 计算日期制版本号 ──
+# 格式：YYYY.M.D（去掉月份/日期的前导零，贴合 2026.8.9 这种写法）。
+# 同一天第 1 次构建 = 纯日期；第 2 次起追加 -N（N 从 2 开始）。
+# 计数器存在仓库根目录的隐藏文件里（已被 .gitignore 忽略），清 .build 也不会丢。
+Y=$(date +%Y); M=$(date +%m); D=$(date +%d)
+M=${M#0}; D=${D#0}
+TODAY="$Y.$M.$D"
+STATE_FILE="$PROJECT_DIR/.build_version_state"
+if [ -f "$STATE_FILE" ]; then
+    OLD=$(cat "$STATE_FILE" 2>/dev/null || echo "")
+    OLD_DATE="${OLD%%:*}"
+    OLD_COUNT="${OLD##*:}"
+    case "$OLD_COUNT" in (*[!0-9]*|"") OLD_COUNT=0;; esac
+else
+    OLD_DATE=""; OLD_COUNT=0
+fi
+if [ "$OLD_DATE" = "$TODAY" ]; then
+    COUNT=$((OLD_COUNT + 1))
+else
+    COUNT=1
+fi
+if [ "$COUNT" -eq 1 ]; then
+    APP_VERSION="$TODAY"
+else
+    APP_VERSION="$TODAY-$COUNT"
+fi
+APP_VERSION_SHORT="$TODAY"
+echo "$TODAY:$COUNT" > "$STATE_FILE"
+
+# 把版本号写进生成的 Swift 文件，作为 AIMacCleanerApp.version 的唯一来源。
+# 这样「关于」面板 / --help / 反馈页展示的版本与打包版本严格一致。
+GEN_FILE="$PROJECT_DIR/Sources/AIMacCleaner/AppVersion.generated.swift"
+cat > "$GEN_FILE" <<SWIFT
+// 自动生成 —— 由 build_app.sh 写入，请勿手改，也不入库（见 .gitignore）。
+// 版本号采用日期制：YYYY.M.D 或同日多次构建的 YYYY.M.D-N。
+import Foundation
+extension AIMacCleanerApp {
+    /// 版本号的唯一来源，由 build_app.sh 在打包时注入。
+    nonisolated static let version = "$APP_VERSION"
+}
+SWIFT
+echo "  版本：$APP_VERSION（短版本 $APP_VERSION_SHORT）"
 
 echo "━━ 1/5 编译 release ━━"
 swift build -c release
@@ -94,9 +140,9 @@ cat > "$TARGET/Contents/Info.plist" <<PLIST
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>$APP_VERSION</string>
+	<string>$APP_VERSION_SHORT</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
+	<string>$APP_VERSION</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>

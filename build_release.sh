@@ -17,18 +17,13 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
-# 版本号和 app 名从 build_app.sh 取，避免两处各写一份而不一致
+# 版本号和 app 名从 build_app.sh 取。注意 EXPUNGE_VARS_ONLY=1 时 build_app.sh 不真正构建，
+# 这里拿到的 APP_VERSION 只是占位值；真实版本要等下面真正构建后从 Info.plist 读出
+# （日期制，含同日 -N 序号），再用于 DMG 命名 —— 保证 DMG 名和包里写的版本一字不差。
 # shellcheck source=build_app.sh
 EXPUNGE_VARS_ONLY=1 source ./build_app.sh
 
 OUT_DIR="${1:-$PROJECT_DIR/dist}"
-DMG_NAME="$APP_NAME-$APP_VERSION.dmg"
-DMG_PATH="$OUT_DIR/$DMG_NAME"
-
-# 先清掉同名旧产物。**这一步必须在自检之前** —— 否则自检失败中止时，
-# dist/ 里会留着上一次成功构建的旧 DMG，你可能以为这次发布失败了、
-# 却把旧文件传上去。宁可目录是空的，也不能让它似是而非。
-rm -f "$DMG_PATH" "$DMG_PATH.sha256"
 
 # 在临时目录里组装 app，不动 /Applications 里那份 —— 发布构建不该
 # 顺手把开发机上正在用的 app 换掉。
@@ -42,6 +37,11 @@ test -x "$STAGE/$APP_NAME.app/Contents/MacOS/$CLI_NAME" \
     || { echo "✗ app 构建失败"; exit 1; }
 echo "  ✓ $STAGE/$APP_NAME.app"
 
+# 真实版本号来自打包结果：build_app.sh 已把日期制版本写进 Info.plist 的 CFBundleVersion。
+APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$STAGE/$APP_NAME.app/Contents/Info.plist")"
+DMG_NAME="$APP_NAME-$APP_VERSION.dmg"
+DMG_PATH="$OUT_DIR/$DMG_NAME"
+
 echo "━━ 2/4 自检（不通过就不发布）━━"
 # 发布前必须跑一遍。构建成功不等于逻辑正确，而这个工具的 bug 会删错文件。
 if "$STAGE/$APP_NAME.app/Contents/MacOS/$CLI_NAME" --self-test > "$STAGE/selftest.log" 2>&1; then
@@ -54,6 +54,9 @@ fi
 
 echo "━━ 3/4 打 DMG ━━"
 mkdir -p "$OUT_DIR"
+# 清掉同名旧产物（真实版本已确定，只删我们要覆盖的那一个），
+# 避免上一次成功构建的同名 DMG 留下、让人误以为这次发布失败。
+rm -f "$DMG_PATH" "$DMG_PATH.sha256"
 
 # DMG 里放 app + 一个「拖到这里」的 Applications 软链，这是 Mac 用户
 # 期望的安装体验（不放软链的话用户得自己开一个 Finder 窗口）
@@ -71,11 +74,11 @@ echo "  ✓ $DMG_PATH ($(du -h "$DMG_PATH" | cut -f1))"
 
 echo "━━ 4/4 生成 sha256 ━━"
 # 只存文件名不存绝对路径，这样用户 `shasum -a 256 -c` 时不必在同一路径下
-(cd "$OUT_DIR" && shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256")
+( cd "$OUT_DIR" && shasum -a 256 "$DMG_NAME" > "$DMG_NAME.sha256" )
 cat "$OUT_DIR/$DMG_NAME.sha256" | sed 's/^/  /'
 
 # 自校验：立刻验一遍，确保发出去的校验和是对的
-(cd "$OUT_DIR" && shasum -a 256 -c "$DMG_NAME.sha256" > /dev/null) \
+( cd "$OUT_DIR" && shasum -a 256 -c "$DMG_NAME.sha256" > /dev/null ) \
     && echo "  ✓ 校验和自检通过" \
     || { echo "  ✗ 校验和对不上，别发布"; exit 1; }
 

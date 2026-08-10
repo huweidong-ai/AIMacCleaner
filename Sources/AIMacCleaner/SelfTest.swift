@@ -1541,14 +1541,25 @@ enum SelfTest {
                     && String(data: tabData, encoding: .utf8) == "[\"leftovers\"]"
             },
 
-            Check(name: "--help 里印的版本号跟得上发版") {
-                // 曾经「关于」面板写死 "1.3" 而 build_app.sh 已经是 1.3.0。
-                // 现在两处共用 AIMacCleanerApp.version，这条只保证它不是占位符
-                // 且形如数字版本号（允许 "1.0" 或 "1.0.0"）。
+            Check(name: "--help 里印的版本号跟得上发版（日期制）") {
+                // 版本号现在是日期制：YYYY.M.D（如 2026.8.10），同日多次构建
+                // 追加序号变成 YYYY.M.D-2、YYYY.M.D-3 …… 这条保证它不是占位符
+                // 且符合该格式（既兼容纯日期，也兼容带 -N 后缀）。
                 let v = AIMacCleanerApp.version
-                let parts = v.split(separator: ".")
-                return parts.count >= 2
-                    && parts.allSatisfy { Int($0) != nil }
+                guard !v.isEmpty, v != "0.0.0-dev" else { return false }
+                let segments = v.split(separator: "-")
+                guard segments.count == 1 || segments.count == 2 else { return false }
+                let datePart = segments[0]
+                let dateParts = datePart.split(separator: ".")
+                guard dateParts.count == 3,
+                      dateParts.allSatisfy({ Int($0) != nil }),
+                      (Int(dateParts[0]) ?? 0) >= 2026
+                else { return false }
+                // 若有 -N 后缀，N 须是 ≥2 的整数（同一天第 1 次构建不带后缀）
+                if segments.count == 2 {
+                    guard let n = Int(segments[1]), n >= 2 else { return false }
+                }
+                return true
             },
 
             // ── 系统快捷键清单（macOS 自带能力参考）──

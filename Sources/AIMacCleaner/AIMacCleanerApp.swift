@@ -4,11 +4,9 @@ import SwiftUI
 struct AIMacCleanerApp: App {
     @StateObject private var state = AppState()
 
-    /// 版本号的唯一来源。`build_app.sh` 里的 `APP_VERSION` 负责 Info.plist，
-    /// 这里负责 `--help` 和「关于」面板 —— 发版时两处都要改。
-    /// `nonisolated`：`App` 隐式是 `@MainActor`，但这是个不可变常量，
-    /// 自检要在 detached task 里读它。
-    nonisolated static let version = "1.0"
+    /// 版本号由 `build_app.sh` 在打包时生成 `AppVersion.generated.swift` 注入
+    /// （日期制：YYYY.M.D 或同日多次构建的 YYYY.M.D-N），是 `--help`、
+    /// 「关于」面板与反馈页的统一来源。这里不再写死，避免两处各说各话。
 
     /// 语言选择存在 UserDefaults 里。用 `@AppStorage` 而不是直接读
     /// `L10n.override` 是为了让切换语言后 SwiftUI 立刻重建视图树 ——

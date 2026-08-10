@@ -31,3 +31,7 @@ icon_*.png
 
 # Project assistant data
 .workbuddy/
+
+# 打包时由 build_app.sh 注入的版本号（日期制），以及同日构建计数器
+Sources/AIMacCleaner/AppVersion.generated.swift
+.build_version_state
