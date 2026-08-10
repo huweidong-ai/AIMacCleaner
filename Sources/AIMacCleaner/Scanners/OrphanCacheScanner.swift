@@ -136,7 +136,7 @@ enum OrphanCacheScanner {
 
     // MARK: - GUI 残留分组
 
-    /// 转成「残留」页用的分组（进入「缓存与模型」分区）。
+    /// 转成「残留」页用的分组（进入「开发工具缓存」分区）。
     static func scanGroups() -> [LeftoverGroup] {
         let hits = scan()
         guard !hits.isEmpty else { return [] }

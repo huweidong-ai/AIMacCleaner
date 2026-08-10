@@ -11,8 +11,8 @@ enum LeftoverSource: String, CaseIterable, Identifiable, Hashable {
     var displayName: String {
         switch self {
         case .orphan:   return L10n.t("无主残留", "Orphaned")
-        case .aiTool:   return L10n.t("AI 工具", "AI tools")
-        case .devCache: return L10n.t("缓存与模型", "Caches & models")
+        case .aiTool:   return L10n.t("AI 编程工具", "AI coding tools")
+        case .devCache: return L10n.t("开发工具缓存", "Dev-tool caches")
         }
     }
 
@@ -22,11 +22,11 @@ enum LeftoverSource: String, CaseIterable, Identifiable, Hashable {
             return L10n.t("主 app 已卸载，但痕迹仍留在硬盘上。",
                           "The owning app is gone, but traces remain on disk.")
         case .aiTool:
-            return L10n.t("已知 AI 编程工具留下的隐藏配置/数据。",
-                          "Hidden config or data left by a known AI coding tool.")
+            return L10n.t("已知 AI 编程工具（如 Claude、Cursor）留下的隐藏配置与缓存。",
+                          "Hidden config and caches left by known AI coding tools (e.g. Claude, Cursor).")
         case .devCache:
-            return L10n.t("AI 模型运行时、编辑器与开发/包管理器的缓存与模型文件。",
-                          "Caches and model files from AI runtimes, editors, and dev / package managers.")
+            return L10n.t("编辑器、语言运行时、包管理器、构建工具与浏览器的缓存与模型文件（非 AI 编程工具）。",
+                          "Caches and model files from editors, language runtimes, package managers, build tools and browsers — not AI coding tools.")
         }
     }
 }

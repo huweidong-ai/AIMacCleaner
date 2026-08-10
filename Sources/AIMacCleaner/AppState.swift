@@ -215,8 +215,8 @@ final class AppState: ObservableObject {
         var displayName: String {
             switch self {
             case .orphan:   return L10n.t("无主残留", "Orphaned")
-            case .aiTool:   return L10n.t("AI 工具", "AI tools")
-            case .devCache: return L10n.t("缓存与模型", "Caches & models")
+            case .aiTool:   return L10n.t("AI 编程工具", "AI coding tools")
+            case .devCache: return L10n.t("开发工具缓存", "Dev-tool caches")
             }
         }
 
@@ -452,18 +452,18 @@ final class AppState: ObservableObject {
         visibleLeftoverGroups.reduce(0) { $0 + $1.selectedCount }
     }
 
-    /// 「AI 专清」卡片用的聚合：AI 工具 + 模型/开发缓存残留的可清理总量与项数。
-    /// 来源 = .aiTool（含 AIAgentScanner 点文件 + AIToolLeftovers 的 AI 工具类）
-    ///      ∪ .devCache（AIToolLeftovers 的 ML 运行时 / 编辑器 / 包管理器 / 浏览器等）。
+    /// 「AI 编程工具」快速清理卡片用的聚合：只统计 `.aiTool`（Claude / Cursor 等
+    /// 真·AI 编程助手），与「AI 编程工具」筛选档同口径。开发工具缓存（npm / Xcode /
+    /// 浏览器等）不属于 AI，单独走「开发工具缓存」筛选档，不进这张卡片。
     var aiCleanupTotalSize: Int64 {
         leftoverGroups
-            .filter { $0.source == .aiTool || $0.source == .devCache }
+            .filter { $0.source == .aiTool }
             .reduce(0) { $0 + $1.totalSize }
     }
 
     var aiCleanupTotalCount: Int {
         leftoverGroups
-            .filter { $0.source == .aiTool || $0.source == .devCache }
+            .filter { $0.source == .aiTool }
             .reduce(0) { $0 + $1.artifacts.count }
     }
 
