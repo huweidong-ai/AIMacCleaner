@@ -196,6 +196,18 @@ struct SkillSpec {
     }
 }
 
+// MARK: - 复核范围
+
+/// 深链进入「问 AI」页时由界面入口注入的复核目标：
+/// `.apps` 表示复核当前已安装应用的扫描清单，`.leftovers` 表示复核残留清单。
+/// 显式注入后 `review_plan` 不再依赖模型自行推断 scope，避免应用页被误判为残留。
+enum ReviewScope: String, CaseIterable, Identifiable, Hashable {
+    case apps = "apps"
+    case leftovers = "leftovers"
+
+    var id: String { rawValue }
+}
+
 // MARK: - 会话状态
 
 /// 一次 Agent 会话里跨 skill 共享的中间状态。
@@ -223,6 +235,9 @@ final class AgentSession: @unchecked Sendable {
     /// 宿主注入的「当前界面上的清单」。GUI 打开时是应用页的实时勾选状态，
     /// CLI 下为空 —— skill 通过它实现「复核我当前的删除清单」。
     var hostArtifacts: [Artifact] = []
+    /// 深链注入的复核范围。非 nil 时，`review_plan` 强制按此范围执行，
+    /// 不再让模型自行选择 apps / leftovers，避免应用页被误判为残留。
+    var reviewScope: ReviewScope? = nil
 
     init() {}
 

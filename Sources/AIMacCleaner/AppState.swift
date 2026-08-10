@@ -17,6 +17,9 @@ final class AppState: ObservableObject {
     /// 深链时残留页所处筛选档的来源（.all 时为 nil）。AskAIView 消费 pendingPrompt 时一并读取，
     /// 用于让 `review_plan` 只复核该来源，消费后置 nil。
     @Published var askAIPendingLeftoverScope: LeftoverSource?
+    /// 深链时由入口注入的强制复核范围：`.apps` 或 `.leftovers`。
+    /// 非 nil 时 `review_plan` 不再让模型自行选择 scope，消费后置 nil。
+    @Published var askAIPendingReviewScope: ReviewScope?
     @Published var lastError: String?
     @Published var lastResult: RemovalExecutor.Outcome?
     /// 本次扫描锁定到的 app（关键词模式下为 nil）
@@ -512,9 +515,10 @@ final class AppState: ObservableObject {
     ///
     /// - Parameter scope: 残留页深链时传入的当前筛选档来源（`.all` 传 nil）。
     ///   非 nil 时 Agent 只复核该来源，实现「看哪一档就判断哪一档」。
-    func jumpToAskAI(_ prompt: String, scope: LeftoverSource? = nil) {
+    func jumpToAskAI(_ prompt: String, leftoverScope: LeftoverSource? = nil, reviewScope: ReviewScope? = nil) {
         askAIPendingPrompt = prompt
-        askAIPendingLeftoverScope = scope
+        askAIPendingLeftoverScope = leftoverScope
+        askAIPendingReviewScope = reviewScope
         selectedTab = .askAI
     }
 

@@ -24,7 +24,9 @@ struct ReviewPlanSkill: AgentSkill {
     )
 
     func invoke(_ args: SkillArgs, session: AgentSession) async -> SkillResult {
-        let scope = args.string("scope", default: "apps").lowercased()
+        // 深链时由 UI 入口强制注入复核范围，避免模型把应用清单误判为残留。
+        // 若 session 没注入（例如 CLI 直接调用），再退回到模型传入的 scope 参数。
+        let scope = session.reviewScope?.rawValue ?? args.string("scope", default: "apps").lowercased()
 
         if scope == "leftovers" {
             // 优先复核用户已勾选的残留项；没有勾选时才按来源约束/全部判断。

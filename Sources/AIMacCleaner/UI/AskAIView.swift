@@ -30,6 +30,9 @@ struct AskAIView: View {
     /// 从残留页深链进来时携带的来源约束（看哪一档就判断哪一档）。
     /// 首次发送时交给 Agent session，发送后置 nil。
     @State private var pendingLeftoverScope: LeftoverSource?
+    /// 从应用 / 残留 / 进程页深链进来时携带的强制复核范围。
+    /// 非 nil 时让 `review_plan` 直接按 `.apps` 或 `.leftovers` 执行，不依赖模型推断。
+    @State private var pendingReviewScope: ReviewScope?
     // 注意：这里用普通 @State 而非 @FocusState。本输入框是自定义 NSViewRepresentable，
     // 焦点完全由 ComposerTextView 的 makeFirstResponder 分支手动管理；若用 @FocusState
     // 而没有配套 .focused() modifier，SwiftUI 的 focus 协调器会在每次输入重绘时插手、
@@ -554,9 +557,11 @@ struct AskAIView: View {
     private func consumePendingPrompt() {
         guard let prompt = state.askAIPendingPrompt else { return }
         state.askAIPendingPrompt = nil
-        // 一并消费来源约束（残留页当前档）；首次发送时约束给 Agent，之后置 nil。
+        // 一并消费来源约束（残留页当前档）和强制复核范围；首次发送时约束给 Agent，之后置 nil。
         pendingLeftoverScope = state.askAIPendingLeftoverScope
         state.askAIPendingLeftoverScope = nil
+        pendingReviewScope = state.askAIPendingReviewScope
+        state.askAIPendingReviewScope = nil
         inputFocused = true
         // 延迟一帧再填文本：与建议词按钮一致——先让焦点落进输入框再写，避免光标丢失。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { input = prompt }
@@ -593,6 +598,8 @@ struct AskAIView: View {
         // 深链来源约束：本次发送用掉后置 nil，避免后续追问也带上旧范围。
         let scope = pendingLeftoverScope
         pendingLeftoverScope = nil
+        let reviewScope = pendingReviewScope
+        pendingReviewScope = nil
         // ⚠️ history 必须在 appendChat(.me) **之前**取：
         // AgentRuntime 内部会自己 append 一条 (role: "user", content: goal)，
         // 顺序调换会让本轮问题被发两遍。
@@ -607,7 +614,7 @@ struct AskAIView: View {
 
         Task {
             let runtime = AgentRuntime(config: state.activeConfig, bridge: bridge, memory: memory)
-            let run = await runtime.run(goal: trimmed, history: history, session: bridge.makeSession(leftoverScope: scope))
+            let run = await runtime.run(goal: trimmed, history: history, session: bridge.makeSession(leftoverScope: scope, reviewScope: reviewScope))
 
             var body = run.answer
             if let note = run.note { body += "\n\n" + note }

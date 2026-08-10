@@ -71,10 +71,14 @@ final class AgentBridge: ObservableObject {
     /// 应用清单走 `hostArtifacts`、残留清单走 `lastLeftovers`，两者都从当前界面注入，
     /// 这样从任一 tab 深链进来都能让 Agent 直接复核「眼前这份」，不必先重新扫描。
     ///
-    /// - Parameter leftoverScope: 残留深链时传入的「当前筛选档来源」。
-    ///   `nil` 表示判断全部；非 nil（如 `.aiTool`）让 `review_plan` 只复核该类，
-    ///   实现「看哪一档就判断哪一档」。
-    func makeSession(leftoverScope: LeftoverSource? = nil) -> AgentSession {
+    /// - Parameters:
+    ///   - leftoverScope: 残留深链时传入的「当前筛选档来源」。
+    ///     `nil` 表示判断全部；非 nil（如 `.aiTool`）让 `review_plan` 只复核该类，
+    ///     实现「看哪一档就判断哪一档」。
+    ///   - reviewScope: 强制复核范围。非 nil 时 `review_plan` 不再让模型猜
+    ///     apps / leftovers，而是直接按此执行，避免应用页被误判为残留。
+    func makeSession(leftoverScope: LeftoverSource? = nil,
+                     reviewScope: ReviewScope? = nil) -> AgentSession {
         let session = AgentSession()
         session.hostArtifacts = state?.artifacts ?? []
         session.lastLeftovers = state?.leftoverGroups ?? []
@@ -84,6 +88,7 @@ final class AgentBridge: ObservableObject {
             group.artifacts.filter { $0.selected }
         } ?? []
         session.reviewLeftoverFilter = leftoverScope
+        session.reviewScope = reviewScope
         return session
     }
 }

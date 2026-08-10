@@ -185,8 +185,9 @@ struct LeftoversView: View {
                 // 复用 review_plan skill 回写勾选与理由，过程在对话里可见、可追加追问。
                 // scope 跟随当前档：看哪一档就判断哪一档，不强制全量判断。
                 // 如果用户已经勾选了若干项，问句会明确点名这些项，让 AI 只复核它们。
+                // reviewScope: .leftovers 强制让 review_plan 走 leftovers 分支。
                 let (prompt, scope) = reviewPrompt(for: state.leftoverFilter)
-                state.jumpToAskAI(prompt, scope: scope)
+                state.jumpToAskAI(prompt, leftoverScope: scope, reviewScope: .leftovers)
             },
             onUndo: {
                 state.undoAIReview()
