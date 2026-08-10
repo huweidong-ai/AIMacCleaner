@@ -50,8 +50,8 @@ struct MacToolkitSheet: View {
             footer
         }
         .frame(width: 560, height: 600)
-        .background(Theme.bgSurface)
         .blanketDismiss { dismiss() }
+        .presentationBackground(Theme.bgSurface)
         .frame(width: 640, height: 680)
     }
 

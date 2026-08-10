@@ -30,7 +30,6 @@ struct MemorySheet: View {
             }
         }
         .frame(width: 580, height: 480)
-        .background(Theme.bgSurface)
         .confirmationDialog(L10n.t("清空全部记忆？", "Clear all memories?"),
                             isPresented: $showClearConfirm) {
             Button(L10n.t("全部删除", "Delete all"), role: .destructive) {
@@ -43,6 +42,7 @@ struct MemorySheet: View {
                         "This can't be undone. Your chat history is unaffected."))
         }
         .blanketDismiss { dismiss() }
+        .presentationBackground(Theme.bgSurface)
         .frame(width: 660, height: 560)
     }
 

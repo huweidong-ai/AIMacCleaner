@@ -98,8 +98,8 @@ struct AboutSheet: View {
             }
         }
         .frame(width: 440, height: 460)
-        .background(Theme.bgSurface)
         .blanketDismiss { dismiss() }
+        .presentationBackground(Theme.bgSurface)
         .frame(width: 520, height: 540)
     }
 

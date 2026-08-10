@@ -316,8 +316,8 @@ struct HistorySheet: View {
             }
         }
         .frame(width: 760, height: 520)
-        .background(Theme.bgSurface)
         .blanketDismiss { dismiss() }
+        .presentationBackground(Theme.bgSurface)
         .frame(width: 840, height: 600)
     }
 }
