@@ -78,6 +78,11 @@ final class AgentBridge: ObservableObject {
         let session = AgentSession()
         session.hostArtifacts = state?.artifacts ?? []
         session.lastLeftovers = state?.leftoverGroups ?? []
+        // 把用户在残留页主动勾选的项单独拎出来：点「让 AI 帮我判断」时，
+        // AI 应该只复核这些已勾选项；没有勾选时才退回复核当前范围全部。
+        session.reviewableLeftovers = state?.leftoverGroups.flatMap { group in
+            group.artifacts.filter { $0.selected }
+        } ?? []
         session.reviewLeftoverFilter = leftoverScope
         return session
     }

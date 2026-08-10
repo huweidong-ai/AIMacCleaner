@@ -305,7 +305,9 @@ struct LLMBrain: AgentBrain {
                直接 scan_app，然后比大小给出结论。
             4. 你没有删除权限。涉及卸载就用 plan_uninstall 出计划，然后请用户在界面上确认。
             5. 已经拿到足够信息就直接回答，不要重复调用同一个 skill。
-            6. \(zhRule)
+            6. 用户让你复核「当前清单」时，清单已经通过会话注入（应用清单走 review_plan(scope: apps)，残留清单走 review_plan(scope: leftovers)）。
+               直接调用 review_plan，不要再 scan_app / scan_leftovers。
+            7. \(zhRule)
             """, """
             You are the cleanup agent for AI Mac Cleaner, a macOS deep-uninstall tool running on the user's own Mac.
 
@@ -326,7 +328,9 @@ struct LLMBrain: AgentBrain {
                and compare their sizes.
             4. You cannot delete anything. For uninstalls, produce a plan with plan_uninstall and ask the user to confirm in the UI.
             5. Once you have enough information, answer — don't re-call the same skill.
-            6. \(enRule)
+            6. When the user asks you to review the "current list", the list is already injected into the session (apps via review_plan(scope: apps), leftovers via review_plan(scope: leftovers)).
+               Call review_plan directly; do not scan_app or scan_leftovers again.
+            7. \(enRule)
             """)
         let block = memory.trimmingCharacters(in: .whitespacesAndNewlines)
         return block.isEmpty ? base : base + "\n" + memory

@@ -215,6 +215,9 @@ final class AgentSession: @unchecked Sendable {
     /// 非 nil 时 `review_plan` 只复核该类残留（如 .aiTool），nil 表示判断全部。
     /// 这样「我在看哪一档，AI 就帮我判断哪一档」，既不重复扫、也不会被迫全量判断。
     var reviewLeftoverFilter: LeftoverSource? = nil
+    /// 用户在残留页主动勾选后点「让 AI 帮我判断」时传入的清单。
+    /// `review_plan(scope: leftovers)` 优先复核这些项，而不是当前范围的全部残留。
+    var reviewableLeftovers: [Artifact] = []
     /// 宿主注入的「当前界面上的清单」。GUI 打开时是应用页的实时勾选状态，
     /// CLI 下为空 —— skill 通过它实现「复核我当前的删除清单」。
     var hostArtifacts: [Artifact] = []

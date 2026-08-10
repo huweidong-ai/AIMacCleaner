@@ -184,7 +184,8 @@ struct LeftoversView: View {
                 // 不再原地跑判断，改为深链到「问 AI」页：预填诊断问句（按当前筛选档限定范围），
                 // 复用 review_plan skill 回写勾选与理由，过程在对话里可见、可追加追问。
                 // scope 跟随当前档：看哪一档就判断哪一档，不强制全量判断。
-                let (prompt, scope) = Self.reviewPrompt(for: state.leftoverFilter)
+                // 如果用户已经勾选了若干项，问句会明确点名这些项，让 AI 只复核它们。
+                let (prompt, scope) = reviewPrompt(for: state.leftoverFilter)
                 state.jumpToAskAI(prompt, scope: scope)
             },
             onUndo: {
@@ -199,8 +200,16 @@ struct LeftoversView: View {
     ///
     /// 关键：问句里直接点名当前档（如「AI 编程工具残留」），`scope` 也一并传下去，
     /// 让 `review_plan` 只复核这一类 —— 用户看哪一档，AI 就判断哪一档。
-    private static func reviewPrompt(for filter: AppState.LeftoverFilter) -> (prompt: String, scope: LeftoverSource?) {
+    /// 如果用户已经勾选了若干项，问句会明确点名「我已勾选 X 项」，引导 AI 直接复核这些项。
+    private func reviewPrompt(for filter: AppState.LeftoverFilter) -> (prompt: String, scope: LeftoverSource?) {
         let scope = filter.source
+        let groups: [LeftoverGroup] = {
+            guard let src = filter.source else { return state.leftoverGroups }
+            return state.leftoverGroups.filter { $0.source == src }
+        }()
+        let selected = groups.flatMap { $0.artifacts.filter { $0.selected } }
+        let selectedSize = selected.reduce(Int64(0)) { $0 + $1.size }
+
         let subject: String
         switch filter {
         case .all:
@@ -216,9 +225,17 @@ struct LeftoversView: View {
             subject = L10n.t("当前列出的 **开发工具缓存**",
                              "the **dev-tool caches** currently listed")
         }
-        let prompt = L10n.t(
-            "请帮我复核\(subject)，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。如果方便，请直接帮我标记出来。",
-            "Please review \(subject). For each, tell me which are safe to delete and which are better kept, with the reason. If you can, go ahead and mark them.")
+
+        let prompt: String
+        if !selected.isEmpty {
+            prompt = L10n.t(
+                "我已勾选 \(subject) 中的 \(selected.count) 项（共 \(SizeFormat.human(selectedSize))），请直接调用 review_plan(scope: leftovers) 复核这些已勾选项，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。",
+                "I have selected \(selected.count) items (\(SizeFormat.human(selectedSize))) from \(subject). Please call review_plan(scope: leftovers) directly to review only these selected items, tell me which are safe to delete and which are better kept, with the reason.")
+        } else {
+            prompt = L10n.t(
+                "请帮我复核\(subject)，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。如果方便，请直接帮我标记出来。",
+                "Please review \(subject). For each, tell me which are safe to delete and which are better kept, with the reason. If you can, go ahead and mark them.")
+        }
         return (prompt, scope)
     }
 
