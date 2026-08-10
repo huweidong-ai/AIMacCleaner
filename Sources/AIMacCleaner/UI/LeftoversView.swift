@@ -227,15 +227,20 @@ struct LeftoversView: View {
                              "the **dev-tool caches** currently listed")
         }
 
+        // 把清单直接写进问句：模型看不到 session 注入，必须显式给清单，
+        // 否则它不知道具体路径，会重复扫描或反问用户。
+        let targetArtifacts = !selected.isEmpty ? selected : groups.flatMap(\.artifacts)
+        let list = AgentFormat.promptList(targetArtifacts)
+
         let prompt: String
         if !selected.isEmpty {
             prompt = L10n.t(
-                "我已勾选 \(subject) 中的 \(selected.count) 项（共 \(SizeFormat.human(selectedSize))），请直接调用 review_plan(scope: leftovers) 复核这些已勾选项，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。",
-                "I have selected \(selected.count) items (\(SizeFormat.human(selectedSize))) from \(subject). Please call review_plan(scope: leftovers) directly to review only these selected items, tell me which are safe to delete and which are better kept, with the reason.")
+                "我已勾选 \(subject) 中的 \(selected.count) 项（共 \(SizeFormat.human(selectedSize))）。\n\(list)\n\n请直接调用 review_plan(scope: leftovers) 复核这些已勾选项，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。清单已经给出，不要重新扫描。",
+                "I have selected \(selected.count) items (\(SizeFormat.human(selectedSize))) from \(subject).\n\(list)\n\nPlease call review_plan(scope: leftovers) directly to review only these selected items. For each, tell me which are safe to delete and which are better kept, with the reason. The list is already provided — do not scan again.")
         } else {
             prompt = L10n.t(
-                "请帮我复核\(subject)，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。如果方便，请直接帮我标记出来。",
-                "Please review \(subject). For each, tell me which are safe to delete and which are better kept, with the reason. If you can, go ahead and mark them.")
+                "请帮我复核\(subject)。\n\(list)\n\n逐项判断哪些可以放心删除、哪些建议保留，并说明原因。清单已经给出，不要重新扫描，请直接调用 review_plan(scope: leftovers) 帮我标记出来。",
+                "Please review \(subject).\n\(list)\n\nFor each, tell me which are safe to delete and which are better kept, with the reason. The list is already provided — do not scan again; please call review_plan(scope: leftovers) directly to mark them.")
         }
         return (prompt, scope)
     }

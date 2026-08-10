@@ -343,11 +343,14 @@ struct AppsView: View {
                 // 复核范围是「当前这个应用扫出来的全部项」，与右侧勾选状态无关——
                 // 勾选只是为了最后卸载时决定删哪些，不该缩小 AI 的复核视野。
                 // reviewScope: .apps 强制让 review_plan 走 apps 分支，避免被误判成残留。
+                // 同时把当前清单直接写进问句：模型看不到 session 注入，必须显式给清单，
+                // 否则它不知道具体路径，会重复扫描或反问用户。
                 let appName = state.matchedApp?.displayName
                     ?? (state.searchText.isEmpty ? L10n.t("当前应用", "the current app") : state.searchText)
+                let list = AgentFormat.promptList(state.artifacts)
                 state.jumpToAskAI(L10n.t(
-                    "请帮我复核已安装应用 \(appName) 扫描出来的全部清单，逐项说明每一项是否可以安全删除、还是建议保留，并给出理由。如果方便，请直接调用 review_plan(scope: apps) 帮我标记出来。",
-                    "Please review the full list scanned for the installed app \(appName). For each item, say whether it's safe to delete or better kept, with the reason. If you can, call review_plan(scope: apps) to mark them."),
+                    "请帮我复核已安装应用 \(appName) 扫描出来的全部清单。\n\(list)\n\n逐项说明每一项是否可以安全删除、还是建议保留，并给出理由。清单已经给出，不要重新扫描，请直接调用 review_plan(scope: apps) 帮我标记出来。",
+                    "Please review the full list scanned for the installed app \(appName).\n\(list)\n\nFor each item, say whether it's safe to delete or better kept, with the reason. The list is already provided — do not scan again; please call review_plan(scope: apps) directly to mark them."),
                     reviewScope: .apps)
             },
             onUndo: {

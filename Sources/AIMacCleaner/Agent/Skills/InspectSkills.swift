@@ -301,4 +301,26 @@ enum AgentFormat {
             : ""
         return L10n.t("最大的几项：\n", "Largest items:\n") + rows.joined(separator: "\n") + more
     }
+
+    /// 把清单压成适合塞进用户提示词的短列表，让模型「看得见」当前清单，
+    /// 避免它因为不知道具体路径而重复扫描或反问用户。
+    ///
+    /// - Parameter pathLength: 单条路径最大字符数，超过则从中间截断。
+    static func promptList(_ artifacts: [Artifact], limit: Int = 30, pathLength: Int = 80) -> String {
+        guard !artifacts.isEmpty else { return L10n.t("（当前清单为空）", "(the current list is empty)") }
+        let totalSize = artifacts.reduce(Int64(0)) { $0 + $1.size }
+        var lines: [String] = []
+        for (idx, a) in artifacts.prefix(limit).enumerated() {
+            let path = a.path.count > pathLength
+                ? String(a.path.prefix(pathLength / 2)) + "…" + String(a.path.suffix(pathLength / 2))
+                : a.path
+            lines.append("  \(idx + 1). [\(a.category.rawValue)] \(path) — \(SizeFormat.human(a.size)) — \(a.risk.label)")
+        }
+        let header = L10n.t("当前清单（共 \(artifacts.count) 项 / \(SizeFormat.human(totalSize))）：",
+                            "Current list (\(artifacts.count) items / \(SizeFormat.human(totalSize))):")
+        let more = artifacts.count > limit
+            ? L10n.t("\n  …还有 \(artifacts.count - limit) 项未列出", "\n  …and \(artifacts.count - limit) more not listed")
+            : ""
+        return header + "\n" + lines.joined(separator: "\n") + more
+    }
 }
