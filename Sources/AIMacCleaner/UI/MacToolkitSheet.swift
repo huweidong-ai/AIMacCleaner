@@ -189,10 +189,10 @@ enum MacToolCatalog {
                     description: L10n.t("打开系统截图与录屏工具条，可定时、可录屏",
                                         "Open the system toolbar: timed capture and screen recording")),
             MacTool(category: "screenshot",
-                    name: L10n.t("存到剪贴板", "Copy to clipboard"),
-                    shortcuts: ["⌃"],
-                    description: L10n.t("截图时按住 Control 键，图像进入剪贴板而非存文件",
-                                        "Hold Control while capturing to copy to clipboard instead of saving")),
+                    name: L10n.t("截图存到剪贴板", "Capture to clipboard"),
+                    shortcuts: ["⌘⇧⌃4", "⌘⇧⌃3"],
+                    description: L10n.t("在截图快捷键上多按 Control：⌘⇧⌃4 选区、⌘⇧⌃3 全屏，图片进剪贴板而非存成文件",
+                                        "Add Control to the capture shortcut: ⌘⇧⌃4 selects an area, ⌘⇧⌃3 captures the screen — the image goes to the clipboard instead of a file")),
 
             // 窗口与桌面
             MacTool(category: "window",
