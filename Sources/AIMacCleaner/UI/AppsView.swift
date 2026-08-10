@@ -340,9 +340,13 @@ struct AppsView: View {
                 }
                 // 不再原地跑复核，改为深链到「问 AI」页：预填诊断问句，复用 review_plan
                 // skill 回写勾选与理由，过程在对话里可见、可追加追问。
+                // 复核范围是「当前这个应用扫出来的全部项」，与右侧勾选状态无关——
+                // 勾选只是为了最后卸载时决定删哪些，不该缩小 AI 的复核视野。
+                let appName = state.matchedApp?.displayName
+                    ?? (state.searchText.isEmpty ? L10n.t("当前应用", "the current app") : state.searchText)
                 state.jumpToAskAI(L10n.t(
-                    "请帮我复核当前选中的应用清单，逐项判断哪些可以安全卸载、哪些建议保留，并说明原因。如果方便，请直接帮我标记出来。",
-                    "Please review the apps I currently have selected. For each, tell me which are safe to uninstall and which are better kept, with the reason. If you can, go ahead and mark them."))
+                    "请帮我复核 \(appName) 扫描出来的全部清单，逐项说明每一项是否可以安全删除、还是建议保留，并给出理由。如果方便，请直接调用 review_plan 帮我标记出来。",
+                    "Please review the full list scanned for \(appName). For each item, say whether it's safe to delete or better kept, with the reason. If you can, call review_plan to mark them."))
             },
             onUndo: {
                 state.undoAIReview()

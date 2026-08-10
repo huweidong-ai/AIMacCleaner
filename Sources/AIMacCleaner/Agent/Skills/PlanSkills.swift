@@ -98,19 +98,28 @@ struct ReviewPlanSkill: AgentSkill {
                 observation: L10n.t("模型没能返回有效结论，可稍后重试。",
                                     "The model didn't return a valid verdict; try again later."))
         }
-        guard !verdicts.isEmpty else {
-            let msg = L10n.t("复核完成：这份清单里没有发现明显不该删的项。仍建议自己扫一眼含用户数据的条目。",
-                             "Review done: nothing in this list stands out as must-keep. Still worth eyeballing the user-data items.")
+        let kept = artifacts.filter { verdicts[$0.id] != nil }
+        let deletable = artifacts.filter { verdicts[$0.id] == nil }
+        if kept.isEmpty {
+            let msg = L10n.t("复核完成：\(artifacts.count) 项均可安全删除，没有发现需要保留的项目。仍建议自己扫一眼含用户数据的条目。",
+                             "Review done: all \(artifacts.count) items are safe to delete; none stands out as must-keep. Still worth eyeballing the user-data items.")
             return SkillResult(ok: true, summary: msg, observation: msg,
                                effect: .reviewApps([:]), redirect: .apps)
         }
-        let summary = L10n.t("复核完成：\(verdicts.count) 项建议保留，已自动取消勾选。",
-                             "Review done: \(verdicts.count) items recommended to keep and now unchecked.")
-        let detail = artifacts.filter { verdicts[$0.id] != nil }.prefix(12)
+        // 明确分两类说清楚：建议保留的（已自动取消勾选）+ 可安全删除的（保持勾选），
+        // 避免只列保留项让用户去反推哪些能删。
+        let summary = L10n.t("复核完成：\(kept.count) 项建议保留（已自动取消勾选），其余 \(deletable.count) 项可安全删除。",
+                             "Review done: \(kept.count) recommended to keep (auto-unchecked), the other \(deletable.count) are safe to delete.")
+        let keepDetail = kept.prefix(12)
             .map { "  ✗ \($0.path) — \(verdicts[$0.id] ?? "")" }
             .joined(separator: "\n")
+        let delDetail = deletable.prefix(8)
+            .map { "  ✓ \($0.path)" }
+            .joined(separator: "\n")
+        let obs = summary + "\n" + L10n.t("建议保留：", "Keep:") + "\n" + keepDetail
+                  + (delDetail.isEmpty ? "" : "\n" + L10n.t("可安全删除：", "Safe to delete:") + "\n" + delDetail)
         return SkillResult(ok: true, summary: summary,
-                           observation: summary + "\n" + detail,
+                           observation: obs,
                            effect: .reviewApps(verdicts), redirect: .apps)
     }
 }
