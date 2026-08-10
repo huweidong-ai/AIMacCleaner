@@ -518,29 +518,20 @@ final class AppState: ObservableObject {
         selectedTab = .askAI
     }
 
-    /// 对应用页当前扫描结果执行 AI 复核：取消危险项勾选并写入 aiVerdict。
-    /// 返回 true = 模型已响应并应用结论；false = 未配置模型或调用失败（调用方应提示）。
-    @discardableResult
-    func aiReviewApps() async -> Bool {
-        guard let cfg = modelStore.active else { return false }
-        let verdicts = await AIJury.reviewApps(artifacts, config: cfg)
-        guard let verdicts else { return false }
+    /// 把模型对应用清单的复核结论落到界面：被判定为「建议保留」的项取消勾选并写入理由。
+    /// 这是 SkillEffect.reviewApps 的落地点，**不得在此再次调用模型**。
+    func applyAIReviewApps(verdicts: [UUID: String]) {
         for i in artifacts.indices {
             if let reason = verdicts[artifacts[i].id] {
                 artifacts[i].aiVerdict = .keep(reason: reason)
                 artifacts[i].selected = false
             }
         }
-        return true
     }
 
-    /// 对残留页当前结果执行 AI 复核：勾选安全项并写入 aiVerdict。
-    @discardableResult
-    func aiReviewLeftovers() async -> Bool {
-        guard let cfg = modelStore.active else { return false }
-        let all = leftoverGroups.flatMap(\.artifacts)
-        let verdicts = await AIJury.reviewLeftovers(all, config: cfg)
-        guard let verdicts else { return false }
+    /// 把模型对残留清单的复核结论落到界面：被判定为「可安全删除」的项勾选并写入理由。
+    /// 这是 SkillEffect.reviewLeftovers 的落地点，**不得在此再次调用模型**。
+    func applyAIReviewLeftovers(verdicts: [UUID: String]) {
         for gi in leftoverGroups.indices {
             for ai in leftoverGroups[gi].artifacts.indices {
                 let id = leftoverGroups[gi].artifacts[ai].id
@@ -550,7 +541,6 @@ final class AppState: ObservableObject {
                 }
             }
         }
-        return true
     }
 
     /// 撤销 AI 复核结论，恢复默认选中状态。

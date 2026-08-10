@@ -59,10 +59,10 @@ final class AgentBridge: ObservableObject {
             state.applyLeftovers(groups)
         case .processes(let list):
             state.applyProcesses(list)
-        case .reviewApps:
-            await state.aiReviewApps()
-        case .reviewLeftovers:
-            await state.aiReviewLeftovers()
+        case .reviewApps(let verdicts):
+            state.applyAIReviewApps(verdicts: verdicts)
+        case .reviewLeftovers(let verdicts):
+            state.applyAIReviewLeftovers(verdicts: verdicts)
         }
     }
 

@@ -75,7 +75,7 @@ struct ReviewPlanSkill: AgentSkill {
                 .joined(separator: "\n")
             return SkillResult(ok: true, summary: summary,
                                observation: summary + (detail.isEmpty ? "" : "\n" + detail),
-                               effect: .reviewLeftovers, redirect: .leftovers)
+                               effect: .reviewLeftovers(verdicts), redirect: .leftovers)
         }
 
         let artifacts = session.reviewableArtifacts
@@ -102,7 +102,7 @@ struct ReviewPlanSkill: AgentSkill {
             let msg = L10n.t("复核完成：这份清单里没有发现明显不该删的项。仍建议自己扫一眼含用户数据的条目。",
                              "Review done: nothing in this list stands out as must-keep. Still worth eyeballing the user-data items.")
             return SkillResult(ok: true, summary: msg, observation: msg,
-                               effect: .reviewApps, redirect: .apps)
+                               effect: .reviewApps([:]), redirect: .apps)
         }
         let summary = L10n.t("复核完成：\(verdicts.count) 项建议保留，已自动取消勾选。",
                              "Review done: \(verdicts.count) items recommended to keep and now unchecked.")
@@ -111,7 +111,7 @@ struct ReviewPlanSkill: AgentSkill {
             .joined(separator: "\n")
         return SkillResult(ok: true, summary: summary,
                            observation: summary + "\n" + detail,
-                           effect: .reviewApps, redirect: .apps)
+                           effect: .reviewApps(verdicts), redirect: .apps)
     }
 }
 

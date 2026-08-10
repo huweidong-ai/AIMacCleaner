@@ -123,9 +123,11 @@ enum SkillEffect {
     case leftovers([LeftoverGroup])
     /// 进程快照。
     case processes([LiveProcess])
-    /// 对当前清单跑复核（宿主自己知道「当前清单」是什么）。
-    case reviewApps
-    case reviewLeftovers
+    /// 对当前应用清单跑复核。关联字典是模型判定的「建议保留项」理由（UUID -> reason），
+    /// 宿主直接按这个写 aiVerdict 与 selected，**禁止再调一次模型**。
+    case reviewApps([UUID: String])
+    /// 对当前残留清单跑复核。关联字典是模型判定的「可安全删除项」理由（UUID -> reason）。
+    case reviewLeftovers([UUID: String])
 }
 
 /// skill 的执行结果。
