@@ -12,6 +12,8 @@ final class AppState: ObservableObject {
     @Published private(set) var isScanning: Bool = false
     @Published var artifacts: [Artifact] = []  // 可勾选编辑
     @Published var selectedTab: Tab = .askAI
+    /// 从应用 / 残留 / 进程页深链进入「问 AI」页时预填的问句；AskAIView 消费后置 nil。
+    @Published var askAIPendingPrompt: String?
     @Published var lastError: String?
     @Published var lastResult: RemovalExecutor.Outcome?
     /// 本次扫描锁定到的 app（关键词模式下为 nil）
@@ -500,6 +502,14 @@ final class AppState: ObservableObject {
     }
 
     // MARK: - AI 复核
+
+    /// 从应用 / 残留 / 进程页的「问 AI」入口深链到问 AI 页：写入预填问句并切到该 tab。
+    /// AskAIView 在 onAppear / onChange 时读取它、灌入输入框并聚焦，消费后置 nil。
+    /// 预填问句会引导 Agent 走 `review_plan` skill，结论通过 SkillEffect 回写勾选与理由。
+    func jumpToAskAI(_ prompt: String) {
+        askAIPendingPrompt = prompt
+        selectedTab = .askAI
+    }
 
     /// 对应用页当前扫描结果执行 AI 复核：取消危险项勾选并写入 aiVerdict。
     /// 返回 true = 模型已响应并应用结论；false = 未配置模型或调用失败（调用方应提示）。

@@ -99,7 +99,12 @@ struct AskAIView: View {
             composer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear { bridge.attach(state) }
+        .onAppear {
+            bridge.attach(state)
+            consumePendingPrompt()
+        }
+        // 已在问 AI 页时再从别的 tab 深链进来：selectedTab 没变，靠这个补捉。
+        .onChange(of: state.askAIPendingPrompt) { _, _ in consumePendingPrompt() }
         .sheet(isPresented: $showSettings) { AIModelSettingsSheet() }
         .sheet(isPresented: $showSkills) { SkillCatalogSheet() }
         .sheet(isPresented: $showMemory) { MemorySheet() }
@@ -541,6 +546,15 @@ struct AskAIView: View {
     }
 
     // MARK: - 发送
+
+    /// 从应用 / 残留 / 进程页深链进来时，把预填问句灌进输入框并聚焦，消费后置 nil。
+    private func consumePendingPrompt() {
+        guard let prompt = state.askAIPendingPrompt else { return }
+        state.askAIPendingPrompt = nil
+        inputFocused = true
+        // 延迟一帧再填文本：与建议词按钮一致——先让焦点落进输入框再写，避免光标丢失。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { input = prompt }
+    }
 
     private func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -68,9 +68,12 @@ final class AgentBridge: ObservableObject {
 
     /// 把界面上「当前这份清单」交给会话 —— 用户说「复核我现在选的这些」时，
     /// 复核的必须是他眼前的勾选状态，不是 Agent 自己扫出来的另一份。
+    /// 应用清单走 `hostArtifacts`、残留清单走 `lastLeftovers`，两者都从当前界面注入，
+    /// 这样从任一 tab 深链进来都能让 Agent 直接复核「眼前这份」，不必先重新扫描。
     func makeSession() -> AgentSession {
         let session = AgentSession()
         session.hostArtifacts = state?.artifacts ?? []
+        session.lastLeftovers = state?.leftoverGroups ?? []
         return session
     }
 }

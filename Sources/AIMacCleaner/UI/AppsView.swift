@@ -338,11 +338,11 @@ struct AppsView: View {
                     aiPhase = .needsConfig
                     return
                 }
-                aiPhase = .running
-                Task {
-                    let ok = await state.aiReviewApps()
-                    await MainActor.run { aiPhase = ok ? .done : .failed }
-                }
+                // 不再原地跑复核，改为深链到「问 AI」页：预填诊断问句，复用 review_plan
+                // skill 回写勾选与理由，过程在对话里可见、可追加追问。
+                state.jumpToAskAI(L10n.t(
+                    "请帮我复核当前选中的应用清单，逐项判断哪些可以安全卸载、哪些建议保留，并说明原因。如果方便，请直接帮我标记出来。",
+                    "Please review the apps I currently have selected. For each, tell me which are safe to uninstall and which are better kept, with the reason. If you can, go ahead and mark them."))
             },
             onUndo: {
                 state.undoAIReview()

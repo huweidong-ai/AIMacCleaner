@@ -10,7 +10,6 @@ struct ProcessesView: View {
     @State private var showKillConfirm = false
     @State private var showKillResult = false
     @State private var killResultCount: Int = 0
-    @State private var juryRunning = false
     @State private var showSettings = false
     @State private var searchText = ""
 
@@ -203,11 +202,12 @@ struct ProcessesView: View {
                     showSettings = true
                     return
                 }
-                juryRunning = true
-                Task {
-                    let ok = await state.aiJudgeProcesses(state.selectedProcesses)
-                    await MainActor.run { juryRunning = false; _ = ok }
-                }
+                // 改为深链到「问 AI」页：预填诊断问句。注：当前 Agent 没有结构化的
+                // 进程复核 skill，所以这一路是 AI 的文字建议，不会自动改勾选
+                // （应用 / 残留页因有 review_plan skill 能做到自动回写）。
+                state.jumpToAskAI(L10n.t(
+                    "请帮我评估当前勾选的进程，逐项判断哪些可以安全结束、哪些建议保留，并说明原因。",
+                    "Please assess the processes I currently have selected. For each, tell me which are safe to end and which are better kept, with the reason."))
             },
             onUndo: {
                 state.clearProcessVerdicts()
