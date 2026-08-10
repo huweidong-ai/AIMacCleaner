@@ -34,6 +34,14 @@ struct ProcessScanner: Scanner {
                 // 只保留可执行文件路径。Electron/Chromium 系的 app（微信、VS Code）
                 // 会派生一堆 helper，每条命令行长达数百字符，全打出来根本没法读。
                 let executable = executablePath(from: fullCommand)
+
+                // pgrep -f 扫的是整行命令，会把「命令行里含目标关键词但属于别的 app」的
+                // 进程也带进来。比如扫 GitHub 时，Clash Verge 的 bundle id 是
+                // io.github.clash-verge-rev，命令行含 "github"，pgrep 就会命中
+                // verge-mihomo。用 ScanQuery 的匹配/排他逻辑再滤一遍：
+                // 可执行文件路径或整行命令至少有一处命中本 app、且不被更长外来名覆盖。
+                guard query.matches(executable) || query.matches(fullCommand) else { continue }
+
                 if pidsByExecutable[executable] == nil {
                     executableOrder.append(executable)
                 }
