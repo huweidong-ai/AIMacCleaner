@@ -131,10 +131,9 @@ struct ResultSheet: View {
             }
         }
         .frame(width: 560, height: 460)
+        .background(Theme.bgSurface)
         .overlay(alignment: .bottom) { toastOverlay }
         .animation(.easeOut(duration: 0.18), value: toast)
-        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
         .blanketDismiss { dismiss() }
         .frame(width: 640, height: 540)
     }
@@ -626,8 +625,7 @@ struct FeedbackPreviewSheet: View {
             }
         }
         .frame(width: 520, height: 460)
-        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .background(Theme.bgSurface)
         .blanketDismiss { dismiss() }
         .frame(width: 600, height: 540)
     }
@@ -775,8 +773,7 @@ struct FeedbackHistorySheet: View {
         } message: {
             Text(L10n.t("这将删除所有本地反馈记录，且不可恢复。", "This will delete all local feedback records. This cannot be undone."))
         }
-        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .background(Theme.bgSurface)
         .blanketDismiss { dismiss() }
         .frame(width: 700, height: 540)
     }

@@ -50,8 +50,7 @@ struct MacToolkitSheet: View {
             footer
         }
         .frame(width: 560, height: 600)
-        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .background(Theme.bgSurface)
         .blanketDismiss { dismiss() }
         .frame(width: 640, height: 680)
     }

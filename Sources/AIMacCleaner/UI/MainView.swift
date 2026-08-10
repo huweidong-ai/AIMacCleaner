@@ -316,8 +316,7 @@ struct HistorySheet: View {
             }
         }
         .frame(width: 760, height: 520)
-        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .background(Theme.bgSurface)
         .blanketDismiss { dismiss() }
         .frame(width: 840, height: 600)
     }
