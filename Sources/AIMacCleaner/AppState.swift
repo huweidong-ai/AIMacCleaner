@@ -14,6 +14,9 @@ final class AppState: ObservableObject {
     @Published var selectedTab: Tab = .askAI
     /// 从应用 / 残留 / 进程页深链进入「问 AI」页时预填的问句；AskAIView 消费后置 nil。
     @Published var askAIPendingPrompt: String?
+    /// 深链时残留页所处筛选档的来源（.all 时为 nil）。AskAIView 消费 pendingPrompt 时一并读取，
+    /// 用于让 `review_plan` 只复核该来源，消费后置 nil。
+    @Published var askAIPendingLeftoverScope: LeftoverSource?
     @Published var lastError: String?
     @Published var lastResult: RemovalExecutor.Outcome?
     /// 本次扫描锁定到的 app（关键词模式下为 nil）
@@ -506,8 +509,12 @@ final class AppState: ObservableObject {
     /// 从应用 / 残留 / 进程页的「问 AI」入口深链到问 AI 页：写入预填问句并切到该 tab。
     /// AskAIView 在 onAppear / onChange 时读取它、灌入输入框并聚焦，消费后置 nil。
     /// 预填问句会引导 Agent 走 `review_plan` skill，结论通过 SkillEffect 回写勾选与理由。
-    func jumpToAskAI(_ prompt: String) {
+    ///
+    /// - Parameter scope: 残留页深链时传入的当前筛选档来源（`.all` 传 nil）。
+    ///   非 nil 时 Agent 只复核该来源，实现「看哪一档就判断哪一档」。
+    func jumpToAskAI(_ prompt: String, scope: LeftoverSource? = nil) {
         askAIPendingPrompt = prompt
+        askAIPendingLeftoverScope = scope
         selectedTab = .askAI
     }
 

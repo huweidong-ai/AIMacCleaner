@@ -70,10 +70,15 @@ final class AgentBridge: ObservableObject {
     /// 复核的必须是他眼前的勾选状态，不是 Agent 自己扫出来的另一份。
     /// 应用清单走 `hostArtifacts`、残留清单走 `lastLeftovers`，两者都从当前界面注入，
     /// 这样从任一 tab 深链进来都能让 Agent 直接复核「眼前这份」，不必先重新扫描。
-    func makeSession() -> AgentSession {
+    ///
+    /// - Parameter leftoverScope: 残留深链时传入的「当前筛选档来源」。
+    ///   `nil` 表示判断全部；非 nil（如 `.aiTool`）让 `review_plan` 只复核该类，
+    ///   实现「看哪一档就判断哪一档」。
+    func makeSession(leftoverScope: LeftoverSource? = nil) -> AgentSession {
         let session = AgentSession()
         session.hostArtifacts = state?.artifacts ?? []
         session.lastLeftovers = state?.leftoverGroups ?? []
+        session.reviewLeftoverFilter = leftoverScope
         return session
     }
 }

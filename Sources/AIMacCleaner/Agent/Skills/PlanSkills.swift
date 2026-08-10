@@ -27,7 +27,12 @@ struct ReviewPlanSkill: AgentSkill {
         let scope = args.string("scope", default: "apps").lowercased()
 
         if scope == "leftovers" {
-            let all = session.lastLeftovers.flatMap(\.artifacts)
+            // 跟随深链来源约束：session.reviewLeftoverFilter 非 nil 时只复核该类，
+            // 否则判断全部。实现「看哪一档就判断哪一档」，避免被迫全量判断。
+            let source = session.reviewLeftoverFilter
+            let groups = source.map { s in session.lastLeftovers.filter { $0.source == s } }
+                          ?? session.lastLeftovers
+            let all = groups.flatMap(\.artifacts)
             guard !all.isEmpty else {
                 return .failure(L10n.t("还没有残留清单，请先调用 scan_leftovers。",
                                        "No leftovers list yet — call scan_leftovers first."))
@@ -47,8 +52,19 @@ struct ReviewPlanSkill: AgentSkill {
                     observation: L10n.t("模型没能返回有效结论，可稍后重试。",
                                         "The model didn't return a valid verdict; try again later."))
             }
-            let summary = L10n.t("复核完成：\(verdicts.count) 项判定为可安全删除，已自动勾选。",
-                                 "Review done: \(verdicts.count) items judged safe to remove and checked.")
+            // 范围说明：让用户一眼知道这次判的是哪一档。
+            let scopeNote: String = {
+                guard let s = source else {
+                    return L10n.t("全部残留", "all leftovers")
+                }
+                switch s {
+                case .orphan:   return L10n.t("无主残留", "orphaned leftovers")
+                case .aiTool:   return L10n.t("AI 编程工具残留", "AI coding-tool leftovers")
+                case .devCache: return L10n.t("开发工具缓存", "dev-tool caches")
+                }
+            }()
+            let summary = L10n.t("复核完成（\(scopeNote)）：\(verdicts.count) 项判定为可安全删除，已自动勾选。",
+                                 "Review done (\(scopeNote)): \(verdicts.count) items judged safe to remove and checked.")
             let detail = all.filter { verdicts[$0.id] != nil }.prefix(10)
                 .map { "  ✓ \($0.path) — \(verdicts[$0.id] ?? "")" }
                 .joined(separator: "\n")

@@ -211,6 +211,10 @@ final class AgentSession: @unchecked Sendable {
     var lastArtifacts: [Artifact] = []
     /// 上一次残留扫描结果。
     var lastLeftovers: [LeftoverGroup] = []
+    /// 残留深链时由「残留」页当前筛选档注入的来源约束：
+    /// 非 nil 时 `review_plan` 只复核该类残留（如 .aiTool），nil 表示判断全部。
+    /// 这样「我在看哪一档，AI 就帮我判断哪一档」，既不重复扫、也不会被迫全量判断。
+    var reviewLeftoverFilter: LeftoverSource? = nil
     /// 宿主注入的「当前界面上的清单」。GUI 打开时是应用页的实时勾选状态，
     /// CLI 下为空 —— skill 通过它实现「复核我当前的删除清单」。
     var hostArtifacts: [Artifact] = []

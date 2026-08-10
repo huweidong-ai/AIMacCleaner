@@ -181,11 +181,11 @@ struct LeftoversView: View {
                     aiPhase = .needsConfig
                     return
                 }
-                // 不再原地跑判断，改为深链到「问 AI」页：预填诊断问句，复用 review_plan
-                // skill 回写勾选与理由，过程在对话里可见、可追加追问。
-                state.jumpToAskAI(L10n.t(
-                    "请帮我复核当前列出的残留文件，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。如果方便，请直接帮我标记出来。",
-                    "Please review the leftover files currently listed. For each, tell me which are safe to delete and which are better kept, with the reason. If you can, go ahead and mark them."))
+                // 不再原地跑判断，改为深链到「问 AI」页：预填诊断问句（按当前筛选档限定范围），
+                // 复用 review_plan skill 回写勾选与理由，过程在对话里可见、可追加追问。
+                // scope 跟随当前档：看哪一档就判断哪一档，不强制全量判断。
+                let (prompt, scope) = Self.reviewPrompt(for: state.leftoverFilter)
+                state.jumpToAskAI(prompt, scope: scope)
             },
             onUndo: {
                 state.undoAIReview()
@@ -195,9 +195,35 @@ struct LeftoversView: View {
         )
     }
 
+    /// 按当前筛选档生成「让 AI 帮我判断」的预填问句与对应的来源约束。
+    ///
+    /// 关键：问句里直接点名当前档（如「AI 编程工具残留」），`scope` 也一并传下去，
+    /// 让 `review_plan` 只复核这一类 —— 用户看哪一档，AI 就判断哪一档。
+    private static func reviewPrompt(for filter: AppState.LeftoverFilter) -> (prompt: String, scope: LeftoverSource?) {
+        let scope = filter.source
+        let subject: String
+        switch filter {
+        case .all:
+            subject = L10n.t("当前列出的残留文件（含无主残留、AI 编程工具、开发缓存）",
+                             "the leftover files currently listed (orphaned, AI coding tools, and dev caches)")
+        case .orphan:
+            subject = L10n.t("当前列出的**无主残留**",
+                             "the **orphaned leftovers** currently listed")
+        case .aiTool:
+            subject = L10n.t("当前列出的 **AI 编程工具残留**",
+                             "the **AI coding-tool leftovers** currently listed")
+        case .devCache:
+            subject = L10n.t("当前列出的 **开发工具缓存**",
+                             "the **dev-tool caches** currently listed")
+        }
+        let prompt = L10n.t(
+            "请帮我复核\(subject)，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。如果方便，请直接帮我标记出来。",
+            "Please review \(subject). For each, tell me which are safe to delete and which are better kept, with the reason. If you can, go ahead and mark them.")
+        return (prompt, scope)
+    }
+
     /// 按当前阶段给出提示文案。
-    private var aiBarText: (String, String) {
-        switch aiPhase {
+    private var aiBarText: (String, String) {        switch aiPhase {
         case .done:
             return (L10n.t("AI 已判断完毕。", "AI is done."),
                     L10n.t("能放心删的已替你勾上，理由写在对应行下方；没勾的说明它也拿不准，请自己判断。",
