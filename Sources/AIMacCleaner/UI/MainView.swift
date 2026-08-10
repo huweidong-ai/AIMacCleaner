@@ -303,14 +303,22 @@ struct HistorySheet: View {
             HStack {
                 Label(L10n.t("卸载历史", "Uninstall history"), systemImage: "clock.arrow.circlepath")
                     .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button(L10n.t("关闭", "Close")) { dismiss() }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             Divider()
             HistoryView()
+            Divider()
+            SheetActionBar {
+                EmptyView()
+            } trailing: {
+                SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
+            }
         }
         .frame(width: 760, height: 520)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .blanketDismiss { dismiss() }
+        .frame(width: 840, height: 600)
     }
 }

@@ -22,6 +22,12 @@ struct MemorySheet: View {
             if state.memoryNotes.isEmpty { emptyState } else { list }
             Divider()
             composer
+            Divider()
+            SheetActionBar {
+                EmptyView()
+            } trailing: {
+                SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
+            }
         }
         .frame(width: 580, height: 480)
         .confirmationDialog(L10n.t("清空全部记忆？", "Clear all memories?"),
@@ -35,6 +41,10 @@ struct MemorySheet: View {
             Text(L10n.t("删除后不可恢复。对话记录不受影响。",
                         "This can't be undone. Your chat history is unaffected."))
         }
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .blanketDismiss { dismiss() }
+        .frame(width: 660, height: 560)
     }
 
     // MARK: - 头部
@@ -61,8 +71,6 @@ struct MemorySheet: View {
             }
             .buttonStyle(.plain)
             .help(L10n.t("在 Finder 中显示 memory.json", "Reveal memory.json in Finder"))
-            Button(L10n.t("关闭", "Close")) { dismiss() }
-                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

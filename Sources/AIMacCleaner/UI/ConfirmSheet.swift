@@ -108,14 +108,14 @@ struct ConfirmSheet: View {
             .padding(8)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
 
-            HStack {
+            SheetActionBar {
                 Button {
                     copyAllPaths()
                 } label: {
                     Label(L10n.t("复制全部路径", "Copy all paths"), systemImage: "doc.on.doc")
                 }
                 .controlSize(.small)
-                Spacer()
+            } trailing: {
                 Button(L10n.t("取消", "Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 // 卸载动作包含「直接删除」的不可逆部分，主按钮用红色强调。
@@ -132,6 +132,7 @@ struct ConfirmSheet: View {
         }
         .padding(20)
         .frame(width: 540)
+        .interactiveDismissDisabled(true)
         .overlay(alignment: .bottom) {
             if let toast {
                 HStack(spacing: 6) {

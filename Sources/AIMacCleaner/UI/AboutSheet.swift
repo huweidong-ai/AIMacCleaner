@@ -74,36 +74,34 @@ struct AboutSheet: View {
             Divider()
 
             // 底部：链接 + 关闭
-            HStack {
-                Button {
-                    openURL(repoURL)
-                } label: {
-                    Label(L10n.t("GitHub 仓库", "GitHub Repository"),
-                          systemImage: "link")
+            SheetActionBar {
+                HStack(spacing: 8) {
+                    Button {
+                        openURL(repoURL)
+                    } label: {
+                        Label(L10n.t("GitHub 仓库", "GitHub Repository"),
+                              systemImage: "link")
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(Theme.accent)
+                    Text(L10n.t("免费 · 开源 · 数据不出本机", "Free · Open source · Local only"))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
                 }
-                .controlSize(.small)
-                .buttonStyle(.borderless)
-                .foregroundStyle(Theme.accent)
-
-                Spacer()
-
-                Text(L10n.t("免费 · 开源 · 数据不出本机", "Free · Open source · Local only"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-
-                Spacer()
-
+            } trailing: {
                 Button(L10n.t("完成", "Done")) { dismiss() }
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.accent)
+                    .keyboardShortcut(.cancelAction)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Theme.bgSurface)
         }
         .frame(width: 440, height: 460)
-        .background(Theme.bgCanvas)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .blanketDismiss { dismiss() }
+        .frame(width: 520, height: 540)
     }
 
     private func capability(icon: String, title: String, desc: String) -> some View {

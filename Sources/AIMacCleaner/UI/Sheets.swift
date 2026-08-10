@@ -70,8 +70,6 @@ struct ResultSheet: View {
                 Label(display.title, systemImage: display.icon)
                     .font(.title2.bold())
                     .foregroundStyle(display.color)
-                Spacer()
-                Button(L10n.t("关闭", "Close")) { dismiss() }
             }
             .padding()
 
@@ -119,7 +117,7 @@ struct ResultSheet: View {
                     .padding()
             }
             Divider()
-            HStack {
+            SheetActionBar {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(output.joined(separator: "\n"), forType: .string)
@@ -128,14 +126,17 @@ struct ResultSheet: View {
                     Label(L10n.t("复制全部日志", "Copy full log"), systemImage: "doc.on.doc")
                 }
                 .controlSize(.small)
-                Spacer()
+            } trailing: {
+                SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
         }
         .frame(width: 560, height: 460)
         .overlay(alignment: .bottom) { toastOverlay }
         .animation(.easeOut(duration: 0.18), value: toast)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .blanketDismiss { dismiss() }
+        .frame(width: 640, height: 540)
     }
 
     private func statCard(value: String, label: String, tint: Color) -> some View {
@@ -221,6 +222,9 @@ struct FeedbackSheet: View {
     @State private var channel: Channel = .github
     @State private var includeDiagnostics = true
     @State private var showPreview = false
+    /// 用户是否已改动表单。关闭时若有未提交改动，先弹二次确认，避免误丢。
+    @State private var touched = false
+    @State private var showDiscard = false
 
     private static let repoIssueURL = "https://github.com/hwd8080-ai/AIMacCleaner/issues/new"
     private static let feedbackMail = "aimaccleaner@duck.com"
@@ -243,6 +247,7 @@ struct FeedbackSheet: View {
                     TextEditor(text: $note)
                         .font(.system(size: 12))
                         .frame(height: 76)
+                        .onChange(of: note) { _, _ in touched = true }
                         .padding(5)
                         .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.divider, lineWidth: 1))
@@ -260,6 +265,7 @@ struct FeedbackSheet: View {
                         }
                     }
                     .toggleStyle(.checkbox)
+                    .onChange(of: includeDiagnostics) { _, _ in touched = true }
                 }
                 .padding(16)
             }
@@ -279,6 +285,13 @@ struct FeedbackSheet: View {
             note = e.note
             channel = e.channel == "github" ? .github : .mail
             includeDiagnostics = false // 编辑时默认不再重新附带诊断，可手动改
+        }
+        .interactiveDismissDisabled(true)
+        .alert(L10n.t("放弃未提交的反馈？", "Discard feedback?"), isPresented: $showDiscard) {
+            Button(L10n.t("继续编辑", "Keep editing"), role: .cancel) {}
+            Button(L10n.t("放弃", "Discard"), role: .destructive) { dismiss() }
+        } message: {
+            Text(L10n.t("你填写的内容尚未提交，关闭后将丢失。", "Your draft will be lost if you close without sending."))
         }
     }
 
@@ -343,6 +356,7 @@ struct FeedbackSheet: View {
             ForEach(Reason.allCases) { r in
                 Button {
                     reason = r
+                    touched = true
                 } label: {
                     Text(r.displayName)
                         .font(.system(size: 11.5))
@@ -373,6 +387,7 @@ struct FeedbackSheet: View {
     private func channelRow(_ c: Channel, icon: String, title: String, subtitle: String) -> some View {
         Button {
             channel = c
+            touched = true
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: icon)
@@ -397,25 +412,33 @@ struct FeedbackSheet: View {
     }
 
     private var footer: some View {
-        HStack {
+        SheetActionBar {
             Button(L10n.t("预览提交内容", "Preview")) {
                 showPreview = true
             }
             .controlSize(.small)
             .help(L10n.t("先摊开将要提交的标题与正文原文，确认无误再发送。",
                          "Shows the exact title and body that will be submitted, so you can check first."))
-            Spacer()
-            Button(L10n.t("取消", "Cancel")) { dismiss() }
+        } trailing: {
+            Button(L10n.t("取消", "Cancel")) { attemptDismiss() }
                 .keyboardShortcut(.cancelAction)
             Button(L10n.t("提交反馈", "Send")) {
                 submit()
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
+            .tint(Theme.accent)
             .keyboardShortcut(.defaultAction)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+    }
+
+    /// 关闭前若表单已改动，先弹二次确认，避免误丢未提交的反馈。
+    private func attemptDismiss() {
+        if touched {
+            showDiscard = true
+        } else {
+            dismiss()
+        }
     }
 
     // MARK: - 内容拼装
@@ -551,9 +574,6 @@ struct FeedbackPreviewSheet: View {
             HStack {
                 Label(L10n.t("预览提交内容", "Preview submission"), systemImage: "doc.text.magnifyingglass")
                     .font(.system(size: 14, weight: .semibold))
-                Spacer()
-                Button(L10n.t("关闭", "Close")) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -585,7 +605,12 @@ struct FeedbackPreviewSheet: View {
             .background(Theme.bgCanvas)
 
             Divider()
-            HStack {
+            SheetActionBar {
+                Text(L10n.t("这就是点「提交反馈」后会发出去的全部内容。",
+                            "This is exactly what “Send” will submit."))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("\(titleLine)\n\n\(bodyMarkdown)", forType: .string)
@@ -596,16 +621,15 @@ struct FeedbackPreviewSheet: View {
                           systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
                 .controlSize(.small)
-                Spacer()
-                Text(L10n.t("这就是点「提交反馈」后会发出去的全部内容。",
-                            "This is exactly what “Send” will submit."))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.tertiary)
+            } trailing: {
+                SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
         }
         .frame(width: 520, height: 460)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .blanketDismiss { dismiss() }
+        .frame(width: 600, height: 540)
     }
 }
 
@@ -633,8 +657,6 @@ struct FeedbackHistorySheet: View {
                 }
                 Button(L10n.t("新建反馈", "New feedback")) { showComposer = true }
                     .controlSize(.small)
-                Button(L10n.t("关闭", "Close")) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -721,6 +743,12 @@ struct FeedbackHistorySheet: View {
                 }
                 .listStyle(.inset)
             }
+            Divider()
+            SheetActionBar {
+                EmptyView()
+            } trailing: {
+                SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
+            }
         }
         .frame(width: 620, height: 460)
         .onAppear { entries = FeedbackStore.shared.all() }
@@ -747,6 +775,10 @@ struct FeedbackHistorySheet: View {
         } message: {
             Text(L10n.t("这将删除所有本地反馈记录，且不可恢复。", "This will delete all local feedback records. This cannot be undone."))
         }
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .blanketDismiss { dismiss() }
+        .frame(width: 700, height: 540)
     }
 
     private func reasonTag(_ text: String) -> some View {

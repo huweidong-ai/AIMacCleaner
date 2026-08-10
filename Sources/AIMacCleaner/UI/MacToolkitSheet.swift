@@ -50,6 +50,10 @@ struct MacToolkitSheet: View {
             footer
         }
         .frame(width: 560, height: 600)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(color: .black.opacity(0.12), radius: 16, y: 5)
+        .blanketDismiss { dismiss() }
+        .frame(width: 640, height: 680)
     }
 
     private var header: some View {
@@ -92,13 +96,11 @@ struct MacToolkitSheet: View {
     }
 
     private var footer: some View {
-        HStack {
-            Spacer()
-            Button(L10n.t("关闭", "Close")) { dismiss() }
-                .keyboardShortcut(.cancelAction)
+        SheetActionBar {
+            EmptyView()
+        } trailing: {
+            SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     // MARK: - 行 / 分区

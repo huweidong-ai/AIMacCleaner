@@ -51,14 +51,14 @@ struct FDAGuidanceSheet: View {
 
             Divider()
 
-            HStack(spacing: 10) {
-                Button(L10n.t("取消", "Cancel")) { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Spacer()
+            SheetActionBar {
                 Button(L10n.t("打开系统设置", "Open System Settings")) {
                     PrivacyAccess.openFullDiskAccessSettings()
                 }
                 .controlSize(.small)
+            } trailing: {
+                Button(L10n.t("取消", "Cancel")) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button(L10n.t("我已授权，继续扫描", "I’ve granted it, scan")) {
                     if state.recheckFullDiskAccessAndResume() {
                         dismiss()
@@ -71,10 +71,8 @@ struct FDAGuidanceSheet: View {
                 .tint(Theme.accent)
                 .keyboardShortcut(.defaultAction)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(Theme.bgSurface)
         }
         .frame(width: 460)
+        .interactiveDismissDisabled(true)
     }
 }

@@ -19,6 +19,9 @@ struct AIModelSettingsSheet: View {
     @State private var editableProtocolIDs: Set<UUID> = []
     @State private var testing = false
     @State private var status: String = ""
+    /// 用户是否已改动配置。关闭时若有未保存改动，先弹二次确认，避免误丢 API Key 等。
+    @State private var touched = false
+    @State private var showDiscard = false
 
     init() {
         let s = ModelConfigStore.current
@@ -48,7 +51,7 @@ struct AIModelSettingsSheet: View {
             PageHeader(title: L10n.t("模型配置", "Model settings"),
                        subtitle: L10n.t("可配置多个模型档，设置其中一个为默认；对话框里还能随时下拉切换。「问 AI」是纯 AI Agent，不配置则发消息时会提示先来这里填好模型。",
                                         "Configure multiple model profiles and mark one as default; you can also switch on the fly in the chat. Ask AI is a pure AI agent — unconfigured, it'll ask you to set up a model before sending.")) {
-                Button(L10n.t("取消", "Cancel")) { dismiss() }
+                Button(L10n.t("取消", "Cancel")) { attemptDismiss() }
                     .controlSize(.small)
                     .keyboardShortcut(.cancelAction)
             }
@@ -217,6 +220,14 @@ struct AIModelSettingsSheet: View {
             .background(Theme.bgSurface)
         }
         .frame(width: 640, height: 520)
+        .onChange(of: store) { _, _ in touched = true }
+        .interactiveDismissDisabled(true)
+        .alert(L10n.t("放弃未保存的模型配置？", "Discard model settings?"), isPresented: $showDiscard) {
+            Button(L10n.t("继续编辑", "Keep editing"), role: .cancel) {}
+            Button(L10n.t("放弃", "Discard"), role: .destructive) { dismiss() }
+        } message: {
+            Text(L10n.t("你修改的模型配置尚未保存，关闭后将丢失。", "Your changes will be lost if you close without saving."))
+        }
     }
 
     // MARK: - 布局小件
@@ -296,6 +307,15 @@ struct AIModelSettingsSheet: View {
 
     private func save() {
         state.modelStore = store
+    }
+
+    /// 关闭前若配置已改动，先弹二次确认，避免误丢 API Key 等尚未保存的修改。
+    private func attemptDismiss() {
+        if touched {
+            showDiscard = true
+        } else {
+            dismiss()
+        }
     }
 
     private func testConnection() async {
