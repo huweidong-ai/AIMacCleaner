@@ -409,7 +409,8 @@ struct AskAIView: View {
 
     private func dateString(_ d: Date) -> String {
         let f = DateFormatter()
-        f.dateFormat = "yyyy.M.d"
+        f.dateFormat = "M月d日"
+        f.locale = Locale(identifier: "zh_CN")
         return f.string(from: d)
     }
 
@@ -951,13 +952,17 @@ private extension Array {
 private struct MessageBubble: View {
     let message: AIMessage
     let onGo: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if message.role == .me { Spacer(minLength: 40) }
             if message.role == .ai { avatar(ai: true) }
 
-            VStack(alignment: message.role == .me ? .trailing : .leading, spacing: 6) {
+            VStack(alignment: message.role == .me ? .trailing : .leading, spacing: 4) {
+                // 发送者 + 时间（参考飞书/微信：头像右侧顶部一行）
+                senderTimeLine
+
                 if !message.steps.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(message.steps) { step in
@@ -966,14 +971,24 @@ private struct MessageBubble: View {
                     }
                 }
 
+                // 气泡：hover 时右上角浮出复制按钮；右键可复制。
                 markdownText(message.text, isMine: message.role == .me)
                     .font(.system(size: 12.5))
-                    .foregroundStyle(message.role == .me ? .white : .primary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(10)
                     .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
+                    .overlay(alignment: .topTrailing) { copyButton }
+                    .onHover { isHovering = $0 }
+                    .contextMenu {
+                        Button {
+                            copyMessage(message.text)
+                        } label: {
+                            Text(L10n.t("复制", "Copy"))
+                            Image(systemName: "doc.on.doc")
+                        }
+                    }
 
                 if message.awaitingApproval {
                     Label(L10n.t("这是计划，还没有执行任何删除", "This is a plan — nothing has been deleted"),
@@ -995,16 +1010,55 @@ private struct MessageBubble: View {
                     .controlSize(.small)
                     .tint(Theme.accent)
                 }
-
-                Text(timeString(message.createdAt))
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(message.role == .me ? .white.opacity(0.8) : .secondary)
-                    .padding(.horizontal, 2)
             }
 
             if message.role == .me { avatar(ai: false) }
             if message.role == .ai { Spacer(minLength: 40) }
         }
+    }
+
+    private var senderTimeLine: some View {
+        HStack(spacing: 6) {
+            if message.role == .ai {
+                Text(L10n.t("AI", "AI"))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(smartTimeString(message.createdAt))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(smartTimeString(message.createdAt))
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                Text(L10n.t("我", "Me"))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+        }
+    }
+
+    private var copyButton: some View {
+        Group {
+            if isHovering {
+                Button {
+                    copyMessage(message.text)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(5)
+                        .background(.ultraThinMaterial, in: Circle())
+                        .overlay(Circle().stroke(Theme.divider, lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .padding(6)
+            }
+        }
+    }
+
+    private func copyMessage(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private var bubbleBg: some ShapeStyle {
@@ -1037,9 +1091,21 @@ private struct MessageBubble: View {
             }
     }
 
-    private func timeString(_ d: Date) -> String {
+    /// 智能时间：今天只显示 HH:mm；昨天显示「昨天 HH:mm」；
+    /// 今年内其他天显示「M月d日 HH:mm」；更早显示「yyyy.M.d HH:mm」。
+    private func smartTimeString(_ d: Date) -> String {
+        let cal = Calendar.current
+        if cal.isDateInToday(d) { return format(d, "HH:mm") }
+        if cal.isDateInYesterday(d) { return L10n.t("昨天", "Yesterday") + " " + format(d, "HH:mm") }
+        if cal.isDate(d, equalTo: Date(), toGranularity: .year) {
+            return format(d, "M月d日 HH:mm")
+        }
+        return format(d, "yyyy.M.d HH:mm")
+    }
+
+    private func format(_ d: Date, _ format: String) -> String {
         let f = DateFormatter()
-        f.dateFormat = "HH:mm"
+        f.dateFormat = format
         f.locale = Locale(identifier: "zh_CN")
         return f.string(from: d)
     }
