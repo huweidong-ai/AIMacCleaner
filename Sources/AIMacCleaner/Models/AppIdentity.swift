@@ -36,10 +36,20 @@ struct AppIdentity: Identifiable, Hashable {
     /// 这类 app 本质是个浏览器外壳（`app_mode_loader`），真正的偏好/登录态在
     /// `~/Library/Preferences/com.google.Chrome.app.<hash>.plist` 里。光删 .app
     /// 会留下无主残留，所以卸载时要当成「一个整体」连带清掉那份配置。
+    ///
+    /// 识别逻辑：先看 bundleId 前缀；很多 PWA（尤其企业/签名分发）会把 bundleId
+    /// 改成 `com.citrolabs.ego.lite.app.<hash>` 之类，但安装目录仍是
+    /// `Chrome Apps.localized` 或 `Edge Apps.localized`，所以用路径兜底。
     var isPWA: Bool {
-        guard let bid = bundleId?.lowercased() else { return false }
-        return bid.hasPrefix("com.google.chrome.app.") ||
-               bid.hasPrefix("com.microsoft.edgemac.app.")
+        if let bid = bundleId?.lowercased() {
+            if bid.hasPrefix("com.google.chrome.app.") ||
+               bid.hasPrefix("com.microsoft.edgemac.app.") {
+                return true
+            }
+        }
+        let pathLower = bundlePath.lowercased()
+        return pathLower.contains("/chrome apps.localized/") ||
+               pathLower.contains("/edge apps.localized/")
     }
 
     /// bundle id 末段里不能当别名的通用词。这些词作为关键词下发会命中大量

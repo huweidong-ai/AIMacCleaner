@@ -344,18 +344,32 @@ final class AppState: ObservableObject {
     private func linkPWACompanions() {
         pwaAppToCompanion = [:]
         guard let app = matchedApp, app.isPWA,
-              let prefix = app.bundleId?.lowercased(), prefix.count >= 3 else { return }
+              let pwaID = app.bundleId?.split(separator: ".").last.map({ String($0).lowercased() }),
+              pwaID.count >= 8 else { return }
 
         guard let appIdx = artifacts.firstIndex(where: { $0.category == .appBundle }),
               let cfgIdx = artifacts.firstIndex(where: {
                   $0.category == .libraryData &&
-                  ($0.path as NSString).lastPathComponent.lowercased() == "\(prefix).plist"
+                  pwaPlistNames(for: pwaID).contains(
+                      ($0.path as NSString).lastPathComponent.lowercased()
+                  )
               }) else { return }
 
         pwaAppToCompanion[artifacts[appIdx].id] = artifacts[cfgIdx].id
         artifacts[cfgIdx].companionOf = artifacts[appIdx].id
         artifacts[cfgIdx].note = L10n.t("PWA 配置 · 随应用一起卸载",
                                         "PWA config · removed together with the app")
+    }
+
+    /// Chrome / Edge PWA 在 ~/Library/Preferences 下常见的 plist 文件名。
+    /// app bundleId 末段就是 <hash>，用 hash 而不是完整 bundleId 去配对，
+    /// 因为 PWA 的 bundleId 可能被签名/分发者改写（如 com.citrolabs.ego.lite.app.<hash>），
+    /// 但对应的 plist 文件名仍是 com.google.Chrome.app.<hash>.plist。
+    private func pwaPlistNames(for pwaID: String) -> Set<String> {
+        return [
+            "com.google.chrome.app.\(pwaID).plist",
+            "com.microsoft.edgemac.app.\(pwaID).plist"
+        ]
     }
 
     /// 同名候选（用于提示用户"你是不是想找另一个"）。
