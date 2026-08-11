@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import AppKit
+import MarkdownUI
 
 /// 「问 AI」tab：用自然语言指挥本地 Agent 调用 AI Mac Cleaner 的 skill 完成清理。
 ///
@@ -1026,11 +1027,14 @@ private struct MessageBubble: View {
                 .font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
     }
 
-    /// 用 SwiftUI 原生 Markdown 渲染对话文本：支持加粗、斜体、链接、行内代码、
-    /// 列表、引用、代码块；表格（原生 Text 不支持）用自写的轻量 `Grid` 渲染。
-    /// 不依赖第三方包。解析失败回退纯文本，保证永远有内容可看。
+    /// 用 MarkdownUI 渲染对话文本，支持 GitHub 风格 Markdown（加粗、斜体、
+    /// 链接、行内代码、列表、引用、代码块、表格）。用户气泡背景为蓝色渐变，
+    /// 需把文字颜色统一为白色；AI 气泡用默认深色文字。
     private func markdownText(_ raw: String, isMine: Bool) -> some View {
-        MarkdownMessageView(text: raw)
+        Markdown(raw)
+            .markdownTextStyle {
+                ForegroundColor(isMine ? .white : .primary)
+            }
     }
 
     private func timeString(_ d: Date) -> String {
@@ -1038,121 +1042,6 @@ private struct MessageBubble: View {
         f.dateFormat = "HH:mm"
         f.locale = Locale(identifier: "zh_CN")
         return f.string(from: d)
-    }
-}
-
-/// 对话气泡内的 Markdown 渲染器（纯 SwiftUI，无第三方依赖）。
-///
-/// 把消息按「表格块 / 普通文本块」切分：
-/// - 普通块用 `AttributedString(markdown:)` 的 `.full` 语法渲染（含列表、引用、代码块）；
-/// - 表格块（`| a | b |` 形式）用 `Grid` 渲染成真表格。
-private struct MarkdownMessageView: View {
-    let text: String
-
-    private static let mdOpts = AttributedString.MarkdownParsingOptions(
-        allowsExtendedAttributes: true,
-        interpretedSyntax: .full,
-        failurePolicy: .returnPartiallyParsedIfPossible
-    )
-
-    enum Block {
-        case text(String)
-        case table(header: [String], rows: [[String]])
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .text(let str):
-                    if let attr = try? AttributedString(markdown: str, options: Self.mdOpts) {
-                        Text(attr)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Text(str)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                case .table(let header, let rows):
-                    tableView(header: header, rows: rows)
-                }
-            }
-        }
-        .textSelection(.enabled)
-        .font(.system(size: 12.5))
-        .fixedSize(horizontal: false, vertical: true)
-    }
-
-    // MARK: - 表格
-
-    private func tableView(header: [String], rows: [[String]]) -> some View {
-        let cols = max(header.count, rows.map(\.count).max() ?? 0)
-        func cell(_ arr: [String], _ i: Int) -> String { i < arr.count ? arr[i] : "" }
-
-        return Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 5) {
-            GridRow {
-                ForEach(0..<cols, id: \.self) { i in
-                    Text(cell(header, i))
-                        .font(.system(size: 11.5, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .gridColumnAlignment(.leading)
-                }
-            }
-            Divider()
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                GridRow {
-                    ForEach(0..<cols, id: \.self) { i in
-                        Text(cell(row, i))
-                            .font(.system(size: 11.5))
-                    }
-                }
-            }
-        }
-        .padding(8)
-        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.divider, lineWidth: 1))
-    }
-
-    // MARK: - 解析
-
-    private var blocks: [Block] {
-        var out: [Block] = []
-        let lines = text.components(separatedBy: "\n")
-        var i = 0
-        var buf: [String] = []
-        func flush() {
-            if !buf.isEmpty { out.append(.text(buf.joined(separator: "\n"))); buf = [] }
-        }
-        while i < lines.count {
-            if isTableStart(lines, at: i) {
-                flush()
-                let header = splitRow(lines[i])
-                i += 2
-                var rows: [[String]] = []
-                while i < lines.count, lines[i].contains("|"),
-                      !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
-                    rows.append(splitRow(lines[i])); i += 1
-                }
-                out.append(.table(header: header, rows: rows))
-            } else {
-                buf.append(lines[i]); i += 1
-            }
-        }
-        flush()
-        return out
-    }
-
-    private func isTableStart(_ lines: [String], at i: Int) -> Bool {
-        guard i + 1 < lines.count, lines[i].contains("|") else { return false }
-        let sep = lines[i + 1]
-        let pat = #"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$"#
-        return sep.range(of: pat, options: .regularExpression) != nil
-    }
-
-    private func splitRow(_ line: String) -> [String] {
-        var s = line.trimmingCharacters(in: .whitespaces)
-        if s.hasPrefix("|") { s.removeFirst() }
-        if s.hasSuffix("|") { s.removeLast() }
-        return s.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }
 
