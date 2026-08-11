@@ -934,7 +934,7 @@ private struct MessageBubble: View {
                     }
                 }
 
-                Text(message.text)
+                markdownText(message.text, isMine: message.role == .me)
                     .font(.system(size: 12.5))
                     .foregroundStyle(message.role == .me ? .white : .primary)
                     .textSelection(.enabled)
@@ -988,6 +988,21 @@ private struct MessageBubble: View {
             .frame(width: 26, height: 26)
             .overlay(Image(systemName: ai ? "sparkles" : "person.fill")
                 .font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
+    }
+
+    /// 用 SwiftUI 原生 Markdown 渲染对话文本（加粗 / 斜体 / 链接 / 行内代码 /
+    /// 列表 / 引用），不依赖第三方包。表格会被当作普通文本原样显示。
+    /// 解析失败时回退到纯文本，保证永远有内容可看。
+    private func markdownText(_ raw: String, isMine: Bool) -> Text {
+        let opts = AttributedString.MarkdownParsingOptions(
+            allowsExtendedAttributes: true,
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        if let attr = try? AttributedString(markdown: raw, options: opts) {
+            return Text(attr)
+        }
+        return Text(raw)
     }
 }
 
