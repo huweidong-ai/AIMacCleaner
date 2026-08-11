@@ -529,6 +529,11 @@ final class AppState: ObservableObject {
     /// - Parameter scope: 残留页深链时传入的当前筛选档来源（`.all` 传 nil）。
     ///   非 nil 时 Agent 只复核该来源，实现「看哪一档就判断哪一档」。
     func jumpToAskAI(_ prompt: String, leftoverScope: LeftoverSource? = nil, reviewScope: ReviewScope? = nil) {
+        // 从应用 / 残留 / 进程页深链过来是为了做一次独立的 AI 复核，旧对话上下文对
+        // 复核毫无用处（模型复核读的是 session 里的清单，不是 chat 历史）。
+        // 打一条上下文锚点：屏幕记录保留可见，但模型历史截断到锚点之后，
+        // 这样本次注入的复核 prompt 不会带上之前的噪音。
+        resetChatContext()
         askAIPendingPrompt = prompt
         askAIPendingLeftoverScope = leftoverScope
         askAIPendingReviewScope = reviewScope
