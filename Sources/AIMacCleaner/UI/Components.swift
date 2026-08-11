@@ -166,7 +166,9 @@ struct AINoteRow: View {
                 .font(.system(size: 11.5))
                 .foregroundStyle(isKeep ? Theme.aiText : Theme.success)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .help(reason)
         }
     }
 }
