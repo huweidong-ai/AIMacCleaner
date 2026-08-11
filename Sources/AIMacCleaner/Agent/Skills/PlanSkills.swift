@@ -63,17 +63,18 @@ struct ReviewPlanSkill: AgentSkill {
                                         "Ask AI is a pure-AI module; review needs an API key (OpenAI- or Anthropic-compatible) set first."))
             }
             // 复核由真正的模型执行，不再用本地规则兜底。
-            guard let verdicts = await AIJury.reviewLeftovers(targetArtifacts, config: cfg) else {
+            guard let safeReasons = await AIJury.reviewLeftovers(targetArtifacts, config: cfg) else {
                 return SkillResult(ok: false,
                     summary: L10n.t("AI 复核调用失败，请检查 API Key / 网络。",
                                     "AI review call failed — check the API key / network."),
                     observation: L10n.t("模型没能返回有效结论，可稍后重试。",
                                         "The model didn't return a valid verdict; try again later."))
             }
+            let verdicts = safeReasons.reduce(into: [UUID: AIVerdict]()) { $0[$1.key] = .safe(reason: $1.value) }
             let summary = L10n.t("复核完成（\(scopeNote)）：\(verdicts.count) 项判定为可安全删除，已自动勾选。",
                                  "Review done (\(scopeNote)): \(verdicts.count) items judged safe to remove and checked.")
             let detail = targetArtifacts.filter { verdicts[$0.id] != nil }.prefix(10)
-                .map { "  ✓ \($0.path) — \(verdicts[$0.id] ?? "")" }
+                .map { "  ✓ \($0.path) — \(safeReasons[$0.id] ?? "")" }
                 .joined(separator: "\n")
             return SkillResult(ok: true, summary: summary,
                                observation: summary + (detail.isEmpty ? "" : "\n" + detail),
@@ -93,27 +94,36 @@ struct ReviewPlanSkill: AgentSkill {
                                     "Ask AI is a pure-AI module; review needs an API key (OpenAI- or Anthropic-compatible) set first."))
         }
         // 复核由真正的模型执行，不再用本地规则兜底。
-        guard let verdicts = await AIJury.reviewApps(artifacts, config: cfg) else {
+        guard let keepReasons = await AIJury.reviewApps(artifacts, config: cfg) else {
             return SkillResult(ok: false,
                 summary: L10n.t("AI 复核调用失败，请检查 API Key / 网络。",
                                 "AI review call failed — check the API key / network."),
                 observation: L10n.t("模型没能返回有效结论，可稍后重试。",
                                     "The model didn't return a valid verdict; try again later."))
         }
-        let kept = artifacts.filter { verdicts[$0.id] != nil }
-        let deletable = artifacts.filter { verdicts[$0.id] == nil }
+        let kept = artifacts.filter { keepReasons[$0.id] != nil }
+        let deletable = artifacts.filter { keepReasons[$0.id] == nil }
+        let safeReason = L10n.t("AI 复核通过，可安全删除", "AI review passed — safe to delete")
+        var verdicts: [UUID: AIVerdict] = [:]
+        for a in artifacts {
+            if let reason = keepReasons[a.id] {
+                verdicts[a.id] = .keep(reason: reason)
+            } else {
+                verdicts[a.id] = .safe(reason: safeReason)
+            }
+        }
         if kept.isEmpty {
             let msg = L10n.t("复核完成：\(artifacts.count) 项均可安全删除，没有发现需要保留的项目。仍建议自己扫一眼含用户数据的条目。",
                              "Review done: all \(artifacts.count) items are safe to delete; none stands out as must-keep. Still worth eyeballing the user-data items.")
             return SkillResult(ok: true, summary: msg, observation: msg,
-                               effect: .reviewApps([:]), redirect: .apps)
+                               effect: .reviewApps(verdicts), redirect: .apps)
         }
         // 明确分两类说清楚：建议保留的（已自动取消勾选）+ 可安全删除的（保持勾选），
         // 避免只列保留项让用户去反推哪些能删。
         let summary = L10n.t("复核完成：\(kept.count) 项建议保留（已自动取消勾选），其余 \(deletable.count) 项可安全删除。",
                              "Review done: \(kept.count) recommended to keep (auto-unchecked), the other \(deletable.count) are safe to delete.")
         let keepDetail = kept.prefix(12)
-            .map { "  ✗ \($0.path) — \(verdicts[$0.id] ?? "")" }
+            .map { "  ✗ \($0.path) — \(keepReasons[$0.id] ?? "")" }
             .joined(separator: "\n")
         let delDetail = deletable.prefix(8)
             .map { "  ✓ \($0.path)" }

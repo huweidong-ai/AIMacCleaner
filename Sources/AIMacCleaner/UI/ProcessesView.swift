@@ -13,7 +13,7 @@ struct ProcessesView: View {
     @State private var showSettings = false
     @State private var searchText = ""
 
-    private var aiPhase: AIReviewBar.Phase {
+    private var aiPhase: AIReviewPhase {
         if !state.hasScannedProcesses || state.processes.isEmpty { return .idle }
         return .idle
     }

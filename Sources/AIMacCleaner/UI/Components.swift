@@ -52,9 +52,7 @@ struct Banner: View {
 /// 残留页默认全不选，AI 帮你**勾上**可以放心删的。
 /// 文案由调用方给，组件只管状态机和视觉。
 struct AIReviewBar: View {
-    enum Phase { case idle, running, done, needsConfig, failed }
-
-    let phase: Phase
+    let phase: AIReviewPhase
     let title: String
     let detail: String
     let actionTitle: String

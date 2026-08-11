@@ -14,7 +14,6 @@ struct LeftoversView: View {
     @State private var showResult = false
     @State private var showFeedback = false
     @State private var executorOutput: [String] = []
-    @State private var aiPhase: AIReviewBar.Phase = .idle
     @State private var showSettings = false
 
     var body: some View {
@@ -135,7 +134,7 @@ struct LeftoversView: View {
                     }
                     .padding(16)
                 }
-                .onChange(of: aiPhase) { _, phase in
+                .onChange(of: state.aiReviewPhaseLeftovers) { _, phase in
                     if phase == .done { state.leftoverCollapsed = [] }
                 }
                 .background(Theme.bgCanvas)
@@ -172,13 +171,13 @@ struct LeftoversView: View {
     private var aiBar: some View {
         let (title, detail) = aiBarText
         return AIReviewBar(
-            phase: aiPhase,
+            phase: state.aiReviewPhaseLeftovers,
             title: title,
             detail: detail,
             actionTitle: L10n.t("让 AI 帮我判断", "Ask AI"),
             onReview: {
                 guard state.modelStore.isConfigured else {
-                    aiPhase = .needsConfig
+                    state.aiReviewPhaseLeftovers = .needsConfig
                     return
                 }
                 // 不再原地跑判断，改为深链到「问 AI」页：预填诊断问句（按当前筛选档限定范围），
@@ -191,7 +190,7 @@ struct LeftoversView: View {
             },
             onUndo: {
                 state.undoAIReview()
-                aiPhase = .idle
+                state.aiReviewPhaseLeftovers = .idle
             },
             onConfigure: { showSettings = true }
         )
@@ -246,7 +245,7 @@ struct LeftoversView: View {
     }
 
     /// 按当前阶段给出提示文案。
-    private var aiBarText: (String, String) {        switch aiPhase {
+    private var aiBarText: (String, String) {        switch state.aiReviewPhaseLeftovers {
         case .done:
             return (L10n.t("AI 已判断完毕。", "AI is done."),
                     L10n.t("能放心删的已替你勾上，理由写在对应行下方；没勾的说明它也拿不准，请自己判断。",
@@ -367,7 +366,7 @@ struct LeftoversView: View {
 
     private func rescan() async {
         await state.scanLeftovers()
-        aiPhase = .idle
+        state.aiReviewPhaseLeftovers = .idle
     }
 
     private func runRemoval(userData: UserDataDisposition) {

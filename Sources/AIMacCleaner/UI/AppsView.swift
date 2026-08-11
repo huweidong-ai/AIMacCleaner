@@ -13,7 +13,6 @@ struct AppsView: View {
     @State private var showFeedback = false
     @State private var executorOutput: [String] = []
     @State private var showSelfUninstalled = false
-    @State private var aiPhase: AIReviewBar.Phase = .idle
     @State private var showSettings = false
 
     var body: some View {
@@ -41,18 +40,18 @@ struct AppsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await state.loadAppList() }
         // AI 复核结束后展开全部分组，方便用户查看每一类 AI 写下的评语。
-        .onChange(of: aiPhase) { _, phase in
+        .onChange(of: state.aiReviewPhaseApps) { _, phase in
             if phase == .done { state.appsCollapsed = [] }
         }
         // 换了扫描目标就把上一轮 AI 结论清掉，否则会显示上一个 app 的判断。
-        .onChange(of: state.matchedApp?.bundlePath) { _, _ in aiPhase = .idle }
+        .onChange(of: state.matchedApp?.bundlePath) { _, _ in state.aiReviewPhaseApps = .idle }
         // 用退格键把搜索框删空，语义上等同于点 x：右侧回到首屏空态。
         // 守卫 artifacts 非空，既避免重复清、也断掉 clear() 再次触发本回调的递归。
         .onChange(of: state.searchText) { _, newValue in
             let q = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if q.isEmpty && !state.artifacts.isEmpty {
                 state.clear()
-                aiPhase = .idle
+                state.aiReviewPhaseApps = .idle
             }
         }
         .sheet(isPresented: $showConfirm) {
@@ -182,7 +181,7 @@ struct AppsView: View {
                     // clear() 一次把「回到首屏」需要的状态全清掉。
                     Button {
                         state.clear()
-                        aiPhase = .idle
+                        state.aiReviewPhaseApps = .idle
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundStyle(.secondary)
@@ -329,13 +328,13 @@ struct AppsView: View {
     private var aiBar: some View {
         let (title, detail) = aiBarText
         return AIReviewBar(
-            phase: aiPhase,
+            phase: state.aiReviewPhaseApps,
             title: title,
             detail: detail,
             actionTitle: L10n.t("让 AI 复核", "Ask AI"),
             onReview: {
                 guard state.modelStore.isConfigured else {
-                    aiPhase = .needsConfig
+                    state.aiReviewPhaseApps = .needsConfig
                     return
                 }
                 // 不再原地跑复核，改为深链到「问 AI」页：预填诊断问句，复用 review_plan
@@ -355,7 +354,7 @@ struct AppsView: View {
             },
             onUndo: {
                 state.undoAIReview()
-                aiPhase = .idle
+                state.aiReviewPhaseApps = .idle
             },
             onConfigure: { showSettings = true }
         )
@@ -363,7 +362,7 @@ struct AppsView: View {
 
     /// 按当前阶段给出提示文案。
     private var aiBarText: (String, String) {
-        switch aiPhase {
+        switch state.aiReviewPhaseApps {
         case .done:
             return (L10n.t("AI 已复核完毕。", "AI review complete."),
                     L10n.t("被判为不建议删除的项已自动取消勾选，理由写在对应行下方。结论仅供参考，最终由你决定。",

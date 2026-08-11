@@ -2,6 +2,11 @@ import Foundation
 import Combine
 import AppKit
 
+/// AI 复核条状态。提升到 AppState 是为了切 tab 后不丢失。
+enum AIReviewPhase: String, CaseIterable {
+    case idle, running, done, needsConfig, failed
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var searchText: String = ""
@@ -20,6 +25,11 @@ final class AppState: ObservableObject {
     /// 深链时由入口注入的强制复核范围：`.apps` 或 `.leftovers`。
     /// 非 nil 时 `review_plan` 不再让模型自行选择 scope，消费后置 nil。
     @Published var askAIPendingReviewScope: ReviewScope?
+
+    // MARK: - AI 复核状态（跨 tab 持久，避免切回后丢失）
+    @Published var aiReviewPhaseApps: AIReviewPhase = .idle
+    @Published var aiReviewPhaseLeftovers: AIReviewPhase = .idle
+
     @Published var lastError: String?
     @Published var lastResult: RemovalExecutor.Outcome?
     /// 本次扫描锁定到的 app（关键词模式下为 nil）
@@ -301,6 +311,7 @@ final class AppState: ObservableObject {
         for i in allArtifacts.indices { allArtifacts[i].selected = true }
         artifacts = allArtifacts
         plan = RemovalPlan(targetName: query.displayTarget, artifacts: allArtifacts)
+        aiReviewPhaseApps = .idle
     }
 
     /// 把用户输入解析成扫描条件。
@@ -356,6 +367,7 @@ final class AppState: ObservableObject {
         for i in allArtifacts.indices { allArtifacts[i].selected = true }
         artifacts = allArtifacts
         plan = RemovalPlan(targetName: app.displayName, artifacts: allArtifacts)
+        aiReviewPhaseApps = .idle
     }
 
     // MARK: - v1.2 app 列表
@@ -399,6 +411,7 @@ final class AppState: ObservableObject {
         // 每次扫描完默认全部折叠：group id 是本次新生成的，按默认折叠让用户逐一点开。
         // 折叠状态提升到 AppState（见 leftoverCollapsed），切 tab 后视图重建也不会重置。
         leftoverCollapsed = Set(groups.map(\.id))
+        aiReviewPhaseLeftovers = .idle
     }
 
     /// 引导页点「我已授权」后调用：重测 FDA，若已授权则按当前 tab 重扫。
@@ -522,29 +535,41 @@ final class AppState: ObservableObject {
         selectedTab = .askAI
     }
 
-    /// 把模型对应用清单的复核结论落到界面：被判定为「建议保留」的项取消勾选并写入理由。
+    /// 把模型对应用清单的复核结论落到界面：
+    /// - 被判定为「建议保留」的项取消勾选并写入理由；
+    /// - 被判定为「可安全删除」的项保持勾选并写入 AI 可删标签。
     /// 这是 SkillEffect.reviewApps 的落地点，**不得在此再次调用模型**。
-    func applyAIReviewApps(verdicts: [UUID: String]) {
+    func applyAIReviewApps(verdicts: [UUID: AIVerdict]) {
         for i in artifacts.indices {
-            if let reason = verdicts[artifacts[i].id] {
-                artifacts[i].aiVerdict = .keep(reason: reason)
+            guard let verdict = verdicts[artifacts[i].id] else { continue }
+            artifacts[i].aiVerdict = verdict
+            switch verdict {
+            case .keep:
                 artifacts[i].selected = false
+            case .safe:
+                artifacts[i].selected = true
             }
         }
+        aiReviewPhaseApps = .done
     }
 
     /// 把模型对残留清单的复核结论落到界面：被判定为「可安全删除」的项勾选并写入理由。
     /// 这是 SkillEffect.reviewLeftovers 的落地点，**不得在此再次调用模型**。
-    func applyAIReviewLeftovers(verdicts: [UUID: String]) {
+    func applyAIReviewLeftovers(verdicts: [UUID: AIVerdict]) {
         for gi in leftoverGroups.indices {
             for ai in leftoverGroups[gi].artifacts.indices {
                 let id = leftoverGroups[gi].artifacts[ai].id
-                if let reason = verdicts[id] {
-                    leftoverGroups[gi].artifacts[ai].aiVerdict = .safe(reason: reason)
+                guard let verdict = verdicts[id] else { continue }
+                leftoverGroups[gi].artifacts[ai].aiVerdict = verdict
+                switch verdict {
+                case .safe:
                     leftoverGroups[gi].artifacts[ai].selected = true
+                case .keep:
+                    leftoverGroups[gi].artifacts[ai].selected = false
                 }
             }
         }
+        aiReviewPhaseLeftovers = .done
     }
 
     /// 撤销 AI 复核结论，恢复默认选中状态。
@@ -562,6 +587,8 @@ final class AppState: ObservableObject {
                 leftoverGroups[gi].artifacts[ai].selected = false
             }
         }
+        aiReviewPhaseApps = .idle
+        aiReviewPhaseLeftovers = .idle
     }
 
     // MARK: - 进程管理
@@ -667,6 +694,7 @@ final class AppState: ObservableObject {
         lastError = nil
         matchedApp = nil
         ambiguousMatches = []
+        aiReviewPhaseApps = .idle
     }
 
     func selectAll() {
