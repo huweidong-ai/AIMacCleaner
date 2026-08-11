@@ -15,6 +15,9 @@ struct AIMessage: Identifiable, Codable, Equatable {
     let id = UUID()
     let role: Role
     let text: String
+    /// 消息产生时间。用于聊天里按天显示日期分隔、每条显示时分。
+    /// 参与序列化：老历史没有这个字段时解码兜底为 `Date()`（显示为当前时间，可接受）。
+    let createdAt: Date
     /// Agent 这一轮实际执行过的 skill。空数组 = 纯对话没动手。
     var steps: [AgentStep] = []
     /// 若设置，气泡下方出现「前往 →」按钮，点击切到对应 tab。
@@ -41,9 +44,11 @@ struct AIMessage: Identifiable, Codable, Equatable {
          steps: [AgentStep] = [],
          redirect: AgentTab? = nil,
          awaitingApproval: Bool = false,
-         isAnchor: Bool = false) {
+         isAnchor: Bool = false,
+         createdAt: Date = Date()) {
         self.role = role
         self.text = text
+        self.createdAt = createdAt
         self.steps = steps
         self.redirect = redirect
         self.awaitingApproval = awaitingApproval
@@ -65,7 +70,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
     /// （`let id = UUID()` 的默认值生效，重新生成）。这样既不会触发
     /// "immutable property will not be decoded" 警告，也不用为 id 写任何代码。
     private enum CodingKeys: String, CodingKey {
-        case role, text, steps, redirect, awaitingApproval, isAnchor
+        case role, text, steps, redirect, awaitingApproval, isAnchor, createdAt
     }
 
     /// 手写解码：**全字段 `decodeIfPresent` + 默认值**。
@@ -82,5 +87,6 @@ struct AIMessage: Identifiable, Codable, Equatable {
         redirect = try? c.decodeIfPresent(AgentTab.self, forKey: .redirect)
         awaitingApproval = (try? c.decodeIfPresent(Bool.self, forKey: .awaitingApproval)) ?? false
         isAnchor = (try? c.decodeIfPresent(Bool.self, forKey: .isAnchor)) ?? false
+        createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
     }
 }

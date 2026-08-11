@@ -326,8 +326,19 @@ struct AskAIView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(state.chatMessages) { m in
-                        Group {
+                    ForEach(Array(state.chatMessages.enumerated()), id: \.element.id) { idx, m in
+                        VStack(alignment: .leading, spacing: 8) {
+                            if shouldShowDateHeader(at: idx) {
+                                HStack(spacing: 8) {
+                                    Divider().frame(width: 1).overlay(Theme.divider)
+                                    Text(dateString(m.createdAt))
+                                        .font(.system(size: 10.5, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                    Divider().frame(width: 1).overlay(Theme.divider)
+                                }
+                                .id("date-\(m.id)")
+                            }
+
                             if m.role == .system {
                                 SystemDivider(message: m)
                             } else {
@@ -340,9 +351,9 @@ struct AskAIView: View {
                                         }
                                     }
                                 }
+                                .id(m.id)
                             }
                         }
-                        .id(m.id)
                     }
                     if state.chatIsThinking {
                         ThinkingBubble(steps: bridge.steps, running: bridge.runningCommand)
@@ -379,6 +390,26 @@ struct AskAIView: View {
                 }
             }
         }
+    }
+
+    // MARK: - 日期 / 时间分隔
+
+    /// 只有当跨天才单独显示日期分隔（如 2026.8.11）；系统提示（锚点）不带头。
+    /// 真实对话的第一条也显示当天日期（往前跳过 system 消息找相邻真实消息）。
+    private func shouldShowDateHeader(at idx: Int) -> Bool {
+        guard idx < state.chatMessages.count else { return false }
+        let m = state.chatMessages[idx]
+        if m.role == .system { return false }
+        var j = idx - 1
+        while j >= 0, state.chatMessages[j].role == .system { j -= 1 }
+        if j < 0 { return true }
+        return !Calendar.current.isDate(state.chatMessages[j].createdAt, inSameDayAs: m.createdAt)
+    }
+
+    private func dateString(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy.M.d"
+        return f.string(from: d)
     }
 
     // MARK: - 输入区
@@ -963,6 +994,11 @@ private struct MessageBubble: View {
                     .controlSize(.small)
                     .tint(Theme.accent)
                 }
+
+                Text(timeString(message.createdAt))
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(message.role == .me ? .white.opacity(0.8) : .secondary)
+                    .padding(.horizontal, 2)
             }
 
             if message.role == .me { avatar(ai: false) }
@@ -990,19 +1026,133 @@ private struct MessageBubble: View {
                 .font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
     }
 
-    /// 用 SwiftUI 原生 Markdown 渲染对话文本（加粗 / 斜体 / 链接 / 行内代码 /
-    /// 列表 / 引用），不依赖第三方包。表格会被当作普通文本原样显示。
-    /// 解析失败时回退到纯文本，保证永远有内容可看。
-    private func markdownText(_ raw: String, isMine: Bool) -> Text {
-        let opts = AttributedString.MarkdownParsingOptions(
-            allowsExtendedAttributes: true,
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        if let attr = try? AttributedString(markdown: raw, options: opts) {
-            return Text(attr)
+    /// 用 SwiftUI 原生 Markdown 渲染对话文本：支持加粗、斜体、链接、行内代码、
+    /// 列表、引用、代码块；表格（原生 Text 不支持）用自写的轻量 `Grid` 渲染。
+    /// 不依赖第三方包。解析失败回退纯文本，保证永远有内容可看。
+    private func markdownText(_ raw: String, isMine: Bool) -> some View {
+        MarkdownMessageView(text: raw)
+    }
+
+    private func timeString(_ d: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm"
+        f.locale = Locale(identifier: "zh_CN")
+        return f.string(from: d)
+    }
+}
+
+/// 对话气泡内的 Markdown 渲染器（纯 SwiftUI，无第三方依赖）。
+///
+/// 把消息按「表格块 / 普通文本块」切分：
+/// - 普通块用 `AttributedString(markdown:)` 的 `.full` 语法渲染（含列表、引用、代码块）；
+/// - 表格块（`| a | b |` 形式）用 `Grid` 渲染成真表格。
+private struct MarkdownMessageView: View {
+    let text: String
+
+    private static let mdOpts = AttributedString.MarkdownParsingOptions(
+        allowsExtendedAttributes: true,
+        interpretedSyntax: .full,
+        failurePolicy: .returnPartiallyParsedIfPossible
+    )
+
+    enum Block {
+        case text(String)
+        case table(header: [String], rows: [[String]])
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                switch block {
+                case .text(let str):
+                    if let attr = try? AttributedString(markdown: str, options: Self.mdOpts) {
+                        Text(attr)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(str)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                case .table(let header, let rows):
+                    tableView(header: header, rows: rows)
+                }
+            }
         }
-        return Text(raw)
+        .textSelection(.enabled)
+        .font(.system(size: 12.5))
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    // MARK: - 表格
+
+    private func tableView(header: [String], rows: [[String]]) -> some View {
+        let cols = max(header.count, rows.map(\.count).max() ?? 0)
+        func cell(_ arr: [String], _ i: Int) -> String { i < arr.count ? arr[i] : "" }
+
+        return Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 5) {
+            GridRow {
+                ForEach(0..<cols, id: \.self) { i in
+                    Text(cell(header, i))
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .gridColumnAlignment(.leading)
+                }
+            }
+            Divider()
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                GridRow {
+                    ForEach(0..<cols, id: \.self) { i in
+                        Text(cell(row, i))
+                            .font(.system(size: 11.5))
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.divider, lineWidth: 1))
+    }
+
+    // MARK: - 解析
+
+    private var blocks: [Block] {
+        var out: [Block] = []
+        let lines = text.components(separatedBy: "\n")
+        var i = 0
+        var buf: [String] = []
+        func flush() {
+            if !buf.isEmpty { out.append(.text(buf.joined(separator: "\n"))); buf = [] }
+        }
+        while i < lines.count {
+            if isTableStart(lines, at: i) {
+                flush()
+                let header = splitRow(lines[i])
+                i += 2
+                var rows: [[String]] = []
+                while i < lines.count, lines[i].contains("|"),
+                      !lines[i].trimmingCharacters(in: .whitespaces).isEmpty {
+                    rows.append(splitRow(lines[i])); i += 1
+                }
+                out.append(.table(header: header, rows: rows))
+            } else {
+                buf.append(lines[i]); i += 1
+            }
+        }
+        flush()
+        return out
+    }
+
+    private func isTableStart(_ lines: [String], at i: Int) -> Bool {
+        guard i + 1 < lines.count, lines[i].contains("|") else { return false }
+        let sep = lines[i + 1]
+        let pat = #"^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$"#
+        return sep.range(of: pat, options: .regularExpression) != nil
+    }
+
+    private func splitRow(_ line: String) -> [String] {
+        var s = line.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("|") { s.removeFirst() }
+        if s.hasSuffix("|") { s.removeLast() }
+        return s.components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
     }
 }
 
