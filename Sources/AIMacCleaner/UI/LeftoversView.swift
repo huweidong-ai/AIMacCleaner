@@ -198,9 +198,8 @@ struct LeftoversView: View {
 
     /// 按当前筛选档生成「让 AI 帮我判断」的预填问句与对应的来源约束。
     ///
-    /// 关键：问句里直接点名当前档（如「AI 编程工具残留」），`scope` 也一并传下去，
-    /// 让 `review_plan` 只复核这一类 —— 用户看哪一档，AI 就判断哪一档。
-    /// 如果用户已经勾选了若干项，问句会明确点名「我已勾选 X 项」，引导 AI 直接复核这些项。
+    /// 关键：问句里讲清楚用户意图（清理残留释放空间），并要求 AI 先确认归属、再评估风险、
+    /// 最后给出保留/删除建议。`scope` 一并传下去，让 `review_plan` 只复核当前这一档。
     private func reviewPrompt(for filter: AppState.LeftoverFilter) -> (prompt: String, scope: LeftoverSource?) {
         let scope = filter.source
         let groups: [LeftoverGroup] = {
@@ -208,23 +207,6 @@ struct LeftoversView: View {
             return state.leftoverGroups.filter { $0.source == src }
         }()
         let selected = groups.flatMap { $0.artifacts.filter { $0.selected } }
-        let selectedSize = selected.reduce(Int64(0)) { $0 + $1.size }
-
-        let subject: String
-        switch filter {
-        case .all:
-            subject = L10n.t("当前列出的残留文件（含无主残留、AI 编程工具、开发缓存）",
-                             "the leftover files currently listed (orphaned, AI coding tools, and dev caches)")
-        case .orphan:
-            subject = L10n.t("当前列出的**无主残留**",
-                             "the **orphaned leftovers** currently listed")
-        case .aiTool:
-            subject = L10n.t("当前列出的 **AI 编程工具残留**",
-                             "the **AI coding-tool leftovers** currently listed")
-        case .devCache:
-            subject = L10n.t("当前列出的 **开发工具缓存**",
-                             "the **dev-tool caches** currently listed")
-        }
 
         // 把清单直接写进问句：模型看不到 session 注入，必须显式给清单，
         // 否则它不知道具体路径，会重复扫描或反问用户。
@@ -234,12 +216,12 @@ struct LeftoversView: View {
         let prompt: String
         if !selected.isEmpty {
             prompt = L10n.t(
-                "我已勾选 \(subject) 中的 \(selected.count) 项（共 \(SizeFormat.human(selectedSize))）。\n\(list)\n\n请直接调用 review_plan(scope: leftovers) 复核这些已勾选项，逐项判断哪些可以放心删除、哪些建议保留，并说明原因。清单已经给出，不要重新扫描。",
-                "I have selected \(selected.count) items (\(SizeFormat.human(selectedSize))) from \(subject).\n\(list)\n\nPlease call review_plan(scope: leftovers) directly to review only these selected items. For each, tell me which are safe to delete and which are better kept, with the reason. The list is already provided — do not scan again.")
+                "我打算清理下面已勾选的残留文件以释放磁盘空间。这些文件是扫描器通过启发式规则找出的，可能存在误判：\n\(list)\n\n请帮我完成三件事：\n1. 逐项确认这些文件/目录是否确实是无主残留（或确实属于对应应用/工具），有没有可能误伤到其他应用。\n2. 评估删除每一项的风险：删除后会不会影响其他应用运行、丢失重要配置或数据？\n3. 基于以上判断，给出最终建议：每一项是「可安全删除」还是「建议保留」，并说明理由。\n\n清单已经给出，不要重新扫描，请直接调用 review_plan(scope: leftovers) 把结论标记出来。",
+                "I plan to clean up the selected leftover files below to free disk space. These were found by heuristic rules and may be false positives:\n\(list)\n\nPlease do three things:\n1. For each item, confirm whether it is truly an orphaned leftover (or genuinely belongs to the corresponding app/tool) and whether it might harm another app.\n2. Assess the risk of deleting it: would it break another app or lose important settings/data?\n3. Based on the above, give a final recommendation for each item: \"safe to delete\" or \"better kept\", with the reason.\n\nThe list is already provided — do not scan again. Please call review_plan(scope: leftovers) directly to mark the verdicts.")
         } else {
             prompt = L10n.t(
-                "请帮我复核\(subject)。\n\(list)\n\n逐项判断哪些可以放心删除、哪些建议保留，并说明原因。清单已经给出，不要重新扫描，请直接调用 review_plan(scope: leftovers) 帮我标记出来。",
-                "Please review \(subject).\n\(list)\n\nFor each, tell me which are safe to delete and which are better kept, with the reason. The list is already provided — do not scan again; please call review_plan(scope: leftovers) directly to mark them.")
+                "我打算清理当前列出的残留文件以释放磁盘空间。这些文件是扫描器通过启发式规则找出的，可能存在误判：\n\(list)\n\n请帮我完成三件事：\n1. 逐项确认这些文件/目录是否确实是无主残留（或确实属于对应应用/工具），有没有可能误伤到其他应用。\n2. 评估删除每一项的风险：删除后会不会影响其他应用运行、丢失重要配置或数据？\n3. 基于以上判断，给出最终建议：每一项是「可安全删除」还是「建议保留」，并说明理由。\n\n清单已经给出，不要重新扫描，请直接调用 review_plan(scope: leftovers) 把结论标记出来。",
+                "I plan to clean up the leftover files currently listed to free disk space. These were found by heuristic rules and may be false positives:\n\(list)\n\nPlease do three things:\n1. For each item, confirm whether it is truly an orphaned leftover (or genuinely belongs to the corresponding app/tool) and whether it might harm another app.\n2. Assess the risk of deleting it: would it break another app or lose important settings/data?\n3. Based on the above, give a final recommendation for each item: \"safe to delete\" or \"better kept\", with the reason.\n\nThe list is already provided — do not scan again. Please call review_plan(scope: leftovers) directly to mark the verdicts.")
         }
         return (prompt, scope)
     }

@@ -348,8 +348,8 @@ struct AppsView: View {
                     ?? (state.searchText.isEmpty ? L10n.t("当前应用", "the current app") : state.searchText)
                 let list = AgentFormat.promptList(state.artifacts)
                 state.jumpToAskAI(L10n.t(
-                    "请帮我复核已安装应用 \(appName) 扫描出来的全部清单。\n\(list)\n\n逐项说明每一项是否可以安全删除、还是建议保留，并给出理由。清单已经给出，不要重新扫描，请直接调用 review_plan(scope: apps) 帮我标记出来。",
-                    "Please review the full list scanned for the installed app \(appName).\n\(list)\n\nFor each item, say whether it's safe to delete or better kept, with the reason. The list is already provided — do not scan again; please call review_plan(scope: apps) directly to mark them."),
+                    "我打算卸载已安装应用 \(appName)。下面是扫描器找出的全部相关文件/目录清单：\n\(list)\n\n请帮我完成三件事：\n1. 逐项确认清单中的文件/目录是否确实属于 \(appName)（例如主程序、用户数据、缓存，或是其他应用误识别）。\n2. 评估删除每一项的风险：如果删除它，会不会导致 \(appName) 无法使用、丢失用户配置、影响系统或其他应用？\n3. 基于以上判断，给出最终建议：每一项是「可安全删除」还是「建议保留」，并说明理由。\n\n清单已经给出，不要重新扫描，请直接调用 review_plan(scope: apps) 把结论标记出来。",
+                    "I plan to uninstall the installed app \(appName). Below is the full list of files/directories the scanner found for it:\n\(list)\n\nPlease do three things:\n1. For each item, confirm whether it truly belongs to \(appName) (e.g., main app bundle, user data, cache, or a false positive from another app).\n2. Assess the risk of deleting it: would it break \(appName), lose user settings, or affect the system/other apps?\n3. Based on the above, give a final recommendation for each item: \"safe to delete\" or \"better kept\", with the reason.\n\nThe list is already provided — do not scan again. Please call review_plan(scope: apps) directly to mark the verdicts."),
                     reviewScope: .apps)
             },
             onUndo: {

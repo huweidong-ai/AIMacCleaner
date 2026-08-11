@@ -206,8 +206,8 @@ struct ProcessesView: View {
                 // 进程复核 skill，所以这一路是 AI 的文字建议，不会自动改勾选
                 // （应用 / 残留页因有 review_plan skill 能做到自动回写）。
                 state.jumpToAskAI(L10n.t(
-                    "请帮我评估当前勾选的进程，逐项判断哪些可以安全结束、哪些建议保留，并说明原因。",
-                    "Please assess the processes I currently have selected. For each, tell me which are safe to end and which are better kept, with the reason."))
+                    "我打算结束当前勾选的进程，但不确定它们的作用和结束后的影响。请帮我逐项评估：\n1. 这个进程是什么作用（系统服务、用户应用、后台任务等）？\n2. 结束它会有什么风险（数据丢失、应用崩溃、系统不稳定等）？\n3. 最终建议：它是「可以安全结束」还是「建议保留运行」，并说明原因。",
+                    "I’m considering ending the currently selected processes but I’m not sure what they do or what will happen. Please assess each one:\n1. What does this process do (system service, user app, background task, etc.)?\n2. What is the risk of ending it (data loss, app crash, system instability, etc.)?\n3. Final recommendation: \"safe to end\" or \"better keep running\", with the reason."))
             },
             onUndo: {
                 state.clearProcessVerdicts()
