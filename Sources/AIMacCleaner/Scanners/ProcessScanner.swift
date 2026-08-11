@@ -42,6 +42,12 @@ struct ProcessScanner: Scanner {
                 // 可执行文件路径或整行命令至少有一处命中本 app、且不被更长外来名覆盖。
                 guard query.matches(executable) || query.matches(fullCommand) else { continue }
 
+                // 当已经定位到具体 app 时，要求该进程的可执行文件必须落在这个 app 的 bundle 内。
+                // Chrome PWA（app_mode_loader）的进程命令行极长，包含 --force-fieldtrials 等
+                // 全局参数，里面可能有任意网站的 URL（如扫 DuckDuckGo 时命中 GitHub 进程）。
+                // 只靠字符串匹配会把别的 PWA/Chrome 进程误当作目标进程。
+                if let app = query.app, !executable.hasPrefix(app.bundlePath) { continue }
+
                 if pidsByExecutable[executable] == nil {
                     executableOrder.append(executable)
                 }
