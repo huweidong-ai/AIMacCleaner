@@ -139,10 +139,14 @@ struct Artifact: Identifiable, Hashable {
     /// 行内辅助说明（仅 UI 展示，不参与删除 / 历史）。
     /// 目前用于 PWA：给「随应用一起卸载」的 Library 配置项标注一句跟随提示。
     var note: String?
+    /// 若该项是某个 PWA 应用本体的跟随配置（如 Chrome PWA 的 Library plist），
+    /// 这里记应用本体的 id。UI 据此禁用其勾选框（勾选跟随 app）；
+    /// 删除逻辑据此把两者作为「卸载单元」一起处理。nil 表示独立项。
+    var companionOf: UUID?
 
     init(category: ArtifactCategory, path: String, size: Int64, risk: Risk,
          meta: String? = nil, selected: Bool? = nil, aiVerdict: AIVerdict? = nil,
-         note: String? = nil) {
+         note: String? = nil, companionOf: UUID? = nil) {
         self.category = category
         self.path = path
         self.size = size
@@ -153,5 +157,6 @@ struct Artifact: Identifiable, Hashable {
         self.selected = selected ?? (risk == .safe)
         self.aiVerdict = aiVerdict
         self.note = note
+        self.companionOf = companionOf
     }
 }

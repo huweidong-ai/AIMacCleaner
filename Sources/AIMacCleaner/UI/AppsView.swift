@@ -443,14 +443,22 @@ struct AppsView: View {
     // MARK: - 动作
 
     private func setSelected(_ id: UUID, _ on: Bool) {
-        guard let idx = state.artifacts.firstIndex(where: { $0.id == id }) else { return }
-        state.artifacts[idx].selected = on
-        // PWA 特殊处理：勾选 / 取消应用本体时，自动同步它对应的 Library 配置，
-        // 保证「卸载应用」不会留下孤立的偏好文件。单独改配置项不影响应用本体
-        // —— 删配置保留 app 是合理的（例如清空登录态以便重装）。
-        if let companionId = state.pwaAppToCompanion[id],
-           let cidx = state.artifacts.firstIndex(where: { $0.id == companionId }) {
-            state.artifacts[cidx].selected = on
+        // PWA 配对：应用本体与其 Library 配置是「卸载单元」，勾选不可拆开。
+        // 改动任一（本体或配置），另一项都强制同步——配置项的勾选框在 UI 上
+        // 已禁用，用户只有一个操作点（应用本体），但这里仍做双向同步，
+        // 以覆盖「分组全选 / 全不选」等会遍历到配置项的路径。
+        let ids: [UUID]
+        if let companionId = state.pwaAppToCompanion[id] {
+            ids = [id, companionId]                 // id 是应用本体
+        } else if let appId = state.pwaAppToCompanion.first(where: { $0.value == id })?.key {
+            ids = [appId, id]                        // id 是跟随配置
+        } else {
+            ids = [id]
+        }
+        for tid in ids {
+            if let idx = state.artifacts.firstIndex(where: { $0.id == tid }) {
+                state.artifacts[idx].selected = on
+            }
         }
     }
 

@@ -338,13 +338,24 @@ struct ArtifactRow: View {
         case nil: return nil
         }
     }
+    /// PWA 跟随配置：勾选框禁用，永远跟随应用本体（见 AppState.linkPWACompanions）。
+    private var isLocked: Bool { artifact.companionOf != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Toggle("", isOn: Binding(get: { artifact.selected }, set: { onToggle($0) }))
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
+                if isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 16, alignment: .center)
+                        .help(L10n.t("随应用一起卸载，勾选跟随上面的应用本体",
+                                     "Removed with the app — follows the app's checkbox"))
+                } else {
+                    Toggle("", isOn: Binding(get: { artifact.selected }, set: { onToggle($0) }))
+                        .toggleStyle(.checkbox)
+                        .labelsHidden()
+                }
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text((artifact.path as NSString).lastPathComponent)

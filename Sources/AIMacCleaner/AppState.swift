@@ -353,6 +353,7 @@ final class AppState: ObservableObject {
               }) else { return }
 
         pwaAppToCompanion[artifacts[appIdx].id] = artifacts[cfgIdx].id
+        artifacts[cfgIdx].companionOf = artifacts[appIdx].id
         artifacts[cfgIdx].note = L10n.t("PWA 配置 · 随应用一起卸载",
                                         "PWA config · removed together with the app")
     }
@@ -589,6 +590,20 @@ final class AppState: ObservableObject {
         aiReviewPhaseApps = .done
         // 复核结论写在每行下方，分组折叠时用户看不到；自动展开所有分类。
         appsCollapsed = []
+        // PWA「卸载单元」：配置项的去留必须跟随应用本体，否则删 app 会留孤儿。
+        // AI 是逐项判定的，可能给配置单独下了结论，这里强制把它拉回本体的状态。
+        syncPWAAfterReview()
+    }
+
+    /// AI 复核落盘后，把 PWA 跟随配置项的选中态强制对齐到应用本体。
+    /// 配置随 app 一起删 / 一起留——它自身被单独判 keep 也不会保留下来，
+    /// 因为本体要删时它必然一起删；本体保留时它自然也保留。
+    private func syncPWAAfterReview() {
+        for (appId, companionId) in pwaAppToCompanion {
+            guard let appIdx = artifacts.firstIndex(where: { $0.id == appId }),
+                  let cfgIdx = artifacts.firstIndex(where: { $0.id == companionId }) else { continue }
+            artifacts[cfgIdx].selected = artifacts[appIdx].selected
+        }
     }
 
     /// 把模型对残留清单的复核结论落到界面：被判定为「可安全删除」的项勾选并写入理由。
