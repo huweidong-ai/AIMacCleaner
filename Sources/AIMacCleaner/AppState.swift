@@ -37,6 +37,11 @@ final class AppState: ObservableObject {
     /// 同名候选，供用户改选
     @Published var ambiguousMatches: [AppIdentity] = []
 
+    /// PWA（Chrome / Edge 安装的网页应用）的「应用本体」↔「Library 配置」配对。
+    /// key 是 `.app` 的 artifact id，value 是对应 plist 的 artifact id。
+    /// 删除 .app 时自动连带删配置，避免留下无主残留（见 `linkPWACompanions()`）。
+    @Published private(set) var pwaAppToCompanion: [UUID: UUID] = [:]
+
     // ── v1.2：app 列表入口 ──
     /// 全部已安装 app，左侧列表用
     @Published var allApps: [AppIdentity] = []
@@ -311,6 +316,7 @@ final class AppState: ObservableObject {
         for i in allArtifacts.indices { allArtifacts[i].selected = true }
         artifacts = allArtifacts
         plan = RemovalPlan(targetName: query.displayTarget, artifacts: allArtifacts)
+        linkPWACompanions()
         aiReviewPhaseApps = .idle
     }
 
@@ -325,6 +331,30 @@ final class AppState: ObservableObject {
             return ScanQuery(raw: target, app: best, others: allApps)
         }
         return ScanQuery(raw: target)
+    }
+
+    /// 扫描完一个 app 后调用：若该 app 是 Chrome / Edge 的 PWA，把它的 `.app`
+    /// 与 `~/Library/Preferences/com.google.Chrome.app.<hash>.plist` 配对，
+    /// 并给配置项打上「随应用一起卸载」的提示。
+    ///
+    /// 为什么需要它：PWA 的偏好/登录态存在 Library 里这份 plist 中，扫出来的
+    /// `.app`（appBundle 组）和 plist（libraryData 组）是两项独立 artifact。
+    /// 用户若只删 .app，plist 就变成无主残留。配对后 UI 联动勾选（删 app 必删配置），
+    /// 保证卸载干净。配置项单独改不影响 app —— 删配置保留 app 是合理的（清空登录态）。
+    private func linkPWACompanions() {
+        pwaAppToCompanion = [:]
+        guard let app = matchedApp, app.isPWA,
+              let prefix = app.bundleId?.lowercased(), prefix.count >= 3 else { return }
+
+        guard let appIdx = artifacts.firstIndex(where: { $0.category == .appBundle }),
+              let cfgIdx = artifacts.firstIndex(where: {
+                  $0.category == .libraryData &&
+                  ($0.path as NSString).lastPathComponent.lowercased() == "\(prefix).plist"
+              }) else { return }
+
+        pwaAppToCompanion[artifacts[appIdx].id] = artifacts[cfgIdx].id
+        artifacts[cfgIdx].note = L10n.t("PWA 配置 · 随应用一起卸载",
+                                        "PWA config · removed together with the app")
     }
 
     /// 同名候选（用于提示用户"你是不是想找另一个"）。
@@ -367,6 +397,7 @@ final class AppState: ObservableObject {
         for i in allArtifacts.indices { allArtifacts[i].selected = true }
         artifacts = allArtifacts
         plan = RemovalPlan(targetName: app.displayName, artifacts: allArtifacts)
+        linkPWACompanions()
         aiReviewPhaseApps = .idle
     }
 
@@ -703,6 +734,7 @@ final class AppState: ObservableObject {
         lastError = nil
         matchedApp = nil
         ambiguousMatches = []
+        pwaAppToCompanion = [:]
         aiReviewPhaseApps = .idle
     }
 

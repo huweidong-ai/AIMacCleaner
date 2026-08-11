@@ -445,6 +445,13 @@ struct AppsView: View {
     private func setSelected(_ id: UUID, _ on: Bool) {
         guard let idx = state.artifacts.firstIndex(where: { $0.id == id }) else { return }
         state.artifacts[idx].selected = on
+        // PWA 特殊处理：勾选 / 取消应用本体时，自动同步它对应的 Library 配置，
+        // 保证「卸载应用」不会留下孤立的偏好文件。单独改配置项不影响应用本体
+        // —— 删配置保留 app 是合理的（例如清空登录态以便重装）。
+        if let companionId = state.pwaAppToCompanion[id],
+           let cidx = state.artifacts.firstIndex(where: { $0.id == companionId }) {
+            state.artifacts[cidx].selected = on
+        }
     }
 
     private func expandAllCategories(expanded: Bool) {

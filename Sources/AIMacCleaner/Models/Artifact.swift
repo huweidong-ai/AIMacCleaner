@@ -136,9 +136,13 @@ struct Artifact: Identifiable, Hashable {
     var selected: Bool
     /// AI 复核结论。nil 表示尚未复核。
     var aiVerdict: AIVerdict?
+    /// 行内辅助说明（仅 UI 展示，不参与删除 / 历史）。
+    /// 目前用于 PWA：给「随应用一起卸载」的 Library 配置项标注一句跟随提示。
+    var note: String?
 
     init(category: ArtifactCategory, path: String, size: Int64, risk: Risk,
-         meta: String? = nil, selected: Bool? = nil, aiVerdict: AIVerdict? = nil) {
+         meta: String? = nil, selected: Bool? = nil, aiVerdict: AIVerdict? = nil,
+         note: String? = nil) {
         self.category = category
         self.path = path
         self.size = size
@@ -148,5 +152,6 @@ struct Artifact: Identifiable, Hashable {
         // UI 层（应用页、残留页）会按页面策略显式覆盖 selected。
         self.selected = selected ?? (risk == .safe)
         self.aiVerdict = aiVerdict
+        self.note = note
     }
 }

@@ -31,6 +31,17 @@ struct AppIdentity: Identifiable, Hashable {
         return suffix
     }
 
+    /// 是否为 Chrome / Edge 通过「安装到磁盘」生成的 PWA 快捷方式 app。
+    ///
+    /// 这类 app 本质是个浏览器外壳（`app_mode_loader`），真正的偏好/登录态在
+    /// `~/Library/Preferences/com.google.Chrome.app.<hash>.plist` 里。光删 .app
+    /// 会留下无主残留，所以卸载时要当成「一个整体」连带清掉那份配置。
+    var isPWA: Bool {
+        guard let bid = bundleId?.lowercased() else { return false }
+        return bid.hasPrefix("com.google.chrome.app.") ||
+               bid.hasPrefix("com.microsoft.edgemac.app.")
+    }
+
     /// bundle id 末段里不能当别名的通用词。这些词作为关键词下发会命中大量
     /// 无关目录（`app` 会匹配整个 `Application Support`：实测 556 项 / 34 GB，
     /// 含一个 458 MB 的无关 app 数据目录和一堆 com.apple.*）。foreignKeywords 防不住 ——

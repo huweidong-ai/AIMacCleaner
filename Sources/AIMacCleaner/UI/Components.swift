@@ -387,6 +387,17 @@ struct ArtifactRow: View {
                 AINoteRow(reason: aiReason, isKeep: aiKeep)
                     .padding(.leading, 26)
             }
+
+            if let note = artifact.note {
+                HStack(spacing: 4) {
+                    Image(systemName: "link")
+                        .font(.system(size: 9.5))
+                    Text(note)
+                }
+                .font(.system(size: 10.5))
+                .foregroundStyle(Theme.accent)
+                .padding(.leading, 26)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
