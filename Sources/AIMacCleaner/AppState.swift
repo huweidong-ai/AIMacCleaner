@@ -551,6 +551,8 @@ final class AppState: ObservableObject {
             }
         }
         aiReviewPhaseApps = .done
+        // 复核结论写在每行下方，分组折叠时用户看不到；自动展开所有分类。
+        appsCollapsed = []
     }
 
     /// 把模型对残留清单的复核结论落到界面：被判定为「可安全删除」的项勾选并写入理由。
@@ -570,6 +572,8 @@ final class AppState: ObservableObject {
             }
         }
         aiReviewPhaseLeftovers = .done
+        // 复核结论需要让用户逐条看到，自动展开所有残留分组。
+        leftoverCollapsed = []
     }
 
     /// 撤销 AI 复核结论，恢复默认选中状态。
