@@ -264,19 +264,19 @@ struct LeftoversView: View {
                         ArtifactGroupCard(
                             title: group.owner,
                             badge: .source(group.source),
-                            artifacts: group.artifacts,
-                            expanded: Binding(
-                                get: { !state.leftoverCollapsed.contains(group.id) },
-                                set: { open in
-                                    if open { state.leftoverCollapsed.remove(group.id) } else { state.leftoverCollapsed.insert(group.id) }
-                                }
-                            ),
+                            entries: group.artifacts,
+                            expanded: !state.leftoverCollapsed.contains(group.id),
                             onToggleGroup: { on in
                                 state.setLeftoverGroupSelected(groupId: group.id, selected: on)
                             },
                             onToggleItem: { id, on in
                                 state.setLeftoverSelected(groupId: group.id, artifactId: id, selected: on)
-                            }
+                            },
+                            onToggleExpanded: {
+                                if state.leftoverCollapsed.contains(group.id) { state.leftoverCollapsed.remove(group.id) }
+                                else { state.leftoverCollapsed.insert(group.id) }
+                            },
+                            lockedIds: []
                         )
                     }
                 }

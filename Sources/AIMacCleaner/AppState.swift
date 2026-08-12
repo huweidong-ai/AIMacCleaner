@@ -356,7 +356,6 @@ final class AppState: ObservableObject {
               }) else { return }
 
         pwaAppToCompanion[artifacts[appIdx].id] = artifacts[cfgIdx].id
-        artifacts[cfgIdx].companionOf = artifacts[appIdx].id
         artifacts[cfgIdx].note = L10n.t("PWA 配置 · 随应用一起卸载",
                                         "PWA config · removed together with the app")
     }

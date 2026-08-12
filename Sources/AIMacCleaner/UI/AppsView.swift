@@ -390,17 +390,17 @@ struct AppsView: View {
                     ArtifactGroupCard(
                         title: category.displayName,
                         badge: nil,
-                        artifacts: items,
-                        expanded: Binding(
-                            get: { !state.appsCollapsed.contains(category) },
-                            set: { open in
-                                if open { state.appsCollapsed.remove(category) } else { state.appsCollapsed.insert(category) }
-                            }
-                        ),
+                        entries: items,
+                        expanded: !state.appsCollapsed.contains(category),
                         onToggleGroup: { on in
                             for a in items { setSelected(a.id, on) }
                         },
-                        onToggleItem: { id, on in setSelected(id, on) }
+                        onToggleItem: { id, on in setSelected(id, on) },
+                        onToggleExpanded: {
+                            if state.appsCollapsed.contains(category) { state.appsCollapsed.remove(category) }
+                            else { state.appsCollapsed.insert(category) }
+                        },
+                        lockedIds: Set(state.pwaAppToCompanion.values)
                     )
                 }
             }

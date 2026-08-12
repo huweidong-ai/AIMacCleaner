@@ -262,14 +262,19 @@ struct ArtifactGroupCard: View {
     let title: String
     /// 标题后面的额外徽章（残留页放来源 pill，应用页不放）。
     let badge: TagPill?
-    let artifacts: [Artifact]
-    @Binding var expanded: Bool
+    let entries: [Artifact]
+    let expanded: Bool
     let onToggleGroup: (Bool) -> Void
     let onToggleItem: (UUID, Bool) -> Void
+    /// 折叠切换回调（折叠态由调用方持有，便于跨视图同步）。
+    let onToggleExpanded: () -> Void
+    /// 被 PWA「卸载单元」锁定的项 id 集合（配置 plist）。这些项勾选框禁用、
+    /// 跟随应用本体，由 `state.pwaAppToCompanion` 直接算出（@Published 赋值必刷新）。
+    let lockedIds: Set<UUID>
 
-    private var totalSize: Int64 { artifacts.reduce(0) { $0 + $1.size } }
-    private var selectedCount: Int { artifacts.filter(\.selected).count }
-    private var allSelected: Bool { !artifacts.isEmpty && selectedCount == artifacts.count }
+    private var totalSize: Int64 { entries.reduce(0) { $0 + $1.size } }
+    private var selectedCount: Int { entries.filter(\.selected).count }
+    private var allSelected: Bool { !entries.isEmpty && selectedCount == entries.count }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -277,9 +282,9 @@ struct ArtifactGroupCard: View {
             if expanded {
                 Divider()
                 VStack(spacing: 0) {
-                    ForEach(Array(artifacts.enumerated()), id: \.element.id) { idx, artifact in
+                    ForEach(Array(entries.enumerated()), id: \.element.id) { idx, artifact in
                         if idx > 0 { Divider().padding(.leading, 34) }
-                        ArtifactRow(artifact: artifact) { onToggleItem(artifact.id, $0) }
+                        ArtifactRow(artifact: artifact, isLocked: lockedIds.contains(artifact.id), onToggle: { onToggleItem(artifact.id, $0) })
                     }
                 }
             }
@@ -298,6 +303,7 @@ struct ArtifactGroupCard: View {
             Toggle("", isOn: Binding(get: { allSelected }, set: { onToggleGroup($0) }))
                 .toggleStyle(.checkbox)
                 .labelsHidden()
+                .help(L10n.t("全选 / 取消全选本组", "Select / deselect all in this group"))
 
             Text(title)
                 .font(.system(size: 12.5, weight: .semibold))
@@ -305,7 +311,7 @@ struct ArtifactGroupCard: View {
 
             if let badge { badge }
 
-            Text(L10n.t("\(artifacts.count) 项", "\(artifacts.count) items"))
+            Text(L10n.t("\(entries.count) 项", "\(entries.count) items"))
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
 
@@ -319,13 +325,16 @@ struct ArtifactGroupCard: View {
         .frame(height: 34)
         .contentShape(Rectangle())
         // 整行可点折叠，但复选框要吃掉自己的点击，否则勾选会连带折叠。
-        .onTapGesture { expanded.toggle() }
+        .onTapGesture { onToggleExpanded() }
     }
 }
 
 /// 单条痕迹。AI 给过结论的行会染色 + 在下方补一行理由。
 struct ArtifactRow: View {
     let artifact: Artifact
+    /// PWA 跟随配置：勾选框禁用，永远跟随应用本体。由 `state.pwaAppToCompanion`
+    /// 直接算出并传入（@Published 赋值必触发刷新），不依赖数组元素下标修改。
+    let isLocked: Bool
     let onToggle: (Bool) -> Void
 
     private var aiKeep: Bool {
@@ -338,8 +347,6 @@ struct ArtifactRow: View {
         case nil: return nil
         }
     }
-    /// PWA 跟随配置：勾选框禁用，永远跟随应用本体（见 AppState.linkPWACompanions）。
-    private var isLocked: Bool { artifact.companionOf != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
