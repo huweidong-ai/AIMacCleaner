@@ -20,7 +20,9 @@ private enum ComposerMetrics {
     static let inset: CGFloat = 10       // TextEditor 上下内边距
     static let inputHeight = CGFloat(visibleLines) * lineH + inset * 2 // ≈ 74
     static let corner: CGFloat = 22      // 千问风格：大圆角
-    static let maxWidth: CGFloat = 720   // 输入框最大宽度，空态/底栏都居中
+    static let maxWidth: CGFloat = 720   // 空态建议词卡片的最大宽度（输入框本身跟随软件宽度，见 composer）
+    /// 点右上角放大钮时输入框的高度：粘贴大段文本时展开，方便在发送前通读内容。
+    static let expandedHeight: CGFloat = 280
 }
 
 struct AskAIView: View {
@@ -46,6 +48,8 @@ struct AskAIView: View {
     @State private var showNewChatConfirm = false
     @State private var slashSelection = 0
     @State private var slashDismissed = false
+    /// 输入框右上角放大/缩小：粘贴大段文本时点开，输入框变高方便阅读，再点收起。
+    @State private var inputExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -462,10 +466,8 @@ struct AskAIView: View {
                 .opacity(0.6)
 
             HStack {
-                Spacer(minLength: 0)
                 composerInput
-                    .frame(maxWidth: ComposerMetrics.maxWidth)
-                Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -532,7 +534,8 @@ struct AskAIView: View {
                         return true
                     }
                 )
-                .frame(height: ComposerMetrics.inputHeight, alignment: .topLeading)
+                .frame(height: inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight,
+                       alignment: .topLeading)
             }
             .overlay(alignment: .bottomTrailing) {
                 Text(counterText)
@@ -565,6 +568,25 @@ struct AskAIView: View {
         .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
         .overlay(RoundedRectangle(cornerRadius: ComposerMetrics.corner)
             .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
+        // 右上角放大/缩小钮：展开输入框方便阅读粘贴的大段文本，再点收起。
+        .overlay(alignment: .topTrailing) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { inputExpanded.toggle() }
+            } label: {
+                Image(systemName: inputExpanded
+                      ? "arrow.down.right.and.arrow.up.left"
+                      : "arrow.up.left.and.arrow.down.right")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .help(inputExpanded
+                  ? L10n.t("缩小输入框", "Collapse input box")
+                  : L10n.t("放大输入框", "Expand input box"))
+            .padding(7)
+        }
     }
 
     /// 按 `Character` 计数：一个汉字 = 1，一个 emoji 字素簇 = 1。
