@@ -338,6 +338,29 @@ enum SelfTest {
                 }
                 return true
             },
+            Check(name: "Caches 与 XDG .cache 归 safe、Preferences 归 userData") {
+                // 缓存目录是可再生的，不该和聊天记录/账号数据并列进废纸篓；
+                // plist 通常含登录态与配置，应归 userData。
+                let lib = LibraryDataScanner().baseDirs
+                let xdg = XDGUserDataScanner().baseDirs
+                let home = NSHomeDirectory()
+                let cachesSafe = lib.first(where: { $0.path == "\(home)/Library/Caches" })?.risk == .safe
+                let prefsUser = lib.first(where: { $0.path == "\(home)/Library/Preferences" })?.risk == .userData
+                let xdgCacheSafe = xdg.first(where: { $0.path == "\(home)/.cache" })?.risk == .safe
+                return cachesSafe && prefsUser && xdgCacheSafe
+            },
+            Check(name: "AuthTokenScanner 令牌文件归 userData（不误标 safe）") {
+                // Chromium 的 Trust Tokens 这类认证/隐私令牌被 AuthTokenScanner
+                // 按文件名含 "token" 匹配到，必须归 userData，不能默认勾选删除。
+                let home = NSHomeDirectory()
+                let base = "\(home)/Library/Application Support/expunge-tt-\(UUID().uuidString)"
+                try? FileManager.default.createDirectory(atPath: base, withIntermediateDirectories: true)
+                try? "{}".write(toFile: "\(base)/trust-tokens.json", atomically: true, encoding: .utf8)
+                defer { try? FileManager.default.removeItem(atPath: base) }
+                let q = ScanQuery(raw: "expunge-tt")
+                let arts = await AuthTokenScanner().scan(query: q)
+                return !arts.isEmpty && arts.allSatisfy { $0.risk == .userData }
+            },
             Check(name: "L10n 双语都非空且互不相同") {
                 // 防止「只填了中文、英文留空」或「两边复制粘贴忘了改」。
                 // 抽查几条关键文案。

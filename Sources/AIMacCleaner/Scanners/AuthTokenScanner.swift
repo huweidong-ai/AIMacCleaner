@@ -1,6 +1,11 @@
 import Foundation
 
 /// 在已知数据目录中搜索鉴权文件（token、key、auth、*-client 等命名）。
+///
+/// **这些文件是用户凭据 / 隐私令牌（如 Chromium 的 `Trust Tokens`、各类
+/// `auth*.json` / `*-token`），删了要重新登录或影响站点隐私凭证，不可再生 ——
+/// 一律标 `userData`、默认不勾选。** 之前的实现误标成 `safe`，导致
+/// `Trust Tokens` 这类认证数据被当成「可安全删除」默认勾选，存在误删凭据风险。
 struct AuthTokenScanner: Scanner {
     let name = "AuthTokenScanner"
 
@@ -52,7 +57,7 @@ struct AuthTokenScanner: Scanner {
                         category: .authToken,
                         path: item.path,
                         size: size,
-                        risk: .safe,
+                        risk: .userData,
                         meta: "matched: \(p)"
                     ))
                     break

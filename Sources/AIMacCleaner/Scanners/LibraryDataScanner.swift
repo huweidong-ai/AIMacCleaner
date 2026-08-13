@@ -17,15 +17,16 @@ struct LibraryDataScanner: Scanner {
     /// HTTPStorages ~90 项 / 数十 MB、WebKit ~15 项 / 20+ MB、Application Scripts ~千项。
     ///
     /// **risk 的判断依据是「删掉会不会丢用户不可再生的东西」，不是目录大小：**
-    /// - `HTTPStorages` / `Cookies` 存的是 HTTP cookie，**含登录态** —— 删了要重新登录，
+    /// - `Application Support` / `HTTPStorages` / `Cookies` / `Services` 存的是
+    ///   配置、登录态、Cookie、用户自己写的 workflow —— 删了要重新登录或重配，
     ///   算 userData（默认不勾选）。
-    /// - `Services` 里是 Automator workflow，可能是**用户自己写的** —— 同上。
-    /// - `WebKit` / `Application Scripts` / `Internet Plug-Ins` / `PreferencePanes`
-    ///   是可再生的缓存和 app 自带资源，算 safe。
+    /// - `Preferences`（*.plist）通常含登录态与配置，同样算 userData。
+    /// - `Caches` / `WebKit` / `Application Scripts` / `Internet Plug-Ins` / `PreferencePanes`
+    ///   是可再生的缓存和 app 自带资源，删了最多重新生成，算 safe（默认勾选）。
     let baseDirs: [DirSpec] = [
         DirSpec(path: "\(NSHomeDirectory())/Library/Application Support", risk: .userData),
-        DirSpec(path: "\(NSHomeDirectory())/Library/Preferences",        risk: .safe),
-        DirSpec(path: "\(NSHomeDirectory())/Library/Caches",              risk: .userData),
+        DirSpec(path: "\(NSHomeDirectory())/Library/Preferences",        risk: .userData),
+        DirSpec(path: "\(NSHomeDirectory())/Library/Caches",              risk: .safe),
         DirSpec(path: "\(NSHomeDirectory())/Library/Logs",                risk: .safe),
         DirSpec(path: "\(NSHomeDirectory())/Library/Saved Application State", risk: .userData),
         // ── v1.3 新增 ──
