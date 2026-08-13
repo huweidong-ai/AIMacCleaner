@@ -5,7 +5,7 @@ import AppKit
 ///
 /// v1.6 起合并了原来的「扫描」tab —— 两者的差别只有左侧面板，
 /// 却让用户要先想清楚「我是要搜还是要浏览」。现在搜索框就在列表上方，
-/// 输入即过滤、回车即按关键词全盘扫（照顾 mimo 这类没有 .app 的 CLI 工具）。
+/// 输入即过滤左侧已装应用列表，回车不再触发关键词全盘扫描。
 struct AppsView: View {
     @EnvironmentObject var state: AppState
     @State private var showConfirm = false
@@ -168,14 +168,12 @@ struct AppsView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
                     .font(.system(size: 11))
-                // 有了列表，搜索框的主职责变成「过滤」；
-                // 但仍保留回车扫描，这样 mimo 这类没有 .app 的 CLI 工具依然能扫。
-                TextField(L10n.t("搜索应用，或输入关键词回车扫描",
-                                 "Search apps, or type a keyword and press Return"),
+                // 搜索框只负责过滤左侧已装应用列表；
+                // 不再支持回车按关键词全盘扫描系统/CLI 工具。
+                TextField(L10n.t("搜索应用", "Search apps"),
                           text: $state.searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
-                    .onSubmit { Task { await state.scan() } }
                 if !state.searchText.isEmpty {
                     // 只置空 searchText 不够：右侧还留着上一轮结果、侧栏还在报可回收量。
                     // clear() 一次把「回到首屏」需要的状态全清掉。
@@ -224,8 +222,8 @@ struct AppsView: View {
             EmptyStateView(
                 icon: "hand.point.left",
                 title: L10n.t("在左侧点选一个应用", "Pick an app on the left"),
-                message: L10n.t("也可以在搜索框输入关键词回车 —— mimo 这类没有 .app 的命令行工具只能这么找。\n16 类痕迹 · 14 个扫描器 · 含沙箱容器。",
-                                "Or type a keyword and press Return — the only way to find CLI tools with no .app bundle, like mimo.\n16 artifact types · 14 scanners · includes sandbox containers.")
+                message: L10n.t("16 类痕迹 · 14 个扫描器 · 含沙箱容器。",
+                                "16 artifact types · 14 scanners · includes sandbox containers.")
             )
         } else {
             VStack(spacing: 0) {

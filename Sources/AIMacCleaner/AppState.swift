@@ -299,10 +299,15 @@ final class AppState: ObservableObject {
         defer { isScanning = false }
 
         // 先把用户输入解析成具体 app：搜「微信」要能定位到 WeChat.app。
-        // 找不到对应 app 时退回关键词模式（mimo、cc-connect 这类 CLI 工具没有 .app）。
+        // 搜索框不再支持无匹配 app 时的关键词全盘扫描（CLI 工具走 Ask AI / CLI 入口）。
         let query = Self.resolveQuery(from: target)
         matchedApp = query.app
         ambiguousMatches = Self.candidates(for: target)
+        guard query.app != nil else {
+            artifacts = []
+            plan = nil
+            return
+        }
 
         var allArtifacts: [Artifact] = []
         for scanner in scanners {
