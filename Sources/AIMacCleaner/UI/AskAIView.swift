@@ -19,7 +19,7 @@ private enum ComposerMetrics {
     static let lineH: CGFloat = 18       // 单行内容高（font 13 + lineSpacing 2）
     static let inset: CGFloat = 10       // TextEditor 上下内边距
     static let inputHeight = CGFloat(visibleLines) * lineH + inset * 2 // ≈ 74
-    static let corner: CGFloat = 22      // 千问风格：大圆角
+    static let corner: CGFloat = 28      // 千问风格：胶囊大圆角
     static let maxWidth: CGFloat = 720   // 空态建议词卡片的最大宽度（输入框本身跟随软件宽度，见 composer）
     /// 点右上角放大钮时输入框的高度：粘贴大段文本时展开，方便在发送前通读内容。
     static let expandedHeight: CGFloat = 280
@@ -451,28 +451,37 @@ struct AskAIView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
-            // 命令面板放在输入区上方，与下方输入框左对齐、同宽。
+            // 命令面板放在输入区上方，与下方输入框同宽、左右对齐。
             if showSlashPalette {
-                SlashPalette(items: slashMatches,
-                             selection: slashSelection,
-                             onHover: { slashSelection = $0 },
-                             onPick:  { acceptSlash($0) })
-                    .padding(.horizontal, 12)
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
-                    .transition(.opacity)
-                    .frame(maxWidth: ComposerMetrics.maxWidth)
+                HStack(spacing: 0) {
+                    Spacer(minLength: 40)
+                    SlashPalette(items: slashMatches,
+                                 selection: slashSelection,
+                                 onHover: { slashSelection = $0 },
+                                 onPick:  { acceptSlash($0) })
+                        .padding(.horizontal, 12)
+                        .padding(.top, 6)
+                        .padding(.bottom, 4)
+                        .transition(.opacity)
+                        .frame(maxWidth: .infinity)
+                    Spacer(minLength: 40)
+                }
             }
 
             Divider()
                 .opacity(0.6)
 
-            composerInput
-                .frame(maxWidth: .infinity)
-                .padding(.top, 12)
-                .background(Theme.bgSurface)
-                .animation(.easeOut(duration: 0.12), value: showSlashPalette)
-                .onChange(of: input) { _, newValue in
+            // 输入框：白色胶囊，宽度与上方消息气泡一致；其余区域保持聊天背景灰色。
+            HStack(spacing: 0) {
+                Spacer(minLength: 40)
+                composerInput
+                Spacer(minLength: 40)
+            }
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+            .background(Theme.bgCanvas)
+            .animation(.easeOut(duration: 0.12), value: showSlashPalette)
+            .onChange(of: input) { _, newValue in
                 // 硬性截断到上限：防止输入框继续累积，确保计数器永远不超过 maxInputChars。
                 // 之前"只禁发不裁字"在 GUI 上被用户感知为 bug（显示 1105/1000），
                 // 因此改为输入层直接截断。
@@ -485,9 +494,8 @@ struct AskAIView: View {
         }
     }
 
-    /// 千问风格的大圆角输入框：上方多行编辑区，下方固定工具栏（文字不可输入）。
-    /// 千问风格的大圆角输入框：左侧多行编辑区 + 底部工具栏，右侧固定按钮列（文字不可输入）。
-    /// 右侧列 reserved 给展开钮、发送钮，以及后续要加的按钮。
+    /// 千问风格：白色胶囊输入框。左侧多行编辑区 + 底部工具栏，右侧按钮列。
+    /// 外部是聊天背景灰；输入框内部为白色，与消息气泡底色拉平。
     private var composerInput: some View {
         HStack(alignment: .bottom, spacing: 0) {
             // 左侧：文字可输入区
@@ -525,14 +533,12 @@ struct AskAIView: View {
                     .frame(height: inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight,
                            alignment: .topLeading)
 
-                    // placeholder：TextEditor 没有内置 placeholder，用 overlay 实现。
+                    // placeholder：与输入文本同字号、无额外偏移，确保光标和暗文在同一行基线。
                     if input.isEmpty {
                         Text(L10n.t("向 AI 提问", "Ask AI"))
-                            .font(.system(size: 13))
+                            .font(.system(size: 12.5))
                             .foregroundStyle(.tertiary)
                             .lineSpacing(2)
-                            // 与 NSTextView 的内边距对齐：只保留顶部微调，避免光标看起来偏高。
-                            .padding(.top, 2)
                             .allowsHitTesting(false)
                     }
                 }
@@ -554,7 +560,7 @@ struct AskAIView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 6)
-        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
+        .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
         .overlay(RoundedRectangle(cornerRadius: ComposerMetrics.corner)
             .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
     }
