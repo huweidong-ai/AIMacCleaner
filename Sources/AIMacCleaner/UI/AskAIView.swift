@@ -16,10 +16,11 @@ import MarkdownUI
 /// 输入框的尺寸口径。放这里不放 ChatPolicy —— 那是纯模型命名空间，不该装 UI 度量。
 private enum ComposerMetrics {
     static let visibleLines = 3          // 输入框默认/固定高度按 3 行显示
-    static let lineH: CGFloat = 17       // 单行内容高（font 12.5 + lineSpacing 2）
-    static let inset: CGFloat = 8        // TextEditor 上下内边距
-    static let inputHeight = CGFloat(visibleLines) * lineH + inset * 2 // ≈ 67
-    static let corner: CGFloat = 10
+    static let lineH: CGFloat = 18       // 单行内容高（font 13 + lineSpacing 2）
+    static let inset: CGFloat = 10       // TextEditor 上下内边距
+    static let inputHeight = CGFloat(visibleLines) * lineH + inset * 2 // ≈ 74
+    static let corner: CGFloat = 22      // 千问风格：大圆角
+    static let maxWidth: CGFloat = 720   // 输入框最大宽度，空态/底栏都居中
 }
 
 struct AskAIView: View {
@@ -232,32 +233,57 @@ struct AskAIView: View {
 
     private var emptyState: some View {
         ScrollView {
-            VStack(spacing: 22) {
-                VStack(spacing: 8) {
-                    Text(L10n.t("今天想清理点什么？", "What would you like to clean up today?"))
-                        .font(.system(size: 22, weight: .semibold))
-                    Text(L10n.t("例如：把 Cursor 彻底卸干净", "e.g. uninstall Cursor completely"))
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 460)
+            VStack(spacing: 0) {
+                Spacer(minLength: 40)
+
+                aiGreeting
+
+                if !modelReady {
+                    configCard
+                        .padding(.top, 28)
                 }
-                    .padding(.top, 28)
 
-                if !modelReady { configCard }
-
-                // 未配置模型时只显示配置引导，隐藏示例按钮和功能介绍卡片，
-                // 避免用户对着一堆点不动的入口发懵。
                 if modelReady {
-                    chips
+                    promptChips
+                        .padding(.top, 28)
                 }
+
+                Spacer(minLength: 80)
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .frame(minHeight: 420)
         }
         .background(Theme.bgCanvas)
     }
 
-    private var chips: some View {
+    /// 千问风格首屏：AI 图标 + 居中大标题 + 副标题。
+    private var aiGreeting: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(LinearGradient(colors: [Theme.aiPrimary, Theme.aiDeep],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .frame(width: 52, height: 52)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+
+            VStack(spacing: 6) {
+                Text(L10n.t("你好，我是 AI Mac Cleaner", "Hello, I'm AI Mac Cleaner"))
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(L10n.t("用自然语言清理 Mac，执行删除前会请你确认",
+                             "Clean your Mac in plain language — it asks before deleting anything"))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+            }
+        }
+    }
+
+    private var promptChips: some View {
         let items: [(String, String)] = [
             ("sparkles",        L10n.t("看看装了哪些 AI 工具，能清理吗", "Check installed AI tools for cleanup")),
             ("wand.and.rays",   L10n.t("扫一遍所有残留", "Scan all leftovers")),
@@ -265,7 +291,7 @@ struct AskAIView: View {
             ("bolt.fill",       L10n.t("ChatGPT 占的空间有多大？", "How much space does ChatGPT take?")),
             ("magnifyingglass", L10n.t("看看有什么可以清理的", "See what can be cleaned up"))
         ]
-        return FlowRow(spacing: 8) {
+        return FlowRow(spacing: 10) {
             ForEach(items, id: \.1) { icon, text in
                 Button {
                     // 只填入、不发送：建议词是起点不是终点，用户往往要改一改
@@ -277,11 +303,11 @@ struct AskAIView: View {
                 } label: {
                     Label(text, systemImage: icon)
                         .font(.system(size: 12))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Theme.accentSubtle, in: Capsule())
-                        .overlay(Capsule().stroke(Theme.accentBorder, lineWidth: 1))
-                        .foregroundStyle(Theme.accentActive)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 1))
+                        .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
                 .help(L10n.t("填入输入框，可修改后按回车发送",
@@ -289,6 +315,7 @@ struct AskAIView: View {
             }
         }
         .padding(.horizontal, 12)
+        .frame(maxWidth: ComposerMetrics.maxWidth)
     }
 
     // 未配置模型时的醒目提示卡：点一下直接去设置。
@@ -418,101 +445,30 @@ struct AskAIView: View {
 
     private var composer: some View {
         VStack(spacing: 0) {
-            // 命令面板放在输入区上方，和输入框左对齐，不覆盖输入框本身。
+            // 命令面板放在输入区上方，与下方输入框左对齐、同宽。
             if showSlashPalette {
                 SlashPalette(items: slashMatches,
                              selection: slashSelection,
                              onHover: { slashSelection = $0 },
                              onPick:  { acceptSlash($0) })
-                    // 左缩进与输入框一致(10)；右侧留出「发送按钮(26)+间距(10)+输入框右缩进(10)」，
-                    // 否则面板会吃掉按钮那一段宽度而显得比输入框宽。
-                    .padding(.leading, 10)
-                    .padding(.trailing, 46)
+                    .padding(.horizontal, 12)
                     .padding(.top, 6)
                     .padding(.bottom, 4)
                     .transition(.opacity)
+                    .frame(maxWidth: ComposerMetrics.maxWidth)
             }
 
             Divider()
+                .opacity(0.6)
 
-            HStack(alignment: .bottom, spacing: 10) {
-                ZStack(alignment: .topLeading) {
-                    // placeholder：TextEditor 没有内置 placeholder，用 overlay 实现。
-                    if input.isEmpty {
-                        Text(L10n.t("描述你想清理什么，输入 / 查看命令，回车发送（⌥回车换行）…",
-                                     "Describe what to clean up, type / for commands, Return to send…"))
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(.tertiary)
-                            .lineSpacing(2)
-                            // 与 NSTextView 的内边距对齐：ComposerTextView 已把
-                            // textContainerInset 和 lineFragmentPadding 都置零，placeholder
-                            // 只保留水平内边距即可与输入文本第一行基线对齐；vertical padding
-                            // 会把它额外下推，导致光标看起来偏高。
-                            .padding(.horizontal, 10)
-                            .allowsHitTesting(false)
-                    }
-
-                    ComposerTextView(
-                        text: $input,
-                        isFocused: Binding<Bool>(
-                            get: { inputFocused },
-                            set: { inputFocused = $0 }
-                        ),
-                        onReturn: {
-                            if let item = slashHighlighted {
-                                acceptSlash(item)
-                                return true
-                            }
-                            if canSend {
-                                send(input)
-                                return true
-                            }
-                            return true // 空输入时回车也不让系统响铃
-                        },
-                        onOptionReturn: { input.append("\n") },
-                        onTab: {
-                            guard let item = slashHighlighted else { return false }
-                            input = item.token
-                            return true
-                        },
-                        onEscape: {
-                            guard showSlashPalette else { return false }
-                            slashDismissed = true
-                            return true
-                        }
-                    )
-                    .frame(height: ComposerMetrics.inputHeight, alignment: .topLeading)
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    Text(counterText)
-                        .font(.system(size: 9.5))
-                        // 等宽数字：否则 999 → 1000 时宽度跳动。
-                        .monospacedDigit()
-                        .foregroundStyle(counterStyle)
-                        .padding(.trailing, 36)
-                        .padding(.bottom, 6)
-                        .help(overLimit
-                              ? L10n.t("已超出 \(ChatPolicy.maxInputChars) 字上限，请精简后发送",
-                                       "Over the \(ChatPolicy.maxInputChars)-character limit — please shorten it")
-                              : "")
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
-                .overlay(RoundedRectangle(cornerRadius: ComposerMetrics.corner)
-                    .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
-
-                Button { send(input) } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 26, height: 26)
-                        .background(canSend ? Theme.accent : Color.secondary.opacity(0.4), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
+            HStack {
+                Spacer(minLength: 0)
+                composerInput
+                    .frame(maxWidth: ComposerMetrics.maxWidth)
+                Spacer(minLength: 0)
             }
-            .padding(10)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .background(Theme.bgSurface)
             .animation(.easeOut(duration: 0.12), value: showSlashPalette)
             .onChange(of: input) { _, newValue in
@@ -525,20 +481,90 @@ struct AskAIView: View {
                 slashDismissed = false
                 slashSelection = 0
             }
-
-            // 底部提示行：只保留左边那句能力边界说明。
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(L10n.t("Agent 只能调用 AI Mac Cleaner 的 \(SkillRegistry.all.count) 个 skill，没有通用 shell，也不会读取文件内容",
-                            "The agent can only call AI Mac Cleaner's \(SkillRegistry.all.count) skills — no general shell, no file contents read"))
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
-            .background(Theme.bgSurface)
         }
+    }
+
+    /// 千问风格的大圆角输入框：左侧多行编辑区 + 右侧圆形发送按钮。
+    private var composerInput: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            ZStack(alignment: .topLeading) {
+                // placeholder：TextEditor 没有内置 placeholder，用 overlay 实现。
+                if input.isEmpty {
+                    Text(L10n.t("向 AI 提问", "Ask AI"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(.tertiary)
+                        .lineSpacing(2)
+                        // 与 NSTextView 的内边距对齐：ComposerTextView 已把
+                        // textContainerInset 和 lineFragmentPadding 都置零，placeholder
+                        // 只保留水平内边距即可与输入文本第一行基线对齐；vertical padding
+                        // 会把它额外下推，导致光标看起来偏高。
+                        .padding(.horizontal, 12)
+                        .padding(.top, 2)
+                        .allowsHitTesting(false)
+                }
+
+                ComposerTextView(
+                    text: $input,
+                    isFocused: Binding<Bool>(
+                        get: { inputFocused },
+                        set: { inputFocused = $0 }
+                    ),
+                    onReturn: {
+                        if let item = slashHighlighted {
+                            acceptSlash(item)
+                            return true
+                        }
+                        if canSend {
+                            send(input)
+                            return true
+                        }
+                        return true // 空输入时回车也不让系统响铃
+                    },
+                    onOptionReturn: { input.append("\n") },
+                    onTab: {
+                        guard let item = slashHighlighted else { return false }
+                        input = item.token
+                        return true
+                    },
+                    onEscape: {
+                        guard showSlashPalette else { return false }
+                        slashDismissed = true
+                        return true
+                    }
+                )
+                .frame(height: ComposerMetrics.inputHeight, alignment: .topLeading)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Text(counterText)
+                    .font(.system(size: 9.5))
+                    // 等宽数字：否则 999 → 1000 时宽度跳动。
+                    .monospacedDigit()
+                    .foregroundStyle(counterStyle)
+                    .padding(.trailing, 44)
+                    .padding(.bottom, 8)
+                    .help(overLimit
+                          ? L10n.t("已超出 \(ChatPolicy.maxInputChars) 字上限，请精简后发送",
+                                   "Over the \(ChatPolicy.maxInputChars)-character limit — please shorten it")
+                          : "")
+            }
+
+            Button { send(input) } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 30, height: 30)
+                    .background(canSend ? Theme.accent : Color.secondary.opacity(0.35), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .padding(.trailing, 4)
+            .padding(.bottom, 4)
+        }
+        .padding(.leading, 10)
+        .padding(.vertical, 8)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
+        .overlay(RoundedRectangle(cornerRadius: ComposerMetrics.corner)
+            .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
     }
 
     /// 按 `Character` 计数：一个汉字 = 1，一个 emoji 字素簇 = 1。
@@ -953,6 +979,18 @@ private struct MessageBubble: View {
     let message: AIMessage
     let onGo: () -> Void
     @State private var isHovering = false
+    @State private var isExpanded = false
+
+    /// 超过这个高度才显示展开/收起按钮（按行高 × 行数估算）。
+    private static let collapsedLines = 8
+    private static let lineHeight: CGFloat = 17
+
+    /// 是否足够长，需要折叠。
+    private var isCollapsible: Bool {
+        // 粗略按行估算：Markdown 里代码块、列表会占更多高度，这里只作阈值判断。
+        let estimatedLines = CGFloat(message.text.count) / 58
+        return estimatedLines > CGFloat(Self.collapsedLines)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -971,15 +1009,16 @@ private struct MessageBubble: View {
                     }
                 }
 
-                // 气泡：hover 时右上角浮出复制按钮；右键可复制。
+                // 气泡：hover 时右上角浮出复制按钮；长消息可展开/收起；右键可复制。
                 markdownText(message.text, isMine: message.role == .me)
                     .font(.system(size: 12.5))
                     .textSelection(.enabled)
+                    .lineLimit(isExpanded ? nil : Self.collapsedLines)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(10)
                     .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
-                    .overlay(alignment: .topTrailing) { copyButton }
+                    .overlay(alignment: .topTrailing) { bubbleToolbar }
                     .onHover { isHovering = $0 }
                     .contextMenu {
                         Button {
@@ -989,6 +1028,18 @@ private struct MessageBubble: View {
                             Image(systemName: "doc.on.doc")
                         }
                     }
+
+                if isCollapsible && !isExpanded {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) { isExpanded = true }
+                    } label: {
+                        Text(L10n.t("展开", "Expand"))
+                            .font(.system(size: 10.5, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 4)
+                }
 
                 if message.awaitingApproval {
                     Label(L10n.t("这是计划，还没有执行任何删除", "This is a plan — nothing has been deleted"),
@@ -1037,21 +1088,42 @@ private struct MessageBubble: View {
         }
     }
 
-    private var copyButton: some View {
+    private var bubbleToolbar: some View {
         Group {
-            if isHovering {
-                Button {
-                    copyMessage(message.text)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(5)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .overlay(Circle().stroke(Theme.divider, lineWidth: 0.5))
+            if isHovering || isExpanded {
+                HStack(spacing: 2) {
+                    if isCollapsible {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+                        } label: {
+                            Image(systemName: isExpanded ? "arrow.down.forward.and.arrow.up.backward" : "arrow.up.backward.and.arrow.down.forward")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(5)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(isExpanded
+                              ? L10n.t("收起", "Collapse")
+                              : L10n.t("展开", "Expand"))
+                    }
+
+                    Button {
+                        copyMessage(message.text)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(5)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.t("复制", "Copy"))
                 }
-                .buttonStyle(.plain)
-                .padding(6)
+                .padding(4)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 0.5))
+                .padding(4)
             }
         }
     }
