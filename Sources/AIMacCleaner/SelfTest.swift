@@ -163,6 +163,28 @@ enum SelfTest {
                     && q.matches("Codex")
                     && !q.matches("CodexSampleAppStudio")
             },
+            Check(name: "ScanQuery 不误伤系统/共享文件（QoderWork 类尾词）") {
+                // 真机 bug：com.qoder.work 的末段 "work" 作为关键词下发后，
+                // 裸子串匹配把 com.apple.networkserviceproxy（network⊃work）、
+                // com.apple.workflowKit.*（workflow⊃work）、networkserviceproxy 目录、
+                // mineru.workflow 全部当成 QoderWork 的痕迹扫出来。
+                // 没有 AI 兜底时这些系统/他人文件会被误删。
+                let app = AppIdentity(bundlePath: "/Applications/QoderWork.app",
+                                      fileName: "QoderWork", displayName: "QoderWork",
+                                      bundleId: "com.qoder.work", version: nil, aliases: [])
+                let q = ScanQuery(raw: "QoderWork", app: app)
+                // 自己的痕迹仍要命中
+                let ownHits = q.matches("com.qoder.work.plist")
+                    && q.matches("QoderWork")
+                    && q.matches("QoderWork Helper")
+                // 系统 / 其他 app 的文件绝不能命中
+                let noFalse = !q.matches("com.apple.networkserviceproxy.plist")
+                    && !q.matches("com.apple.workflowKit.BackgroundShortcutRunner.plist")
+                    && !q.matches("com.apple.inputmethod.CoreChineseEngineFramework.plist")
+                    && !q.matches("networkserviceproxy")
+                    && !q.matches("mineru.workflow")
+                return ownHits && noFalse
+            },
 
             // ── PID 解析（折叠展示后不能漏杀）──
             Check(name: "parsePids 单个 PID") {
