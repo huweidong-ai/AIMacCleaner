@@ -130,7 +130,7 @@ enum ChatPolicy {
     /// 完全无关，两者命名刻意不同，改动任一处时不要顺手改另一处。
     static let maxContextTurns = 15
     /// 单条输入的硬上限（按 `Character` 计：一个汉字 = 1，一个 emoji 字素簇 = 1）。
-    static let maxInputChars = 1000
+    static let maxInputChars = 9999
     /// 计数从这个值起变橙提醒。
     static let inputWarnThreshold = 900
 

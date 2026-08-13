@@ -1300,7 +1300,7 @@ enum SelfTest {
                 // K3：maxTurns=4 是单次 agent loop 的决策轮数，
                 // maxContextTurns=15 是跨提问保留的对话轮数。改一个别顺手改另一个。
                 ChatPolicy.maxContextTurns == 15
-                    && ChatPolicy.maxInputChars == 1000
+                    && ChatPolicy.maxInputChars == 9999
                     && ChatPolicy.inputWarnThreshold == 900
                     && AgentRuntime(config: nil).maxTurns == 4
             },
