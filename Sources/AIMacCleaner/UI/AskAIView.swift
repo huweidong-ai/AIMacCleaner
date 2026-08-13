@@ -23,6 +23,8 @@ private enum ComposerMetrics {
     static let maxWidth: CGFloat = 720   // 空态建议词卡片的最大宽度（输入框本身跟随软件宽度，见 composer）
     /// 点右上角放大钮时输入框的高度：粘贴大段文本时展开，方便在发送前通读内容。
     static let expandedHeight: CGFloat = 280
+    /// 底部工具栏高度：字数限制、发送钮，以及后续要扩展的按钮都放这里。
+    static let footerHeight: CGFloat = 30
 }
 
 struct AskAIView: View {
@@ -465,15 +467,12 @@ struct AskAIView: View {
             Divider()
                 .opacity(0.6)
 
-            HStack {
-                composerInput
-                    .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Theme.bgSurface)
-            .animation(.easeOut(duration: 0.12), value: showSlashPalette)
-            .onChange(of: input) { _, newValue in
+            composerInput
+                .frame(maxWidth: .infinity)
+                .padding(.top, 12)
+                .background(Theme.bgSurface)
+                .animation(.easeOut(duration: 0.12), value: showSlashPalette)
+                .onChange(of: input) { _, newValue in
                 // 硬性截断到上限：防止输入框继续累积，确保计数器永远不超过 maxInputChars。
                 // 之前"只禁发不裁字"在 GUI 上被用户感知为 bug（显示 1105/1000），
                 // 因此改为输入层直接截断。
@@ -486,25 +485,12 @@ struct AskAIView: View {
         }
     }
 
-    /// 千问风格的大圆角输入框：左侧多行编辑区 + 右侧圆形发送按钮。
+    /// 千问风格的大圆角输入框：上方多行编辑区，下方固定工具栏（文字不可输入）。
+    /// 工具栏 reserved 给字数限制、发送钮，以及后续要加的按钮。
     private var composerInput: some View {
-        HStack(alignment: .bottom, spacing: 10) {
+        VStack(alignment: .leading, spacing: 0) {
+            // 输入区：文字只能在这里编辑。
             ZStack(alignment: .topLeading) {
-                // placeholder：TextEditor 没有内置 placeholder，用 overlay 实现。
-                if input.isEmpty {
-                    Text(L10n.t("向 AI 提问", "Ask AI"))
-                        .font(.system(size: 13))
-                        .foregroundStyle(.tertiary)
-                        .lineSpacing(2)
-                        // 与 NSTextView 的内边距对齐：ComposerTextView 已把
-                        // textContainerInset 和 lineFragmentPadding 都置零，placeholder
-                        // 只保留水平内边距即可与输入文本第一行基线对齐；vertical padding
-                        // 会把它额外下推，导致光标看起来偏高。
-                        .padding(.horizontal, 12)
-                        .padding(.top, 2)
-                        .allowsHitTesting(false)
-                }
-
                 ComposerTextView(
                     text: $input,
                     isFocused: Binding<Bool>(
@@ -536,35 +522,26 @@ struct AskAIView: View {
                 )
                 .frame(height: inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight,
                        alignment: .topLeading)
-            }
-            .overlay(alignment: .bottomTrailing) {
-                Text(counterText)
-                    .font(.system(size: 9.5))
-                    // 等宽数字：否则 999 → 1000 时宽度跳动。
-                    .monospacedDigit()
-                    .foregroundStyle(counterStyle)
-                    .padding(.trailing, 44)
-                    .padding(.bottom, 8)
-                    .help(overLimit
-                          ? L10n.t("已超出 \(ChatPolicy.maxInputChars) 字上限，请精简后发送",
-                                   "Over the \(ChatPolicy.maxInputChars)-character limit — please shorten it")
-                          : "")
+
+                // placeholder：TextEditor 没有内置 placeholder，用 overlay 实现。
+                if input.isEmpty {
+                    Text(L10n.t("向 AI 提问", "Ask AI"))
+                        .font(.system(size: 13))
+                        .foregroundStyle(.tertiary)
+                        .lineSpacing(2)
+                        // 与 NSTextView 的内边距对齐：只保留顶部微调，避免光标看起来偏高。
+                        .padding(.top, 2)
+                        .allowsHitTesting(false)
+                }
             }
 
-            Button { send(input) } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
-                    .background(canSend ? Theme.accent : Color.secondary.opacity(0.35), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
-            .padding(.trailing, 4)
-            .padding(.bottom, 4)
+            // 底部工具栏：文字不可输入，专门放字数限制和扩展按钮。
+            composerFooter
+                .frame(height: ComposerMetrics.footerHeight)
         }
-        .padding(.leading, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 6)
         .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
         .overlay(RoundedRectangle(cornerRadius: ComposerMetrics.corner)
             .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
@@ -586,6 +563,31 @@ struct AskAIView: View {
                   ? L10n.t("缩小输入框", "Collapse input box")
                   : L10n.t("放大输入框", "Expand input box"))
             .padding(7)
+        }
+    }
+
+    /// 底部工具栏：字数限制 + 发送钮；后续可在此扩展其他功能按钮。
+    private var composerFooter: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            Text(counterText)
+                .font(.system(size: 9.5))
+                // 等宽数字：否则 999 → 1000 时宽度跳动。
+                .monospacedDigit()
+                .foregroundStyle(counterStyle)
+                .help(overLimit
+                      ? L10n.t("已超出 \(ChatPolicy.maxInputChars) 字上限，请精简后发送",
+                               "Over the \(ChatPolicy.maxInputChars)-character limit — please shorten it")
+                      : "")
+            Button { send(input) } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(canSend ? Theme.accent : Color.secondary.opacity(0.35), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
         }
     }
 
