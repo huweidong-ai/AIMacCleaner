@@ -86,7 +86,7 @@ struct AIReviewBar: View {
             case .running:
                 EmptyView()
             case .done:
-                Button(L10n.t("撤销复核", "Undo")) { onUndo() }
+                Button(L10n.t("撤销 AI 结论", "Undo")) { onUndo() }
                     .controlSize(.small)
             case .needsConfig:
                 if let onConfigure {

@@ -331,7 +331,7 @@ struct AppsView: View {
             phase: state.aiReviewPhaseApps,
             title: title,
             detail: detail,
-            actionTitle: L10n.t("让 AI 复核", "Ask AI"),
+            actionTitle: L10n.t("让 AI 分析", "Ask AI"),
             onReview: {
                 guard state.modelStore.isConfigured else {
                     state.aiReviewPhaseApps = .needsConfig
@@ -348,8 +348,8 @@ struct AppsView: View {
                     ?? (state.searchText.isEmpty ? L10n.t("当前应用", "the current app") : state.searchText)
                 let list = AgentFormat.promptList(state.artifacts)
                 state.jumpToAskAI(L10n.t(
-                    "我打算卸载已安装应用 \(appName)。下面是扫描器找出的全部相关文件/目录清单：\n\(list)\n\n请帮我完成三件事：\n1. 逐项确认清单中的文件/目录是否确实属于 \(appName)（例如主程序、用户数据、缓存，或是其他应用误识别）。\n2. 评估删除每一项的风险：如果删除它，会不会导致 \(appName) 无法使用、丢失用户配置、影响系统或其他应用？\n3. 基于以上判断，给出最终建议：每一项是「可安全删除」还是「建议保留」，并说明理由。\n\n清单已经给出，不要重新扫描，请直接调用 review_plan(scope: apps) 把结论标记出来。",
-                    "I plan to uninstall the installed app \(appName). Below is the full list of files/directories the scanner found for it:\n\(list)\n\nPlease do three things:\n1. For each item, confirm whether it truly belongs to \(appName) (e.g., main app bundle, user data, cache, or a false positive from another app).\n2. Assess the risk of deleting it: would it break \(appName), lose user settings, or affect the system/other apps?\n3. Based on the above, give a final recommendation for each item: \"safe to delete\" or \"better kept\", with the reason.\n\nThe list is already provided — do not scan again. Please call review_plan(scope: apps) directly to mark the verdicts."),
+                    "我打算卸载已安装应用 \(appName)。下面是扫描器找出的全部相关文件/目录清单：\n\(list)\n\n请帮我完成三件事：\n1. 逐项确认清单中的文件/目录是否确实属于 \(appName)（主程序、用户数据、缓存），还是被扫描器误识别——例如其实是系统级文件、或属于其他已装应用、或别的 App 正在引用/共享它。\n2. 评估删除每一项的风险。重点不是「会不会让 \(appName) 无法使用」（卸载本身就是目的），而是：它是否属于系统级文件/目录、删除会否破坏系统稳定性；是否被其他应用引用或共享、删除会否导致别的 App 瘫痪；是否属于重要用户数据（凭据、登录态、项目文件等）、删了是否不可逆或需要人工确认。\n3. 给出最终建议：每一项是「可安全删除」还是「建议保留 / 需人工确认」，并说明原因。对「建议保留」的项，务必点明它为什么不能删（系统文件 / 其他应用共享 / 重要数据）。\n\n清单已经给出，不要重新扫描，请直接调用 review_plan(scope: apps) 把结论标记出来。",
+                    "I plan to uninstall the installed app \(appName). Below is the full list of related files/directories the scanner found:\n\(list)\n\nPlease do three things:\n1. For each item, confirm whether it truly belongs to \(appName) (main bundle, user data, cache), or is a false positive — e.g. actually a system-level file, belongs to another installed app, or is referenced/shared by another app.\n2. Assess the risk of deleting each item. The point is NOT whether it breaks \(appName) (uninstalling is the goal) — instead: is it a system-level file whose deletion destabilizes the OS; is it referenced/shared by other apps whose deletion would break them; is it important user data (credentials, login state, project files) that is irreversible or needs a human decision.\n3. Give a final recommendation per item: \"safe to delete\" or \"keep / needs human confirmation\", with the reason. For \"keep\" items, state explicitly why it must not be deleted (system file / shared by other apps / important data).\n\nThe list is already provided — do not scan again. Call review_plan(scope: apps) directly to mark the verdicts."),
                     reviewScope: .apps)
             },
             onUndo: {
@@ -364,20 +364,20 @@ struct AppsView: View {
     private var aiBarText: (String, String) {
         switch state.aiReviewPhaseApps {
         case .done:
-            return (L10n.t("AI 已复核完毕。", "AI review complete."),
+            return (L10n.t("AI 已分析完毕。", "AI analysis complete."),
                     L10n.t("被判为不建议删除的项已自动取消勾选，理由写在对应行下方。结论仅供参考，最终由你决定。",
                            "Items it advises keeping were unchecked, with the reason under each row. It’s a second opinion — the call is yours."))
         case .needsConfig:
             return (L10n.t("还没配置模型", "Model not configured"),
-                    L10n.t("「让 AI 复核」需要先在 ⚙ 里填好 API Key（OpenAI / Anthropic 兼容都行）。",
+                    L10n.t("「让 AI 分析」需要先在 ⚙ 里填好 API Key（OpenAI / Anthropic 兼容都行）。",
                            "“Ask AI” needs an API key first (OpenAI- or Anthropic-compatible, set in ⚙)."))
         case .failed:
-            return (L10n.t("AI 复核失败", "AI review failed"),
+            return (L10n.t("AI 分析失败", "AI analysis failed"),
                     L10n.t("模型调用失败，请检查 API Key / 网络，或点右侧重试。",
                            "The model call failed — check the API key / network, or tap Retry."))
         default:
             return (L10n.t("默认已全选，包含用户数据。", "Everything is selected by default, including user data."),
-                    L10n.t("删除前可以让 AI 复核一遍——它会结合路径、文件特征和其它已装应用，把不该删的自动取消勾选并写明理由。",
+                    L10n.t("删除前可以让 AI 分析一遍——它会结合路径、文件特征和其它已装应用，把不该删的自动取消勾选并写明理由。",
                            "Let AI review first — it weighs the path, file traits and your other installed apps, then unchecks what shouldn’t go and says why."))
         }
     }
