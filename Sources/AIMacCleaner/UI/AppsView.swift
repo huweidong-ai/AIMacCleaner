@@ -506,9 +506,11 @@ struct AppsView: View {
         // 先停掉目标 app 的运行进程：否则 .app 移进废纸篓后进程仍占着内存，
         // 表现就是「删了还在用」。按 bundle id / 显示名匹配，绝不终止自身。
         if let app = state.matchedApp {
+            // 关键词只接「强标识」：helper 进程靠 bundle id 前缀 / 名称前缀兜底（见 ProcessTerminator.isTarget），
+            // 不再下发 bundle id 末段这种弱片段（com.qoder.work 的 "work" 曾误杀 WorkBuddy）。
             let n = ProcessTerminator.terminate(targetBundleId: app.bundleId,
                                                 targetName: app.displayName,
-                                                keywords: [app.bundleIdSuffix].compactMap { $0 })
+                                                keywords: [])
             if n > 0 {
                 output.append(L10n.t("已终止 \(n) 个运行中的进程：\(app.displayName)",
                                       "Terminated \(n) running process(es): \(app.displayName)"))

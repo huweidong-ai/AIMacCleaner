@@ -11,6 +11,46 @@ import Darwin
 ///
 /// **安全**：绝不终止本工具自身（否则卸载跑到一半进程没了，后面的活全砸了）。
 enum ProcessTerminator {
+
+    /// 纯函数：判断一个运行中的 app 是否应被本次卸载终止。
+    ///
+    /// 抽成纯函数是为了能单测，不依赖 `NSWorkspace` 实时进程表。
+    ///
+    /// 匹配规则（刻意避免裸子串，否则会误杀无关 app）：
+    /// - **精确 / 前缀**：`bid == 目标` 或 `bid` 以 `目标.` 开头（捕获 `com.qoder.work.helper` 这类 helper）；
+    ///   `name == 目标` 或 `name` 以 `目标 `（带空格）开头（捕获 "QoderWork Helper (GPU)"）。
+    /// - **关键词兜底**：只在 bundle id 的「段边界」或英文「词边界」命中才算，例如关键词 `work`
+    ///   必须落在 `.work.` / `.work` 结尾 / `work.` 开头 或名称里独立的 ` work ` 词上 ——
+    ///   因此 `com.tencent.workbuddy` / `WorkBuddy` 不会被 `com.qoder.work` 的末段 `work` 误伤。
+    ///
+    /// 自身排除（bundle id 等于本工具、或 pid 是本进程）不在这里处理，由 `terminate` 统一过滤。
+    static func isTarget(_ bid: String?, _ name: String?,
+                         targetBundleId: String?, targetName: String?,
+                         keywords: [String]) -> Bool {
+        guard let b = bid?.lowercased(), let n = name?.lowercased() else { return false }
+        let tBid = targetBundleId?.lowercased()
+        let tName = targetName?.lowercased()
+        let lowerKeywords = keywords.map { $0.lowercased() }
+
+        // 1) 精确 + helper 前缀：最可靠，优先。
+        if let t = tBid, b == t || b.hasPrefix(t + ".") { return true }
+        if let t = tName, n == t || n.hasPrefix(t + " ") { return true }
+
+        // 2) 关键词只作兜底，且必须落在段 / 词边界，杜绝 "work" 误杀 "WorkBuddy"。
+        return lowerKeywords.contains { kw in
+            // 通用末段词（app / helper / service…）跳过：否则会命中一切以 .app 结尾的 bundle id，
+            // 复刻 AppIdentity.genericBundleSuffixes 的防护。
+            guard !kw.isEmpty, !AppIdentity.genericBundleSuffixes.contains(kw) else { return false }
+            // bundle id 段边界：整段相等、或出现在 `.<kw>.` / `.<kw>` 结尾 / `<kw>.` 开头
+            let byBid = b == kw || b.hasPrefix(kw + ".")
+                          || b.hasSuffix("." + kw) || b.contains("." + kw + ".")
+            // 名称词边界：整词相等、或以「目标 」开头、或嵌在独立词 ` kw ` 中
+            let byName = n == kw || n.hasPrefix(kw + " ")
+                           || n.contains(" " + kw + " ")
+            return byBid || byName
+        }
+    }
+
     /// 终止匹配给定 bundle id / 名称 / 关键词、且仍在运行的 app（排除自身）。
     /// - Returns: 实际发起终止的进程数。
     @discardableResult
@@ -19,16 +59,12 @@ enum ProcessTerminator {
                           keywords: [String] = []) -> Int {
         let ownBundle = Bundle.main.bundleIdentifier
         let ownPid = ProcessInfo.processInfo.processIdentifier
-        let lowerKeywords = keywords.map { $0.lowercased() }
 
         let byBundle = NSRunningApplication.runningApplications(withBundleIdentifier: targetBundleId ?? "")
         let all = NSWorkspace.shared.runningApplications
         let matched = Set(byBundle).union(all.filter { app in
-            guard let bid = app.bundleIdentifier?.lowercased(),
-                  let name = app.localizedName?.lowercased() else { return false }
-            if let t = targetBundleId?.lowercased(), bid == t { return true }
-            if let n = targetName?.lowercased(), name == n { return true }
-            return lowerKeywords.contains(where: { bid.contains($0) || name.contains($0) })
+            isTarget(app.bundleIdentifier, app.localizedName,
+                     targetBundleId: targetBundleId, targetName: targetName, keywords: keywords)
         })
 
         // 排除自己：正在执行的卸载工具不能被自己干掉。

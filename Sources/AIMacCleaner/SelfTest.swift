@@ -778,6 +778,43 @@ enum SelfTest {
                 return before > 0 && after > 0 && abs(before - after) <= 5
             },
 
+            // ── 进程终止匹配（防误杀无关 app）──
+            Check(name: "isTarget：主进程精确命中") {
+                ProcessTerminator.isTarget("com.qoder.work", "QoderWork",
+                    targetBundleId: "com.qoder.work", targetName: "QoderWork", keywords: [])
+            },
+            Check(name: "isTarget：helper 靠 bundle id 前缀命中") {
+                ProcessTerminator.isTarget("com.qoder.work.helper.gpu", "QoderWork Helper (GPU)",
+                    targetBundleId: "com.qoder.work", targetName: "QoderWork", keywords: [])
+            },
+            Check(name: "isTarget：helper 靠名称前缀命中") {
+                ProcessTerminator.isTarget("com.qoder.work.helper", "QoderWork Helper",
+                    targetBundleId: "com.qoder.work", targetName: "QoderWork", keywords: [])
+            },
+            Check(name: "isTarget：弱末段 'work' 不误杀 WorkBuddy（回归 #误杀IDE）") {
+                // com.qoder.work 的 bundle id 末段是 "work"，裸子串会命中 WorkBuddy。
+                // 边界匹配必须拦下：com.tencent.workbuddy 与 WorkBuddy 都不应被终止。
+                let hit1 = ProcessTerminator.isTarget("com.tencent.workbuddy", "WorkBuddy",
+                    targetBundleId: "com.qoder.work", targetName: "QoderWork", keywords: ["work"])
+                let hit2 = ProcessTerminator.isTarget("com.workbuddy", "WorkBuddy",
+                    targetBundleId: "com.qoder.work", targetName: "QoderWork", keywords: ["work"])
+                return !hit1 && !hit2
+            },
+            Check(name: "isTarget：自身 bundle id 不被自身匹配误杀（由 terminate 排除）") {
+                // 这里只验证 isTarget 的匹配语义：本工具 bundle id 不应作为目标被任何
+                // 别的 app 的末段命中；真正的自杀拦截在 terminate 的 ownBundle 过滤里。
+                let hit = ProcessTerminator.isTarget("com.aicleaner.app", "AI Mac Cleaner",
+                    targetBundleId: "com.qoder.work", targetName: "QoderWork", keywords: ["app"])
+                return !hit
+            },
+            Check(name: "isTarget：关键词 'code' 不误杀 VS Code") {
+                // 名称词边界：'visual studio code' 末尾的 'code' 不带后续空格，不应命中；
+                // bundle id com.microsoft.vscode 也不含 '.code.' 段。
+                let hit = ProcessTerminator.isTarget("com.microsoft.vscode", "Visual Studio Code",
+                    targetBundleId: "com.other.app", targetName: "Other", keywords: ["code"])
+                return !hit
+            },
+
             // ── InventoryCache ──
             Check(name: "InventoryCache 缓存 app 列表") {
                 let first = InventoryCache.shared.allApps()
