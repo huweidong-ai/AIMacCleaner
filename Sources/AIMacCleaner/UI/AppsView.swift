@@ -163,7 +163,7 @@ struct AppsView: View {
     }
 
     private var searchBar: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
@@ -191,15 +191,9 @@ struct AppsView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .frame(height: 26)
+            .frame(maxWidth: .infinity, minHeight: 26)
             .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.divider, lineWidth: 1))
-
-            Text(L10n.t("回车 = 对当前关键词执行全盘扫描（含未安装应用的残留）",
-                        "Return = full-disk scan for the keyword (including traces of uninstalled apps)"))
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
