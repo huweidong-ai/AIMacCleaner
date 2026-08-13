@@ -473,3 +473,58 @@ extension EmptyStateView where Actions == EmptyView {
         self.init(icon: icon, title: title, message: message, tint: tint) { EmptyView() }
     }
 }
+
+// MARK: - 扫描器展示卡片
+
+/// 单个扫描器能力卡片：图标 + 中文名 + 一句话描述。
+struct ScannerCard: View {
+    let entry: ScannerCatalog.Entry
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(tintColor.opacity(0.12))
+                    .frame(width: 34, height: 34)
+                Image(systemName: entry.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(tintColor)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.displayName)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(.primary)
+                Text(entry.description)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(1)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 1))
+    }
+
+    private var tintColor: Color {
+        switch entry.tint {
+        case .blue:   return .blue
+        case .green:  return .green
+        case .orange: return .orange
+        case .purple: return .purple
+        case .teal:   return .teal
+        case .coral:  return Color(hex: 0xD85A30)
+        }
+    }
+}
+
+extension Color {
+    init(hex: UInt) {
+        self.init(
+            red: Double((hex >> 16) & 0xFF) / 255,
+            green: Double((hex >> 8) & 0xFF) / 255,
+            blue: Double(hex & 0xFF) / 255
+        )
+    }
+}

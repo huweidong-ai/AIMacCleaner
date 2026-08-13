@@ -19,8 +19,8 @@ struct AppsView: View {
         VStack(spacing: 0) {
             PageHeader(
                 title: L10n.t("应用", "Apps"),
-                subtitle: L10n.t("从列表选择应用，或在搜索框输入名称回车直接扫描",
-                                 "Pick an app from the list, or type a name and press Return to scan")
+                subtitle: L10n.t("从列表选择应用，或在搜索框输入名称过滤",
+                                 "Pick an app from the list, or type a name to filter")
             ) {
                 Button {
                     state.invalidateInventory()
@@ -219,12 +219,7 @@ struct AppsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !hasVisibleResults {
-            EmptyStateView(
-                icon: "hand.point.left",
-                title: L10n.t("在左侧点选一个应用", "Pick an app on the left"),
-                message: L10n.t("16 类痕迹 · 14 个扫描器 · 含沙箱容器。",
-                                "16 artifact types · 14 scanners · includes sandbox containers.")
-            )
+            scannerShowcase
         } else {
             VStack(spacing: 0) {
                 ScrollView {
@@ -429,6 +424,43 @@ struct AppsView: View {
             .help(state.selectedCount == 0
                   ? L10n.t("先勾选要删除的项", "Select items first")
                   : L10n.t("按风险分流删除所选项", "Remove the selected items, split by risk"))
+        }
+    }
+
+    // MARK: - 扫描器展示
+
+    /// 未选中应用时，右侧空白处展示 14 个扫描器的能力，
+    /// 让用户知道「点一个 app 后会发生什么」。
+    private var scannerShowcase: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                Spacer(minLength: 20)
+                Image(systemName: "hand.point.left")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+                Text(L10n.t("在左侧点选一个应用", "Pick an app on the left"))
+                    .font(.system(size: 15, weight: .medium))
+                Text(L10n.t("14 个扫描器会协同检查以下痕迹", "14 scanners will check the following traces"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                    ForEach(ScannerCatalog.entries, id: \.name) { entry in
+                        ScannerCard(entry: entry)
+                    }
+                }
+                .frame(maxWidth: 520)
+
+                Text(L10n.t("包含沙箱容器 · 启动项 · 点文件 · Shell 配置 · 认证凭证",
+                            "Includes sandbox containers, launch agents, dotfiles, shell config and auth tokens"))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                Spacer(minLength: 20)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
         }
     }
 
