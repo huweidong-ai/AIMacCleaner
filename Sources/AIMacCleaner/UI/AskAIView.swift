@@ -486,58 +486,70 @@ struct AskAIView: View {
     }
 
     /// 千问风格的大圆角输入框：上方多行编辑区，下方固定工具栏（文字不可输入）。
-    /// 工具栏 reserved 给字数限制、发送钮，以及后续要加的按钮。
+    /// 千问风格的大圆角输入框：左侧多行编辑区 + 底部工具栏，右侧固定按钮列（文字不可输入）。
+    /// 右侧列 reserved 给展开钮、发送钮，以及后续要加的按钮。
     private var composerInput: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // 输入区：文字只能在这里编辑。
-            ZStack(alignment: .topLeading) {
-                ComposerTextView(
-                    text: $input,
-                    isFocused: Binding<Bool>(
-                        get: { inputFocused },
-                        set: { inputFocused = $0 }
-                    ),
-                    onReturn: {
-                        if let item = slashHighlighted {
-                            acceptSlash(item)
+        HStack(alignment: .bottom, spacing: 0) {
+            // 左侧：文字可输入区
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack(alignment: .topLeading) {
+                    ComposerTextView(
+                        text: $input,
+                        isFocused: Binding<Bool>(
+                            get: { inputFocused },
+                            set: { inputFocused = $0 }
+                        ),
+                        onReturn: {
+                            if let item = slashHighlighted {
+                                acceptSlash(item)
+                                return true
+                            }
+                            if canSend {
+                                send(input)
+                                return true
+                            }
+                            return true // 空输入时回车也不让系统响铃
+                        },
+                        onOptionReturn: { input.append("\n") },
+                        onTab: {
+                            guard let item = slashHighlighted else { return false }
+                            input = item.token
+                            return true
+                        },
+                        onEscape: {
+                            guard showSlashPalette else { return false }
+                            slashDismissed = true
                             return true
                         }
-                        if canSend {
-                            send(input)
-                            return true
-                        }
-                        return true // 空输入时回车也不让系统响铃
-                    },
-                    onOptionReturn: { input.append("\n") },
-                    onTab: {
-                        guard let item = slashHighlighted else { return false }
-                        input = item.token
-                        return true
-                    },
-                    onEscape: {
-                        guard showSlashPalette else { return false }
-                        slashDismissed = true
-                        return true
-                    }
-                )
-                .frame(height: inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight,
-                       alignment: .topLeading)
+                    )
+                    .frame(height: inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight,
+                           alignment: .topLeading)
 
-                // placeholder：TextEditor 没有内置 placeholder，用 overlay 实现。
-                if input.isEmpty {
-                    Text(L10n.t("向 AI 提问", "Ask AI"))
-                        .font(.system(size: 13))
-                        .foregroundStyle(.tertiary)
-                        .lineSpacing(2)
-                        // 与 NSTextView 的内边距对齐：只保留顶部微调，避免光标看起来偏高。
-                        .padding(.top, 2)
-                        .allowsHitTesting(false)
+                    // placeholder：TextEditor 没有内置 placeholder，用 overlay 实现。
+                    if input.isEmpty {
+                        Text(L10n.t("向 AI 提问", "Ask AI"))
+                            .font(.system(size: 13))
+                            .foregroundStyle(.tertiary)
+                            .lineSpacing(2)
+                            // 与 NSTextView 的内边距对齐：只保留顶部微调，避免光标看起来偏高。
+                            .padding(.top, 2)
+                            .allowsHitTesting(false)
+                    }
                 }
+
+                // 底部工具栏：文字不可输入，专门放字数限制和扩展按钮。
+                composerFooter
+                    .frame(height: ComposerMetrics.footerHeight)
             }
 
-            // 底部工具栏：文字不可输入，专门放字数限制和扩展按钮。
-            composerFooter
-                .frame(height: ComposerMetrics.footerHeight)
+            // 右侧：按钮列，文字不可输入；展开钮在上，发送钮在下，中间留白。
+            VStack(spacing: 0) {
+                expandButton
+                Spacer()
+                sendButton
+            }
+            .padding(.leading, 8)
+            .frame(maxHeight: .infinity)
         }
         .padding(.horizontal, 12)
         .padding(.top, 10)
@@ -545,30 +557,11 @@ struct AskAIView: View {
         .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
         .overlay(RoundedRectangle(cornerRadius: ComposerMetrics.corner)
             .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
-        // 右上角放大/缩小钮：展开输入框方便阅读粘贴的大段文本，再点收起。
-        .overlay(alignment: .topTrailing) {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) { inputExpanded.toggle() }
-            } label: {
-                Image(systemName: inputExpanded
-                      ? "arrow.down.right.and.arrow.up.left"
-                      : "arrow.up.left.and.arrow.down.right")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(6)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help(inputExpanded
-                  ? L10n.t("缩小输入框", "Collapse input box")
-                  : L10n.t("放大输入框", "Expand input box"))
-            .padding(7)
-        }
     }
 
-    /// 底部工具栏：字数限制 + 发送钮；后续可在此扩展其他功能按钮。
+    /// 底部工具栏：字数限制；后续可在此扩展其他功能按钮。
     private var composerFooter: some View {
-        HStack(spacing: 8) {
+        HStack {
             Spacer()
             Text(counterText)
                 .font(.system(size: 9.5))
@@ -579,16 +572,39 @@ struct AskAIView: View {
                       ? L10n.t("已超出 \(ChatPolicy.maxInputChars) 字上限，请精简后发送",
                                "Over the \(ChatPolicy.maxInputChars)-character limit — please shorten it")
                       : "")
-            Button { send(input) } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 26, height: 26)
-                    .background(canSend ? Theme.accent : Color.secondary.opacity(0.35), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSend)
         }
+    }
+
+    /// 右上角放大/缩小钮。
+    private var expandButton: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.15)) { inputExpanded.toggle() }
+        } label: {
+            Image(systemName: inputExpanded
+                  ? "arrow.down.right.and.arrow.up.left"
+                  : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(6)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(inputExpanded
+              ? L10n.t("缩小输入框", "Collapse input box")
+              : L10n.t("放大输入框", "Expand input box"))
+    }
+
+    /// 发送钮。
+    private var sendButton: some View {
+        Button { send(input) } label: {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(canSend ? Theme.accent : Color.secondary.opacity(0.35), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSend)
     }
 
     /// 按 `Character` 计数：一个汉字 = 1，一个 emoji 字素簇 = 1。
