@@ -494,6 +494,13 @@ struct AskAIView: View {
         }
     }
 
+    /// 输入框整体高度（含编辑区、底部工具栏、内边距），防止右侧 Spacer 把框撑到窗口高度。
+    private var inputBoxHeight: CGFloat {
+        (inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight)
+            + ComposerMetrics.footerHeight
+            + 16 // 10 top + 6 bottom padding inside the pill
+    }
+
     /// 千问风格：白色胶囊输入框。左侧多行编辑区 + 底部工具栏，右侧按钮列。
     /// 外部是聊天背景灰；输入框内部为白色，与消息气泡底色拉平。
     private var composerInput: some View {
@@ -555,8 +562,8 @@ struct AskAIView: View {
                 sendButton
             }
             .padding(.leading, 8)
-            .frame(maxHeight: .infinity)
         }
+        .frame(height: inputBoxHeight)
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 6)
