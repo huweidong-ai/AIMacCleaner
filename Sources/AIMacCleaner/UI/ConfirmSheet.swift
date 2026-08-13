@@ -64,15 +64,6 @@ struct ConfirmSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            // 单选项：是否把用户数据也彻底删除。默认不勾 —— 用户数据进了废纸篓，
-            // 清空前都能找回。勾上才和「可安全删除」的项一样不可恢复。
-            Toggle(L10n.t("用户数据也直接删除（不可恢复）",
-                          "Also hard-delete user data (unrecoverable)"),
-                   isOn: $hardDeleteUserData)
-                .font(.callout)
-                .help(L10n.t("默认用户数据（聊天记录、账号、配置）只移到废纸篓，清空废纸篓前都能找回。勾选此项则一并彻底删除。",
-                             "By default user data goes to Trash and is recoverable until you empty it. Check to delete it permanently too."))
-
             if !userDataItems.isEmpty {
                 Label(L10n.t(
                     "其中 \(userDataItems.count) 项是用户数据（聊天记录、账号、配置等），删除后需要重新登录或重新配置。",
@@ -115,6 +106,15 @@ struct ConfirmSheet: View {
                     Label(L10n.t("复制全部路径", "Copy all paths"), systemImage: "doc.on.doc")
                 }
                 .controlSize(.small)
+
+                if !userDataItems.isEmpty {
+                    Toggle(L10n.t("用户数据也直接删除（不可恢复）",
+                                  "Also hard-delete user data (unrecoverable)"),
+                           isOn: $hardDeleteUserData)
+                        .font(.callout)
+                        .help(L10n.t("默认用户数据（聊天记录、账号、配置）只移到废纸篓，清空废纸篓前都能找回。勾选此项则一并彻底删除。",
+                                     "By default user data goes to Trash and is recoverable until you empty it. Check to delete it permanently too."))
+                }
             } trailing: {
                 Button(L10n.t("取消", "Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
