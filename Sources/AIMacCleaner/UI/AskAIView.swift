@@ -435,7 +435,11 @@ struct AskAIView: View {
                                 if m.role == .system {
                                     SystemDivider(message: m)
                                 } else {
-                                    MessageBubble(message: m) {
+                                    MessageBubble(
+                                        message: m,
+                                        initialExpanded: bubbleInitialExpanded(at: idx),
+                                        collapsible: bubbleCollapsible(at: idx)
+                                    ) {
                                         if let tab = m.redirect {
                                             switch tab {
                                             case .apps:      state.selectedTab = .apps
@@ -487,6 +491,36 @@ struct AskAIView: View {
                     DispatchQueue.main.async { proxy.scrollTo("thinking", anchor: .bottom) }
                 }
             }
+        }
+    }
+
+    // MARK: - 气泡默认折叠策略
+
+    /// 该消息之后是否还存在「上下文已重置」的锚点（/reset 会产生 isAnchor 消息）
+    private func hasResetAfter(_ idx: Int) -> Bool {
+        guard idx < state.chatMessages.count else { return false }
+        return state.chatMessages[(idx + 1)...].contains { $0.isAnchor }
+    }
+
+    /// 气泡初始是否展开：用户消息默认折叠；AI 回复仅「被 reset 之前的历史」默认折叠，当前上下文默认展开
+    private func bubbleInitialExpanded(at idx: Int) -> Bool {
+        let m = state.chatMessages[idx]
+        switch m.role {
+        case .me:  return false
+        case .ai:  return !hasResetAfter(idx)
+        default:   return true
+        }
+    }
+
+    /// 气泡是否可折叠：文本足够长才允许折叠。用户长输入可折叠；AI 仅 reset 前长历史可折叠
+    private func bubbleCollapsible(at idx: Int) -> Bool {
+        let m = state.chatMessages[idx]
+        let estimatedLines = CGFloat(m.text.count) / 58
+        let longEnough = estimatedLines > CGFloat(MessageBubble.collapsedLines)
+        switch m.role {
+        case .me:  return longEnough
+        case .ai:  return longEnough && hasResetAfter(idx)
+        default:   return false
         }
     }
 
@@ -1210,22 +1244,30 @@ private extension Array {
 private struct MessageBubble: View {
     let message: AIMessage
     let onGo: () -> Void
+    /// 初始是否展开：用户问题一律折叠；AI 回复仅在「被 reset 上下文」之前才折叠。
+    let initialExpanded: Bool
+    /// 是否允许折叠／展开：用户长问题、以及被 reset 前的 AI 长回复均可折叠。
+    let collapsible: Bool
     @State private var isHovering = false
-    @State private var isExpanded = false
+    @State private var isExpanded: Bool
+
+    init(message: AIMessage, initialExpanded: Bool, collapsible: Bool, onGo: @escaping () -> Void) {
+        self.message = message
+        self.initialExpanded = initialExpanded
+        self.collapsible = collapsible
+        self.onGo = onGo
+        _isExpanded = State(initialValue: initialExpanded)
+    }
 
     /// 用户气泡折叠：超过这个行数就折叠，底部显示「展开」。
-    private static let collapsedLines = 8
+    /// fileprivate：让同文件的 AskAIView 在默认的折叠策略里复用这个阈值。
+    fileprivate static let collapsedLines = 8
     private static let lineHeight: CGFloat = 17
     /// 用户气泡展开后的最大高度；超出则内部滚动，避免单个气泡无限撑高。
     private static let expandedMaxHeight: CGFloat = 240
 
-    /// 是否足够长，需要折叠。仅对用户消息折叠；AI 输出完整展示，不折叠。
-    private var isCollapsible: Bool {
-        guard message.role == .me else { return false }
-        // 粗略按行估算：Markdown 里代码块、列表会占更多高度，这里只作阈值判断。
-        let estimatedLines = CGFloat(message.text.count) / 58
-        return estimatedLines > CGFloat(Self.collapsedLines)
-    }
+    /// 是否足够长，需要折叠。由调用方（chatLog）按角色与 reset 情况算好传入。
+    private var isCollapsible: Bool { collapsible }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
