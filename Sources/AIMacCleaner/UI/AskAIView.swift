@@ -25,14 +25,16 @@ private enum ComposerMetrics {
     /// 不点放大钮时，输入框随内容自动长高的上限；超过后启用滚动条。
     /// 这个高度同时也是「粘贴大段文本后点放大前」最自然的天花板。
     static let maxAutoHeight: CGFloat = 280
-    /// 点右上角放大钮时，输入框文本区的高度由可用聊天区高度决定（铺满几乎整个聊天页）。
-    static let expandedBottomGap: CGFloat = 12 // 放大态底部/顶部留的小边距
     /// 底部工具栏高度：字数限制、发送钮，以及后续要扩展的按钮都放这里。
     static let footerHeight: CGFloat = 30
-    /// 放大态为斜杠命令框预留的高度：面板 maxHeight≈104 加上下 padding。
-    /// 出现斜杠面板时从可用高度里扣掉这部分，避免发送钮被挤出窗口；
-    /// 面板消失则这段高度回收，输入框重新铺满（自适应）。
-    static let slashPaletteReserved: CGFloat = 120
+    /// 放大态输入框的固定开销（不含文本区、不含斜杠面板）：
+    /// Divider(1) + 输入区外层 HStack 上下 padding(12+12) + 胶囊上下内边距(10+6)
+    /// + 底部工具栏(30) + 胶囊内 padding(10+6)。
+    /// 计算放大态文本区高度时从可用高度里扣掉这部分，保证发送钮永远留在可视区。
+    static let composerFixedOverhead: CGFloat = 87
+    /// 放大态斜杠命令框自身高度：面板 maxHeight(104) + 上下 padding(6+4)。
+    /// 出现斜杠面板时再从可用高度里额外扣掉这部分（自适应：面板消失则回收）。
+    static let slashPaletteHeight: CGFloat = 114
 }
 
 /// 测量 PageHeader（标题栏 + 右侧工具钮）高度，用于计算放大态输入框可用高度。
@@ -80,66 +82,86 @@ struct AskAIView: View {
 
     var body: some View {
         GeometryReader { outerGeo in
-            VStack(spacing: 0) {
-                PageHeader(title: L10n.t("问 AI", "Ask AI"),
-                           subtitle: L10n.t("用自然语言清理 Mac，执行删除前会请你确认",
-                                             "Clean your Mac in plain language — it asks before deleting anything")) {
-                    modelStatusPill
-                    Button {
-                        showSkills = true
-                    } label: {
-                        Image(systemName: "square.grid.2x2")
-                            .font(.system(size: 13))
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.t("查看 Agent 可调用的 skill", "See the skills the agent can call"))
-                    Button {
-                        showSettings = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 13))
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.t("配置模型（OpenAI / Anthropic / 自定义）",
-                                 "Configure model (OpenAI / Anthropic / custom)"))
-                    // 记忆与记录文件收进一个菜单：这两项都是低频入口，
-                    // 摊平成按钮会把头部挤成一排图标，反而让高频的「新会话」难找。
-                    Menu {
+            ZStack(alignment: .top) {
+                // 底层：正常布局。非放大态时 composer 落在底部；放大态隐藏，改由覆盖层承载。
+                VStack(spacing: 0) {
+                    PageHeader(title: L10n.t("问 AI", "Ask AI"),
+                               subtitle: L10n.t("用自然语言清理 Mac，执行删除前会请你确认",
+                                                 "Clean your Mac in plain language — it asks before deleting anything")) {
+                        modelStatusPill
                         Button {
-                            showMemory = true
+                            showSkills = true
                         } label: {
-                            Label(state.memoryNotes.isEmpty
-                                    ? L10n.t("长期记忆…", "Long-term memory…")
-                                    : L10n.t("长期记忆（\(state.memoryNotes.count)）…",
-                                             "Long-term memory (\(state.memoryNotes.count))…"),
-                                  systemImage: "brain")
+                            Image(systemName: "square.grid.2x2")
+                                .font(.system(size: 13))
                         }
-                        Divider()
+                        .buttonStyle(.plain)
+                        .help(L10n.t("查看 Agent 可调用的 skill", "See the skills the agent can call"))
                         Button {
-                            RevealService.revealDataFile(ChatStore.shared.fileURL)
+                            showSettings = true
                         } label: {
-                            Label(L10n.t("在 Finder 中显示对话记录", "Reveal chat history in Finder"),
-                                  systemImage: "folder")
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 13))
                         }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.system(size: 13))
+                        .buttonStyle(.plain)
+                        .help(L10n.t("配置模型（OpenAI / Anthropic / 自定义）",
+                                     "Configure model (OpenAI / Anthropic / custom)"))
+                        // 记忆与记录文件收进一个菜单：这两项都是低频入口，
+                        // 摊平成按钮会把头部挤成一排图标，反而让高频的「新会话」难找。
+                        Menu {
+                            Button {
+                                showMemory = true
+                            } label: {
+                                Label(state.memoryNotes.isEmpty
+                                        ? L10n.t("长期记忆…", "Long-term memory…")
+                                        : L10n.t("长期记忆（\(state.memoryNotes.count)）…",
+                                                 "Long-term memory (\(state.memoryNotes.count))…"),
+                                      systemImage: "brain")
+                            }
+                            Divider()
+                            Button {
+                                RevealService.revealDataFile(ChatStore.shared.fileURL)
+                            } label: {
+                                Label(L10n.t("在 Finder 中显示对话记录", "Reveal chat history in Finder"),
+                                      systemImage: "folder")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.system(size: 13))
+                        }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .frame(width: 18)
+                        .help(L10n.t("记忆与对话记录", "Memory and chat history"))
+                        if state.chatHasConversation {
+                            Button(L10n.t("新会话", "New chat")) { showNewChatConfirm = true }
+                                .controlSize(.small)
+                        }
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .frame(width: 18)
-                    .help(L10n.t("记忆与对话记录", "Memory and chat history"))
-                    if state.chatHasConversation {
-                        Button(L10n.t("新会话", "New chat")) { showNewChatConfirm = true }
-                            .controlSize(.small)
-                    }
+                    .background(GeometryReader { geo in
+                        Color.clear.preference(key: HeaderHeightPreferenceKey.self, value: geo.size.height)
+                    })
+                    Divider()
+                    if !state.chatHasConversation && !state.chatIsThinking { emptyState } else { chatLog }
+                    if !inputExpanded { composer }
                 }
-                .background(GeometryReader { geo in
-                    Color.clear.preference(key: HeaderHeightPreferenceKey.self, value: geo.size.height)
-                })
-                Divider()
-                if !state.chatHasConversation && !state.chatIsThinking { emptyState } else { chatLog }
-                composer
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+                // 放大态覆盖层：铺满整个聊天区（页头以下），遮挡下方标题与对话内容；
+                // 页头区域用透明占位并放行点击，保留「新会话 / 设置」等按钮可用。
+                if inputExpanded {
+                    VStack(spacing: 0) {
+                        Color.clear
+                            .frame(height: headerHeight)
+                            .allowsHitTesting(false)
+                        composer
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .background(Theme.bgCanvas)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .zIndex(10)
+                    .transition(.opacity)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .onPreferenceChange(HeaderHeightPreferenceKey.self) { headerHeight = $0 }
@@ -542,18 +564,16 @@ struct AskAIView: View {
 
     /// 输入框文本区高度（不含底部工具栏、不含 padding）。
     /// - 不点放大钮：随 `inputContentHeight` 在 3 行最小高度 ~ maxAutoHeight 之间弹性变化。
-    /// - 点放大钮：铺满几乎整个聊天区，但必须给三处让位，否则发送钮会被挤出窗口、
-    ///   斜杠命令框也会被推到屏幕外：
-    ///   1) 顶部页头（headerHeight） 2) 底部固定区（footer + 上下内边距）
-    ///   3) 斜杠命令框（出现时再按 reserve 扣减，自适应——面板消失则高度回收）
+    /// - 点放大钮：覆盖层已独占「页头以下」整个聊天区，文本区高度 = 该区域高度
+    ///   减去固定开销（`composerFixedOverhead`）与斜杠命令框高度（出现时才扣，
+    ///   自适应——面板消失则高度回收）。这样发送钮永远留在可视区，且输入 `/` 唤出
+    ///   命令框时输入框自动让位、不再把发送钮挤出窗口。
     private var textAreaHeight: CGFloat {
         if inputExpanded {
-            var reserved: CGFloat = 0
-            if showSlashPalette { reserved += ComposerMetrics.slashPaletteReserved }
-            let available = max(0, bodyHeight - headerHeight
-                                  - ComposerMetrics.expandedBottomGap * 2
-                                  - reserved)
-            return max(ComposerMetrics.inputHeight, available - ComposerMetrics.footerHeight - 16)
+            var reserved = ComposerMetrics.composerFixedOverhead
+            if showSlashPalette { reserved += ComposerMetrics.slashPaletteHeight }
+            let available = max(0, bodyHeight - headerHeight - reserved)
+            return max(ComposerMetrics.inputHeight, available)
         } else {
             let desired = max(ComposerMetrics.inputHeight, inputContentHeight)
             return min(desired, ComposerMetrics.maxAutoHeight)
@@ -1139,9 +1159,11 @@ private struct SlashPalette: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // macOS 上 ScrollView 默认会画白色背景，溢出圆角后看起来像「框外一圈白底」；
-            // 隐藏内容背景，让面板外区域透出聊天区底色 bgCanvas，与四周一致。
+            // macOS 上 ScrollView 默认会画白色矩形背景，圆角外溢出就成了「框外一圈白底」。
+            // 直接把滚动内容背景设为透明、整层背景填主题色，再用 clipShape 把一切裁进圆角——
+            // 这样框外绝无白色残留，框内是主题色（浅色模式即白），四周与聊天区 bgCanvas 同色。
             .scrollContentBackground(.hidden)
+            .background(Theme.bgSurface)
             // 键盘上下键切换选中项时，自动滚动到可视区。
             .onChange(of: selection) { _, new in
                 guard let id = items[safe: new]?.id else { return }
@@ -1154,7 +1176,7 @@ private struct SlashPalette: View {
         // 宽度跟随容器，调用方已把它对齐到输入框（留出右侧发送按钮的位置）。
         // 高度限制为约三行命令，超出则滚动。
         .frame(maxWidth: .infinity, maxHeight: 104)
-        .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.divider.opacity(0.7), lineWidth: 0.5))
     }
 
