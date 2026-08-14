@@ -496,38 +496,21 @@ struct AskAIView: View {
 
     // MARK: - 气泡默认折叠策略
 
-    /// 该消息之后是否还存在「上下文已重置」的锚点（/reset 会产生 isAnchor 消息）
-    private func hasResetAfter(_ idx: Int) -> Bool {
-        guard idx < state.chatMessages.count else { return false }
-        return state.chatMessages[(idx + 1)...].contains { $0.isAnchor }
-    }
-
-    /// 气泡初始是否展开：用户消息默认折叠；AI 回复仅「被 reset 之前的历史」默认折叠，当前上下文默认展开
+    /// 气泡初始是否展开：长消息一律默认折叠（用户问题、AI 回复都如此），
+    /// 短消息没有折叠按钮、直接完整展示。
     private func bubbleInitialExpanded(at idx: Int) -> Bool {
-        let m = state.chatMessages[idx]
-        let expanded: Bool
-        switch m.role {
-        case .me:  expanded = false
-        case .ai:  expanded = !hasResetAfter(idx)
-        default:   expanded = true
-        }
-        print("[FoldDebug] initialExpanded idx=\(idx) role=\(m.role) textLen=\(m.text.count) result=\(expanded)")
-        return expanded
+        bubbleCollapsible(at: idx) ? false : true
     }
 
-    /// 气泡是否可折叠：文本足够长才允许折叠。用户长输入可折叠；AI 仅 reset 前长历史可折叠
+    /// 气泡是否可折叠：文本足够长才允许折叠。用户长输入、AI 长回复都可折叠。
     private func bubbleCollapsible(at idx: Int) -> Bool {
         let m = state.chatMessages[idx]
         let estimatedLines = CGFloat(m.text.count) / 58
         let longEnough = estimatedLines > CGFloat(MessageBubble.collapsedLines)
-        let collapsible: Bool
         switch m.role {
-        case .me:  collapsible = longEnough
-        case .ai:  collapsible = longEnough && hasResetAfter(idx)
-        default:   collapsible = false
+        case .me, .ai:  return longEnough
+        default:        return false
         }
-        print("[FoldDebug] collapsible idx=\(idx) role=\(m.role) estimatedLines=\(estimatedLines) longEnough=\(longEnough) result=\(collapsible)")
-        return collapsible
     }
 
     // MARK: - 日期 / 时间分隔
@@ -1397,7 +1380,11 @@ private struct MessageBubble: View {
                     markdownText(message.text, isMine: message.role == .me)
                         .font(.system(size: 12.5))
                         .textSelection(.enabled)
-                        .lineLimit(Self.collapsedLines)
+                        // MarkdownUI 的 Markdown 视图不吃 .lineLimit，
+                        // 必须用定高 + 裁剪来实现折叠，否则折叠态仍渲染全文，
+                        // 看起来就像「展开/收起」失灵、默认折叠没生效。
+                        .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight, alignment: .top)
+                        .clipped()
                 }
             } else {
                 markdownText(message.text, isMine: message.role == .me)
