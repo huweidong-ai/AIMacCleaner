@@ -29,6 +29,10 @@ private enum ComposerMetrics {
     static let expandedBottomGap: CGFloat = 12 // 放大态底部/顶部留的小边距
     /// 底部工具栏高度：字数限制、发送钮，以及后续要扩展的按钮都放这里。
     static let footerHeight: CGFloat = 30
+    /// 放大态为斜杠命令框预留的高度：面板 maxHeight≈104 加上下 padding。
+    /// 出现斜杠面板时从可用高度里扣掉这部分，避免发送钮被挤出窗口；
+    /// 面板消失则这段高度回收，输入框重新铺满（自适应）。
+    static let slashPaletteReserved: CGFloat = 120
 }
 
 /// 测量 PageHeader（标题栏 + 右侧工具钮）高度，用于计算放大态输入框可用高度。
@@ -538,10 +542,17 @@ struct AskAIView: View {
 
     /// 输入框文本区高度（不含底部工具栏、不含 padding）。
     /// - 不点放大钮：随 `inputContentHeight` 在 3 行最小高度 ~ maxAutoHeight 之间弹性变化。
-    /// - 点放大钮：铺满几乎整个聊天区（总高度减去页头和小边距），方便通读大段文本。
+    /// - 点放大钮：铺满几乎整个聊天区，但必须给三处让位，否则发送钮会被挤出窗口、
+    ///   斜杠命令框也会被推到屏幕外：
+    ///   1) 顶部页头（headerHeight） 2) 底部固定区（footer + 上下内边距）
+    ///   3) 斜杠命令框（出现时再按 reserve 扣减，自适应——面板消失则高度回收）
     private var textAreaHeight: CGFloat {
         if inputExpanded {
-            let available = max(0, bodyHeight - headerHeight - ComposerMetrics.expandedBottomGap * 2)
+            var reserved: CGFloat = 0
+            if showSlashPalette { reserved += ComposerMetrics.slashPaletteReserved }
+            let available = max(0, bodyHeight - headerHeight
+                                  - ComposerMetrics.expandedBottomGap * 2
+                                  - reserved)
             return max(ComposerMetrics.inputHeight, available - ComposerMetrics.footerHeight - 16)
         } else {
             let desired = max(ComposerMetrics.inputHeight, inputContentHeight)
@@ -1128,6 +1139,9 @@ private struct SlashPalette: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            // macOS 上 ScrollView 默认会画白色背景，溢出圆角后看起来像「框外一圈白底」；
+            // 隐藏内容背景，让面板外区域透出聊天区底色 bgCanvas，与四周一致。
+            .scrollContentBackground(.hidden)
             // 键盘上下键切换选中项时，自动滚动到可视区。
             .onChange(of: selection) { _, new in
                 guard let id = items[safe: new]?.id else { return }
@@ -1136,13 +1150,12 @@ private struct SlashPalette: View {
                 }
             }
         }
-        // 面板整体：大圆角 + 极淡描边 + 柔和投影，去掉生硬的方框边；
+        // 面板整体：大圆角 + 极淡描边；去掉阴影，避免框外出现白色投影。
         // 宽度跟随容器，调用方已把它对齐到输入框（留出右侧发送按钮的位置）。
         // 高度限制为约三行命令，超出则滚动。
         .frame(maxWidth: .infinity, maxHeight: 104)
         .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.divider.opacity(0.7), lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.10), radius: 18, y: 6)
     }
 
     /// 单行命令项：图标 + token + 紧跟其后的描述，描述过长尾部省略。
