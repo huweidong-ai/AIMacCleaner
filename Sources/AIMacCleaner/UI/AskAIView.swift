@@ -1160,10 +1160,10 @@ private struct SlashPalette: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             // macOS 上 ScrollView 默认会画白色矩形背景，圆角外溢出就成了「框外一圈白底」。
-            // 直接把滚动内容背景设为透明、整层背景填主题色，再用 clipShape 把一切裁进圆角——
-            // 这样框外绝无白色残留，框内是主题色（浅色模式即白），四周与聊天区 bgCanvas 同色。
+            // 直接把滚动内容背景设为透明、整层背景填聊天区底色，再用 clipShape 把一切裁进圆角——
+            // 这样框外绝无白色残留，框内与四周 bgCanvas 同色，只留描边框和命令项高亮。
             .scrollContentBackground(.hidden)
-            .background(Theme.bgSurface)
+            .background(Theme.bgCanvas)
             // 键盘上下键切换选中项时，自动滚动到可视区。
             .onChange(of: selection) { _, new in
                 guard let id = items[safe: new]?.id else { return }
