@@ -53,8 +53,9 @@ struct AskAIView: View {
     @State private var slashDismissed = false
     /// 输入框右上角放大/缩小：粘贴大段文本时点开，输入框变高方便阅读，再点收起。
     @State private var inputExpanded = false
-    /// IME 正在显示未确认的候选文字时，placeholder 应立即隐藏。
-    @State private var hasMarkedText = false
+    /// 输入框里一旦开始输入（含 IME 未确认的候选），placeholder 应立即隐藏，
+    /// 避免与首字母重影。
+    @State private var isTyping = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -362,42 +363,48 @@ struct AskAIView: View {
     private var chatLog: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    ForEach(Array(state.chatMessages.enumerated()), id: \.element.id) { idx, m in
-                        VStack(alignment: .leading, spacing: 8) {
-                            if shouldShowDateHeader(at: idx) {
-                                HStack(spacing: 8) {
-                                    Divider().frame(width: 1).overlay(Theme.divider)
-                                    Text(dateString(m.createdAt))
-                                        .font(.system(size: 10.5, weight: .medium))
-                                        .foregroundStyle(.secondary)
-                                    Divider().frame(width: 1).overlay(Theme.divider)
+                // 与下方输入框保持相同的左右边距，让对话记录宽度和输入框一致。
+                HStack(spacing: 0) {
+                    Spacer(minLength: 40)
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(state.chatMessages.enumerated()), id: \.element.id) { idx, m in
+                            VStack(alignment: .leading, spacing: 8) {
+                                if shouldShowDateHeader(at: idx) {
+                                    HStack(spacing: 8) {
+                                        Divider().frame(width: 1).overlay(Theme.divider)
+                                        Text(dateString(m.createdAt))
+                                            .font(.system(size: 10.5, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                        Divider().frame(width: 1).overlay(Theme.divider)
+                                    }
+                                    .id("date-\(m.id)")
                                 }
-                                .id("date-\(m.id)")
-                            }
 
-                            if m.role == .system {
-                                SystemDivider(message: m)
-                            } else {
-                                MessageBubble(message: m) {
-                                    if let tab = m.redirect {
-                                        switch tab {
-                                        case .apps:      state.selectedTab = .apps
-                                        case .leftovers: state.selectedTab = .leftovers
-                                        case .processes: state.selectedTab = .processes
+                                if m.role == .system {
+                                    SystemDivider(message: m)
+                                } else {
+                                    MessageBubble(message: m) {
+                                        if let tab = m.redirect {
+                                            switch tab {
+                                            case .apps:      state.selectedTab = .apps
+                                            case .leftovers: state.selectedTab = .leftovers
+                                            case .processes: state.selectedTab = .processes
+                                            }
                                         }
                                     }
+                                    .id(m.id)
                                 }
-                                .id(m.id)
                             }
                         }
+                        if state.chatIsThinking {
+                            ThinkingBubble(steps: bridge.steps, running: bridge.runningCommand)
+                                .id("thinking")
+                        }
                     }
-                    if state.chatIsThinking {
-                        ThinkingBubble(steps: bridge.steps, running: bridge.runningCommand)
-                            .id("thinking")
-                    }
+                    .padding(.vertical, 16)
+                    .frame(maxWidth: .infinity)
+                    Spacer(minLength: 40)
                 }
-                .padding(16)
             }
             .background(Theme.bgCanvas)
             .onAppear {
@@ -491,6 +498,8 @@ struct AskAIView: View {
                 if newValue.count > ChatPolicy.maxInputChars {
                     input = String(newValue.prefix(ChatPolicy.maxInputChars))
                 }
+                // 外部（如建议词、斜杠命令、程序清空）改变 input 时，同步 placeholder 状态。
+                isTyping = !newValue.isEmpty
                 slashDismissed = false
                 slashSelection = 0
             }
@@ -517,7 +526,7 @@ struct AskAIView: View {
                             get: { inputFocused },
                             set: { inputFocused = $0 }
                         ),
-                        hasMarkedText: $hasMarkedText,
+                        isTyping: $isTyping,
                         onReturn: {
                             if let item = slashHighlighted {
                                 acceptSlash(item)
@@ -544,9 +553,9 @@ struct AskAIView: View {
                     .frame(height: inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight,
                            alignment: .topLeading)
 
-                    // placeholder：与输入文本同字号、同颜色层级；IME 一开始输入就隐藏，
-                    // 不是等候选文字确认完才消失。
-                    if input.isEmpty && !hasMarkedText {
+                    // placeholder：与输入文本同字号、同颜色层级；一旦开始输入
+                    // （包括 IME 的首个拼音字母）立即隐藏，避免与候选文字重影。
+                    if input.isEmpty && !isTyping {
                         Text(L10n.t("向 AI 提问", "Ask AI"))
                             .font(.system(size: ComposerMetrics.fontSize))
                             .foregroundStyle(.tertiary)
@@ -694,6 +703,7 @@ struct AskAIView: View {
         // `/Users/…`、`/tmp/x`、`/new foo`、`//new` 一律照常发给模型。
         if let command = ChatCommand.parse(text) {
             input = ""
+            isTyping = false
             switch command {
             case .new:                runNewChat()
             case .reset:              runResetContext()
@@ -707,11 +717,13 @@ struct AskAIView: View {
         // 但会被 modelHistory 自动过滤掉，不会进入模型上下文。
         guard modelReady else {
             input = ""
+            isTyping = false
             state.appendChat(AIMessage(role: .system, text: AgentRuntime.configPrompt))
             showSettings = true
             return
         }
         input = ""
+        isTyping = false
         // 深链来源约束：本次发送用掉后置 nil，避免后续追问也带上旧范围。
         let scope = pendingLeftoverScope
         pendingLeftoverScope = nil
@@ -817,7 +829,7 @@ private struct SystemDivider: View {
 private struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
-    @Binding var hasMarkedText: Bool
+    @Binding var isTyping: Bool
 
     var onReturn: () -> Bool
     var onOptionReturn: () -> Void
@@ -855,6 +867,9 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.onFocusChange = { focused in
             DispatchQueue.main.async { self.isFocused = focused }
+        }
+        textView.onContentChange = { [unowned coordinator = context.coordinator] in
+            coordinator.contentChanged()
         }
         textView.onReturn = onReturn
         textView.onOptionReturn = onOptionReturn
@@ -905,8 +920,20 @@ private struct ComposerTextView: NSViewRepresentable {
             // 直接同步写回即可：焦点抖动的根因是 @FocusState（已改为 @State），
             // 不是这里的同步写回。延迟写回反而会引入快速输入丢字的竞态。
             parent.text = textView.string
-            // IME 候选文字一出现就隐藏 placeholder，不要等到确认后才同步。
-            parent.hasMarkedText = textView.hasMarkedText()
+            syncTypingState(textView)
+        }
+
+        /// 在 insertText / setMarkedText / deleteBackward 等原始输入事件里立即调用，
+        /// 比 textDidChange 更早（且对 IME 首字母更可靠），用来立刻隐藏 placeholder。
+        func contentChanged() {
+            guard let textView = textView else { return }
+            parent.text = textView.string
+            syncTypingState(textView)
+        }
+
+        private func syncTypingState(_ textView: KeyHandlingTextView) {
+            let empty = textView.string.isEmpty && !textView.hasMarkedText()
+            parent.isTyping = !empty
         }
     }
 }
@@ -918,6 +945,7 @@ private struct ComposerTextView: NSViewRepresentable {
 /// 上下键改由 AskAIView 顶层的 `NSEvent` 本地 monitor 统一拦截，见 `SlashKeyInterceptor`。
 private final class KeyHandlingTextView: NSTextView {
     var onFocusChange: ((Bool) -> Void)?
+    var onContentChange: (() -> Void)?
     var onReturn: (() -> Bool)?
     var onOptionReturn: (() -> Void)?
     var onTab: (() -> Bool)?
@@ -933,6 +961,21 @@ private final class KeyHandlingTextView: NSTextView {
         let ok = super.resignFirstResponder()
         if ok { onFocusChange?(false) }
         return ok
+    }
+
+    override func insertText(_ string: Any, replacementRange: NSRange) {
+        super.insertText(string, replacementRange: replacementRange)
+        onContentChange?()
+    }
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        onContentChange?()
+    }
+
+    override func deleteBackward(_ sender: Any?) {
+        super.deleteBackward(sender)
+        onContentChange?()
     }
 
     override func keyDown(with event: NSEvent) {
