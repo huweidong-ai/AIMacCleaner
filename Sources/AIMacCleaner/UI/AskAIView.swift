@@ -531,6 +531,7 @@ struct AskAIView: View {
                             set: { inputFocused = $0 }
                         ),
                         isTyping: $isTyping,
+                        expanded: inputExpanded,
                         onReturn: {
                             if let item = slashHighlighted {
                                 acceptSlash(item)
@@ -835,17 +836,37 @@ private struct ComposerTextView: NSViewRepresentable {
     @Binding var isFocused: Bool
     @Binding var isTyping: Bool
 
+    /// 是否处于放大态。展开/缩小动画期间据此临时压制滚动条显隐，消除闪屏。
+    var expanded: Bool
+
     var onReturn: () -> Bool
     var onOptionReturn: () -> Void
     var onTab: () -> Bool
     var onEscape: () -> Bool
 
+    /// 输入框滚动容器：在展开/缩小动画窗口内抑制 `reflectScrolledClipView`，
+    /// 避免每帧高度变化触发 autohidesScrollers 把滚动条闪一下又收回去。
+    final class ComposerScrollView: NSScrollView {
+        /// true 时跳过滚动条显隐与滑块重算（动画期间）。
+        var suppressScrollerFlash = false
+        /// 上一次的 expanded 值，用于 detect 状态翻转。
+        var wasExpanded = false
+
+        override func reflectScrolledClipView(_ clipView: NSClipView) {
+            if suppressScrollerFlash { return }
+            super.reflectScrolledClipView(clipView)
+        }
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = ComposerScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
+        // 覆盖式滚动条：绘制在内容之上、不挤占布局，显隐为系统淡入淡出，配合下方
+        // 动画期抑制逻辑，展开/缩小时不再出现「闪一下消失」的横向抖动。
+        scrollView.scrollerStyle = .overlay
         // 内容未超出可视高度时不显示滚动条；展开后空间足够也自动隐藏。
         scrollView.autohidesScrollers = true
         scrollView.focusRingType = .none
@@ -887,6 +908,18 @@ private struct ComposerTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? KeyHandlingTextView else { return }
+        // 展开/缩小切换时：动画期间压制滚动条显隐，结束后恢复并重算一次最终状态，
+        // 消除每帧高度变化导致的滚动条闪屏。
+        if let cs = scrollView as? ComposerScrollView, cs.wasExpanded != expanded {
+            cs.wasExpanded = expanded
+            cs.suppressScrollerFlash = true
+            let target = cs
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak target] in
+                guard let sv = target else { return }
+                sv.suppressScrollerFlash = false
+                sv.reflectScrolledClipView(sv.contentView)
+            }
+        }
         if textView.string != text {
             textView.string = text
         }
