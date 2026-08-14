@@ -16,9 +16,10 @@ import MarkdownUI
 /// 输入框的尺寸口径。放这里不放 ChatPolicy —— 那是纯模型命名空间，不该装 UI 度量。
 private enum ComposerMetrics {
     static let visibleLines = 3          // 输入框默认/固定高度按 3 行显示
-    static let lineH: CGFloat = 18       // 单行内容高（font 13 + lineSpacing 2）
+    static let fontSize: CGFloat = 14    // 与输入法候选字大小对齐，不再用 12.5 小字
+    static let lineH: CGFloat = 21       // 单行内容高（font 14 + 行距缓冲）
     static let inset: CGFloat = 10       // TextEditor 上下内边距
-    static let inputHeight = CGFloat(visibleLines) * lineH + inset * 2 // ≈ 74
+    static let inputHeight = CGFloat(visibleLines) * lineH + inset * 2 // ≈ 83
     static let corner: CGFloat = 28      // 千问风格：胶囊大圆角
     static let maxWidth: CGFloat = 720   // 空态建议词卡片的最大宽度（输入框本身跟随软件宽度，见 composer）
     /// 点右上角放大钮时输入框的高度：粘贴大段文本时展开，方便在发送前通读内容。
@@ -52,6 +53,8 @@ struct AskAIView: View {
     @State private var slashDismissed = false
     /// 输入框右上角放大/缩小：粘贴大段文本时点开，输入框变高方便阅读，再点收起。
     @State private var inputExpanded = false
+    /// IME 正在显示未确认的候选文字时，placeholder 应立即隐藏。
+    @State private var hasMarkedText = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -514,6 +517,7 @@ struct AskAIView: View {
                             get: { inputFocused },
                             set: { inputFocused = $0 }
                         ),
+                        hasMarkedText: $hasMarkedText,
                         onReturn: {
                             if let item = slashHighlighted {
                                 acceptSlash(item)
@@ -540,10 +544,11 @@ struct AskAIView: View {
                     .frame(height: inputExpanded ? ComposerMetrics.expandedHeight : ComposerMetrics.inputHeight,
                            alignment: .topLeading)
 
-                    // placeholder：与输入文本同字号、无额外偏移，确保光标和暗文在同一行基线。
-                    if input.isEmpty {
+                    // placeholder：与输入文本同字号、同颜色层级；IME 一开始输入就隐藏，
+                    // 不是等候选文字确认完才消失。
+                    if input.isEmpty && !hasMarkedText {
                         Text(L10n.t("向 AI 提问", "Ask AI"))
-                            .font(.system(size: 12.5))
+                            .font(.system(size: ComposerMetrics.fontSize))
                             .foregroundStyle(.tertiary)
                             .lineSpacing(2)
                             .allowsHitTesting(false)
@@ -812,6 +817,7 @@ private struct SystemDivider: View {
 private struct ComposerTextView: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    @Binding var hasMarkedText: Bool
 
     var onReturn: () -> Bool
     var onOptionReturn: () -> Void
@@ -824,7 +830,8 @@ private struct ComposerTextView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = false
+        // 内容未超出可视高度时不显示滚动条；展开后空间足够也自动隐藏。
+        scrollView.autohidesScrollers = true
         scrollView.focusRingType = .none
 
         let textView = KeyHandlingTextView()
@@ -832,7 +839,7 @@ private struct ComposerTextView: NSViewRepresentable {
         textView.isSelectable = true
         textView.isEditable = true
         textView.drawsBackground = false
-        textView.font = NSFont.systemFont(ofSize: 12.5)
+        textView.font = NSFont.systemFont(ofSize: ComposerMetrics.fontSize)
         textView.textColor = NSColor.labelColor
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
@@ -898,6 +905,8 @@ private struct ComposerTextView: NSViewRepresentable {
             // 直接同步写回即可：焦点抖动的根因是 @FocusState（已改为 @State），
             // 不是这里的同步写回。延迟写回反而会引入快速输入丢字的竞态。
             parent.text = textView.string
+            // IME 候选文字一出现就隐藏 placeholder，不要等到确认后才同步。
+            parent.hasMarkedText = textView.hasMarkedText()
         }
     }
 }
