@@ -531,6 +531,9 @@ struct AskAIView: View {
                         .frame(maxWidth: .infinity)
                     Spacer(minLength: 40)
                 }
+                // 给面板容器统一填上聊天区底色，让透明面板内部与外部完全同色；
+                // 同时避免 composer VStack 透明时露出窗口白底。
+                .background(Theme.bgCanvas)
                 .zIndex(1)
             }
 
@@ -1157,8 +1160,9 @@ private struct SlashPalette: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         // 当前斜杠命令固定只有 4 条，不需要滚动。去掉 ScrollView 可彻底避免 macOS
         // NSScrollView 的白色 clipView 背景 / 滚动条轨道在圆角框内残留大白边。
+        // 面板本身不填色，透明；底色由调用方（composer 里的 HStack）提供，
+        // 这样框内与框外 guaranteed 同色，只留圆角描边作为“框”。
         .frame(maxWidth: .infinity, maxHeight: 104)
-        .background(Theme.bgCanvas)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.divider.opacity(0.7), lineWidth: 0.5))
     }
