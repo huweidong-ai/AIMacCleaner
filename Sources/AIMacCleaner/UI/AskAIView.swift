@@ -1143,39 +1143,22 @@ private struct SlashPalette: View {
     let onPick: (SlashCommandItem) -> Void
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
-                        row(item, active: idx == selection)
-                            .id(item.id)
-                            .contentShape(Rectangle())
-                            .onHover { if $0 { onHover(idx) } }
-                            .onTapGesture { onPick(item) }
-                        if idx < items.count - 1 {
-                            Divider().opacity(0.5).padding(.horizontal, 14)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            // macOS 上 ScrollView 默认会画白色矩形背景，圆角外溢出就成了「框外一圈白底」。
-            // 直接把滚动内容背景设为透明、整层背景填聊天区底色，再用 clipShape 把一切裁进圆角——
-            // 这样框外绝无白色残留，框内与四周 bgCanvas 同色，只留描边框和命令项高亮。
-            .scrollContentBackground(.hidden)
-            .background(Theme.bgCanvas)
-            // 键盘上下键切换选中项时，自动滚动到可视区。
-            .onChange(of: selection) { _, new in
-                guard let id = items[safe: new]?.id else { return }
-                withAnimation(.easeOut(duration: 0.08)) {
-                    proxy.scrollTo(id, anchor: .center)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { idx, item in
+                row(item, active: idx == selection)
+                    .contentShape(Rectangle())
+                    .onHover { if $0 { onHover(idx) } }
+                    .onTapGesture { onPick(item) }
+                if idx < items.count - 1 {
+                    Divider().opacity(0.5).padding(.horizontal, 14)
                 }
             }
         }
-        // 面板整体：大圆角 + 极淡描边；去掉阴影，避免框外出现白色投影。
-        // 宽度跟随容器，调用方已把它对齐到输入框（留出右侧发送按钮的位置）。
-        // 高度限制为约三行命令，超出则滚动。
+        .frame(maxWidth: .infinity, alignment: .leading)
+        // 当前斜杠命令固定只有 4 条，不需要滚动。去掉 ScrollView 可彻底避免 macOS
+        // NSScrollView 的白色 clipView 背景 / 滚动条轨道在圆角框内残留大白边。
         .frame(maxWidth: .infinity, maxHeight: 104)
+        .background(Theme.bgCanvas)
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.divider.opacity(0.7), lineWidth: 0.5))
     }
