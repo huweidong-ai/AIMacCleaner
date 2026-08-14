@@ -1,7 +1,7 @@
 import SwiftUI
 
 // 应用页 / 残留页共用的展示组件。抽在一处的理由：这两页的信息结构
-// 是同构的（提示条 → AI 复核条 → 分区标题 → 分组卡片 → 底部操作条），
+// 是同构的（提示条 → AI 分析条 → 分区标题 → 分组卡片 → 底部操作条），
 // 各写一遍必然慢慢走形，改一处忘一处。
 
 // MARK: - 提示横幅
@@ -43,9 +43,9 @@ struct Banner: View {
     }
 }
 
-// MARK: - AI 复核条
+// MARK: - AI 分析条
 
-/// 「一键问 AI 这些能不能删」入口条。三态：待复核 / 复核中 / 已复核。
+/// 「一键让 AI 分析这些能不能删」入口条。三态：待分析 / 分析中 / 已分析。
 ///
 /// 应用页和残留页方向相反但共用这一个组件：
 /// 应用页默认全选，AI 帮你**取消**不该删的；
@@ -57,7 +57,7 @@ struct AIReviewBar: View {
     let detail: String
     let actionTitle: String
     let onReview: () -> Void
-    let onUndo: () -> Void
+    let onViewConclusion: () -> Void
     /// 未配置模型时点这个去设置（needsConfig 阶段才用到）。
     var onConfigure: (() -> Void)? = nil
     /// 主按钮置灰（如未勾选任何项）。仅 idle/failed 阶段生效。
@@ -86,7 +86,7 @@ struct AIReviewBar: View {
             case .running:
                 EmptyView()
             case .done:
-                Button(L10n.t("撤销 AI 结论", "Undo")) { onUndo() }
+                Button(L10n.t("去看 AI 怎么说", "View AI conclusion")) { onViewConclusion() }
                     .controlSize(.small)
             case .needsConfig:
                 if let onConfigure {

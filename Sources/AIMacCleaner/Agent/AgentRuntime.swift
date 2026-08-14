@@ -107,7 +107,7 @@ struct AgentRuntime {
     /// CLI 的进度回调。`@Sendable`：它会在跨 MainActor 的 async 调用链里被回传，
     /// 闭包体只能是纯输出（打印），不捕获任何非 Sendable 状态。
     var onStep: (@Sendable (AgentStep) -> Void)?
-    /// 最多几轮决策。4 轮足够「确认名字 → 扫描 → 复核 → 回答」，
+    /// 最多几轮决策。4 轮足够「确认名字 → 扫描 → 分析 → 回答」，
     /// 再多只会让一次提问等上半分钟。
     var maxTurns: Int = 4
     /// 注入 system prompt 的长期记忆块（`MemoryPolicy.promptBlock` 的产物，可为空串）。
@@ -305,7 +305,7 @@ struct LLMBrain: AgentBrain {
                直接 scan_app，然后比大小给出结论。
             4. 你没有删除权限。涉及卸载就用 plan_uninstall 出计划，然后请用户在界面上确认。
             5. 已经拿到足够信息就直接回答，不要重复调用同一个 skill。
-            6. 用户让你复核「当前清单」时，清单已经通过会话注入（应用清单走 review_plan(scope: apps)，残留清单走 review_plan(scope: leftovers)）。
+            6. 用户让你分析「当前清单」时，清单已经通过会话注入（应用清单走 review_plan(scope: apps)，残留清单走 review_plan(scope: leftovers)）。
                直接调用 review_plan，不要再 scan_app / scan_leftovers。
             7. \(zhRule)
             """, """

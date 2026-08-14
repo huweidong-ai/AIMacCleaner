@@ -203,14 +203,14 @@ struct ProcessesView: View {
                     return
                 }
                 // 改为深链到「问 AI」页：预填诊断问句。注：当前 Agent 没有结构化的
-                // 进程复核 skill，所以这一路是 AI 的文字建议，不会自动改勾选
+                // 进程分析 skill，所以这一路是 AI 的文字建议，不会自动改勾选
                 // （应用 / 残留页因有 review_plan skill 能做到自动回写）。
                 state.jumpToAskAI(L10n.t(
                     "我打算结束当前勾选的进程，但不确定它们的作用和结束后的影响。请帮我逐项评估：\n1. 这个进程是什么作用（系统服务、用户应用、后台任务等）？\n2. 结束它会有什么风险（数据丢失、应用崩溃、系统不稳定等）？\n3. 最终建议：它是「可以安全结束」还是「建议保留运行」，并说明原因。",
                     "I’m considering ending the currently selected processes but I’m not sure what they do or what will happen. Please assess each one:\n1. What does this process do (system service, user app, background task, etc.)?\n2. What is the risk of ending it (data loss, app crash, system instability, etc.)?\n3. Final recommendation: \"safe to end\" or \"better keep running\", with the reason."))
             },
-            onUndo: {
-                state.clearProcessVerdicts()
+            onViewConclusion: {
+                state.selectedTab = .askAI
             },
             onConfigure: { showSettings = true },
             disabled: state.selectedProcessCount == 0

@@ -66,16 +66,16 @@ final class AgentBridge: ObservableObject {
         }
     }
 
-    /// 把界面上「当前这份清单」交给会话 —— 用户说「复核我现在选的这些」时，
-    /// 复核的必须是他眼前的勾选状态，不是 Agent 自己扫出来的另一份。
+    /// 把界面上「当前这份清单」交给会话 —— 用户说「分析我现在选的这些」时，
+    /// 分析的必须是他眼前的勾选状态，不是 Agent 自己扫出来的另一份。
     /// 应用清单走 `hostArtifacts`、残留清单走 `lastLeftovers`，两者都从当前界面注入，
-    /// 这样从任一 tab 深链进来都能让 Agent 直接复核「眼前这份」，不必先重新扫描。
+    /// 这样从任一 tab 深链进来都能让 Agent 直接分析「眼前这份」，不必先重新扫描。
     ///
     /// - Parameters:
     ///   - leftoverScope: 残留深链时传入的「当前筛选档来源」。
-    ///     `nil` 表示判断全部；非 nil（如 `.aiTool`）让 `review_plan` 只复核该类，
+    ///     `nil` 表示判断全部；非 nil（如 `.aiTool`）让 `review_plan` 只分析该类，
     ///     实现「看哪一档就判断哪一档」。
-    ///   - reviewScope: 强制复核范围。非 nil 时 `review_plan` 不再让模型猜
+    ///   - reviewScope: 强制分析范围。非 nil 时 `review_plan` 不再让模型猜
     ///     apps / leftovers，而是直接按此执行，避免应用页被误判为残留。
     func makeSession(leftoverScope: LeftoverSource? = nil,
                      reviewScope: ReviewScope? = nil) -> AgentSession {
@@ -83,7 +83,7 @@ final class AgentBridge: ObservableObject {
         session.hostArtifacts = state?.artifacts ?? []
         session.lastLeftovers = state?.leftoverGroups ?? []
         // 把用户在残留页主动勾选的项单独拎出来：点「让 AI 帮我判断」时，
-        // AI 应该只复核这些已勾选项；没有勾选时才退回复核当前范围全部。
+        // AI 应该只分析这些已勾选项；没有勾选时才退而分析当前范围全部。
         session.reviewableLeftovers = state?.leftoverGroups.flatMap { group in
             group.artifacts.filter { $0.selected }
         } ?? []

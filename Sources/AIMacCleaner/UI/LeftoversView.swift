@@ -6,7 +6,7 @@ import SwiftUI
 /// 分两个菜单只会让人来回切。合并成一页，用筛选档区分来源。
 ///
 /// 与应用页的关键区别：这里的判定是启发式的（没有明确的 app 可锁定），
-/// 所以默认全不勾选，且顶部明确说明不确定性。AI 复核在这一页是**反向**用的：
+/// 所以默认全不勾选，且顶部明确说明不确定性。AI 分析在这一页是**反向**用的：
 /// 帮你勾出可以放心删的，而不是取消不该删的。
 struct LeftoversView: View {
     @EnvironmentObject var state: AppState
@@ -180,17 +180,16 @@ struct LeftoversView: View {
                     state.aiReviewPhaseLeftovers = .needsConfig
                     return
                 }
-                // 不再原地跑判断，改为深链到「问 AI」页：预填诊断问句（按当前筛选档限定范围），
-                // 复用 review_plan skill 回写勾选与理由，过程在对话里可见、可追加追问。
+                // 后台跑 AI 分析：把 prompt 发到「问 AI」对话框并运行 Agent，
+                // 但不自动跳转。结论会回写勾选与理由，点「去看 AI 怎么说」再切过去看完整对话。
                 // scope 跟随当前档：看哪一档就判断哪一档，不强制全量判断。
-                // 如果用户已经勾选了若干项，问句会明确点名这些项，让 AI 只复核它们。
+                // 如果用户已经勾选了若干项，问句会明确点名这些项，让 AI 只分析它们。
                 // reviewScope: .leftovers 强制让 review_plan 走 leftovers 分支。
                 let (prompt, scope) = reviewPrompt(for: state.leftoverFilter)
-                state.jumpToAskAI(prompt, leftoverScope: scope, reviewScope: .leftovers)
+                state.runAIReviewInBackground(prompt: prompt, leftoverScope: scope, reviewScope: .leftovers)
             },
-            onUndo: {
-                state.undoAIReview()
-                state.aiReviewPhaseLeftovers = .idle
+            onViewConclusion: {
+                state.selectedTab = .askAI
             },
             onConfigure: { showSettings = true }
         )
@@ -199,7 +198,7 @@ struct LeftoversView: View {
     /// 按当前筛选档生成「让 AI 帮我判断」的预填问句与对应的来源约束。
     ///
     /// 关键：问句里讲清楚用户意图（清理残留释放空间），并要求 AI 先确认归属、再评估风险、
-    /// 最后给出保留/删除建议。`scope` 一并传下去，让 `review_plan` 只复核当前这一档。
+    /// 最后给出保留/删除建议。`scope` 一并传下去，让 `review_plan` 只分析当前这一档。
     private func reviewPrompt(for filter: AppState.LeftoverFilter) -> (prompt: String, scope: LeftoverSource?) {
         let scope = filter.source
         let groups: [LeftoverGroup] = {
@@ -227,22 +226,23 @@ struct LeftoversView: View {
     }
 
     /// 按当前阶段给出提示文案。
-    private var aiBarText: (String, String) {        switch state.aiReviewPhaseLeftovers {
+    private var aiBarText: (String, String) {
+        switch state.aiReviewPhaseLeftovers {
         case .done:
-            return (L10n.t("AI 已判断完毕。", "AI is done."),
-                    L10n.t("能放心删的已替你勾上，理由写在对应行下方；没勾的说明它也拿不准，请自己判断。",
-                           "What it considers safe is now checked, with the reason under each row. Anything left unchecked is a call it couldn’t make for you."))
+            return (L10n.t("AI 已分析完毕。", "AI analysis complete."),
+                    L10n.t("结论已发到「问 AI」并回写了勾选状态，点右侧按钮查看完整分析。",
+                           "The conclusion was sent to Ask AI and the checkboxes were updated. Tap the button to view the full analysis."))
         case .needsConfig:
             return (L10n.t("还没配置模型", "Model not configured"),
                     L10n.t("「让 AI 帮我判断」需要先在 ⚙ 里填好 API Key（OpenAI / Anthropic 兼容都行）。",
                            "“Ask AI” needs an API key first (OpenAI- or Anthropic-compatible, set in ⚙)."))
         case .failed:
-            return (L10n.t("AI 判断失败", "AI judgment failed"),
+            return (L10n.t("AI 分析失败", "AI analysis failed"),
                     L10n.t("模型调用失败，请检查 API Key / 网络，或点右侧重试。",
                            "The model call failed — check the API key / network, or tap Retry."))
         default:
             return (L10n.t("不确定这些残留能不能删？", "Not sure whether these can go?"),
-                    L10n.t("让 AI 逐项判断——能放心删的它替你勾上，有风险的保持不勾并写明原因，你只需要复核结论。",
+                    L10n.t("让 AI 逐项分析——能放心删的它替你勾上，有风险的保持不勾并写明原因，你只需要确认结论。",
                            "Let AI go item by item — it checks what’s safe, leaves risky ones alone with a reason, and you just review the verdict."))
         }
     }

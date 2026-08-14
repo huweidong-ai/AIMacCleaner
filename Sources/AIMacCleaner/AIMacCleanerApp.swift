@@ -132,7 +132,7 @@ struct AIMacCleanerApp: App {
           ai-mac-cleaner --agent "自然语言目标" [--model <档名>]   启动 Agent：自动决定调哪些 skill / launch the agent
           ai-mac-cleaner --skill <名称> [--args '{...}']    直接调一个 skill / call a skill directly
           ai-mac-cleaner --ps [--filter background|user|system] [--keyword <名>] [--limit <N>]   列出进程 / list processes
-          ai-mac-cleaner --review [--scope apps|leftovers]   复核删除清单 / review a removal plan
+          ai-mac-cleaner --review [--scope apps|leftovers]   分析删除清单 / review a removal plan
           ai-mac-cleaner --self-test                      运行自检 / run self-test
           ai-mac-cleaner --help                           显示本帮助 / show this help
 

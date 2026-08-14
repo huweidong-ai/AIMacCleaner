@@ -54,7 +54,7 @@ struct AskAIView: View {
     /// 从残留页深链进来时携带的来源约束（看哪一档就判断哪一档）。
     /// 首次发送时交给 Agent session，发送后置 nil。
     @State private var pendingLeftoverScope: LeftoverSource?
-    /// 从应用 / 残留 / 进程页深链进来时携带的强制复核范围。
+    /// 从应用 / 残留 / 进程页深链进来时携带的强制分析范围。
     /// 非 nil 时让 `review_plan` 直接按 `.apps` 或 `.leftovers` 执行，不依赖模型推断。
     @State private var pendingReviewScope: ReviewScope?
     // 注意：这里用普通 @State 而非 @FocusState。本输入框是自定义 NSViewRepresentable，
@@ -806,7 +806,7 @@ struct AskAIView: View {
     private func consumePendingPrompt() {
         guard let prompt = state.askAIPendingPrompt else { return }
         state.askAIPendingPrompt = nil
-        // 一并消费来源约束（残留页当前档）和强制复核范围；首次发送时约束给 Agent，之后置 nil。
+        // 一并消费来源约束（残留页当前档）和强制分析范围；首次发送时约束给 Agent，之后置 nil。
         pendingLeftoverScope = state.askAIPendingLeftoverScope
         state.askAIPendingLeftoverScope = nil
         pendingReviewScope = state.askAIPendingReviewScope

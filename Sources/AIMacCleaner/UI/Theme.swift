@@ -38,7 +38,7 @@ enum Theme {
     static let riskSafeBg      = Color(red: 0.9451, green: 0.9451, blue: 0.9529) // #F1F1F3
     static let riskSafeBorder = Color(red: 0.8706, green: 0.8706, blue: 0.8863) // #DEDEE2
 
-    // MARK: - AI 复核（紫）
+    // MARK: - AI 分析（紫）
 
     /// AI 是「第二意见」而不是风险等级，所以刻意跳出橙/黄/灰的风险色系，
     /// 单独占一个紫色调 —— 用户一眼能分清「这是 AI 说的」和「这是扫描器判的」。
@@ -47,13 +47,13 @@ enum Theme {
     static let aiText      = Color(red: 0.4196, green: 0.2471, blue: 0.6275) // #6B3FA0
     static let aiBg        = Color(red: 0.9490, green: 0.9255, blue: 0.9804) // #F2ECFA
     static let aiBorder    = Color(red: 0.8510, green: 0.7804, blue: 0.9373) // #D9C7EF
-    /// AI 复核条底色（近白的淡紫）。
+    /// AI 分析条底色（近白的淡紫）。
     static let aiBarBg     = Color(red: 0.9843, green: 0.9725, blue: 1.0)    // #FBF8FF
     static let aiBarBorder = Color(red: 0.8863, green: 0.8392, blue: 0.9490) // #E2D6F2
     /// 被 AI 判为「不建议删除」的行底色。
     static let aiRowBg     = Color(red: 0.9882, green: 0.9804, blue: 1.0)    // #FCFAFF
 
-    /// 复核完成后 AI 条转绿。
+    /// 分析完成后 AI 条转绿。
     static let aiDoneBorder = Color(red: 0.7961, green: 0.9059, blue: 0.8314) // #CBE7D4
     static let aiDoneBg     = Color(red: 0.9647, green: 0.9882, blue: 0.9725) // #F6FCF8
 

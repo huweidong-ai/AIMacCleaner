@@ -2,7 +2,7 @@ import Foundation
 import Combine
 import AppKit
 
-/// AI 复核条状态。提升到 AppState 是为了切 tab 后不丢失。
+/// AI 分析条状态。提升到 AppState 是为了切 tab 后不丢失。
 enum AIReviewPhase: String, CaseIterable {
     case idle, running, done, needsConfig, failed
 }
@@ -11,7 +11,7 @@ enum AIReviewPhase: String, CaseIterable {
 final class AppState: ObservableObject {
     @Published var searchText: String = ""
     /// 应用页按类别的折叠状态（默认全部折叠）。提升到 AppState 以免切 tab 后
-    /// 视图重建丢状态（尤其是 AI 复核后展开的状态）。
+    /// 视图重建丢状态（尤其是 AI 分析后展开的状态）。
     @Published var appsCollapsed: Set<ArtifactCategory> = Set(ArtifactCategory.allCases)
     @Published private(set) var plan: RemovalPlan?
     @Published private(set) var isScanning: Bool = false
@@ -20,13 +20,13 @@ final class AppState: ObservableObject {
     /// 从应用 / 残留 / 进程页深链进入「问 AI」页时预填的问句；AskAIView 消费后置 nil。
     @Published var askAIPendingPrompt: String?
     /// 深链时残留页所处筛选档的来源（.all 时为 nil）。AskAIView 消费 pendingPrompt 时一并读取，
-    /// 用于让 `review_plan` 只复核该来源，消费后置 nil。
+    /// 用于让 `review_plan` 只分析该来源，消费后置 nil。
     @Published var askAIPendingLeftoverScope: LeftoverSource?
-    /// 深链时由入口注入的强制复核范围：`.apps` 或 `.leftovers`。
+    /// 深链时由入口注入的强制分析范围：`.apps` 或 `.leftovers`。
     /// 非 nil 时 `review_plan` 不再让模型自行选择 scope，消费后置 nil。
     @Published var askAIPendingReviewScope: ReviewScope?
 
-    // MARK: - AI 复核状态（跨 tab 持久，避免切回后丢失）
+    // MARK: - AI 分析状态（跨 tab 持久，避免切回后丢失）
     @Published var aiReviewPhaseApps: AIReviewPhase = .idle
     @Published var aiReviewPhaseLeftovers: AIReviewPhase = .idle
 
@@ -570,19 +570,19 @@ final class AppState: ObservableObject {
         selectedPids.removeAll()
     }
 
-    // MARK: - AI 复核
+    // MARK: - AI 分析
 
     /// 从应用 / 残留 / 进程页的「问 AI」入口深链到问 AI 页：写入预填问句并切到该 tab。
     /// AskAIView 在 onAppear / onChange 时读取它、灌入输入框并聚焦，消费后置 nil。
     /// 预填问句会引导 Agent 走 `review_plan` skill，结论通过 SkillEffect 回写勾选与理由。
     ///
     /// - Parameter scope: 残留页深链时传入的当前筛选档来源（`.all` 传 nil）。
-    ///   非 nil 时 Agent 只复核该来源，实现「看哪一档就判断哪一档」。
+    ///   非 nil 时 Agent 只分析该来源，实现「看哪一档就判断哪一档」。
     func jumpToAskAI(_ prompt: String, leftoverScope: LeftoverSource? = nil, reviewScope: ReviewScope? = nil) {
-        // 从应用 / 残留 / 进程页深链过来是为了做一次独立的 AI 复核，旧对话上下文对
-        // 复核毫无用处（模型复核读的是 session 里的清单，不是 chat 历史）。
+        // 从应用 / 残留 / 进程页深链过来是为了做一次独立的 AI 分析，旧对话上下文对
+        // 分析毫无用处（模型分析读的是 session 里的清单，不是 chat 历史）。
         // 打一条上下文锚点：屏幕记录保留可见，但模型历史截断到锚点之后，
-        // 这样本次注入的复核 prompt 不会带上之前的噪音。
+        // 这样本次注入的分析 prompt 不会带上之前的噪音。
         resetChatContext()
         askAIPendingPrompt = prompt
         askAIPendingLeftoverScope = leftoverScope
@@ -590,7 +590,54 @@ final class AppState: ObservableObject {
         selectedTab = .askAI
     }
 
-    /// 把模型对应用清单的复核结论落到界面：
+    /// 在后台触发一次 AI 分析：把 prompt 发到「问 AI」对话框并运行 Agent，
+    /// 但不切换 `selectedTab`。分析结论会写入对应清单，AI 总结消息会出现在 chat 里。
+    /// 完成后 banner 显示「去看 AI 怎么说」，用户手动切到问 AI 页查看结论。
+    func runAIReviewInBackground(prompt: String,
+                                  leftoverScope: LeftoverSource? = nil,
+                                  reviewScope: ReviewScope? = nil) {
+        guard modelStore.isConfigured, let cfg = activeConfig else {
+            if reviewScope == .leftovers { aiReviewPhaseLeftovers = .needsConfig }
+            else { aiReviewPhaseApps = .needsConfig }
+            return
+        }
+
+        // 独立上下文：旧对话对这次分析无意义，打锚点截断。
+        resetChatContext()
+
+        if reviewScope == .leftovers { aiReviewPhaseLeftovers = .running }
+        else { aiReviewPhaseApps = .running }
+        chatIsThinking = true
+
+        let history = chatModelHistory
+        appendChat(AIMessage(role: .me, text: prompt))
+
+        Task { @MainActor in
+            let bridge = AgentBridge()
+            bridge.attach(self)
+            let runtime = AgentRuntime(config: cfg, bridge: bridge, memory: memoryPromptBlock)
+            let run = await runtime.run(goal: prompt, history: history,
+                                        session: bridge.makeSession(leftoverScope: leftoverScope,
+                                                                     reviewScope: reviewScope))
+
+            var body = run.answer
+            if let note = run.note { body += "\n\n" + note }
+            appendChat(AIMessage(role: .ai, text: body,
+                                 steps: run.steps,
+                                 redirect: run.redirect,
+                                 awaitingApproval: run.awaitingApproval))
+            chatIsThinking = false
+            // skill 的 effect 已通过 bridge.apply 设置对应 phase = .done；
+            // 这里兜底：若模型调用失败没走到 skill，把 still-running 标记为失败。
+            if reviewScope == .leftovers {
+                if aiReviewPhaseLeftovers == .running { aiReviewPhaseLeftovers = .failed }
+            } else {
+                if aiReviewPhaseApps == .running { aiReviewPhaseApps = .failed }
+            }
+        }
+    }
+
+    /// 把模型对应用清单的分析结论落到界面：
     /// - 被判定为「建议保留」的项取消勾选并写入理由；
     /// - 被判定为「可安全删除」的项保持勾选并写入 AI 可删标签。
     /// 这是 SkillEffect.reviewApps 的落地点，**不得在此再次调用模型**。
@@ -606,14 +653,14 @@ final class AppState: ObservableObject {
             }
         }
         aiReviewPhaseApps = .done
-        // 复核结论写在每行下方，分组折叠时用户看不到；自动展开所有分类。
+        // 分析结论写在每行下方，分组折叠时用户看不到；自动展开所有分类。
         appsCollapsed = []
         // PWA「卸载单元」：配置项的去留必须跟随应用本体，否则删 app 会留孤儿。
         // AI 是逐项判定的，可能给配置单独下了结论，这里强制把它拉回本体的状态。
         syncPWAAfterReview()
     }
 
-    /// AI 复核落盘后，把 PWA 跟随配置项的选中态强制对齐到应用本体。
+    /// AI 分析落盘后，把 PWA 跟随配置项的选中态强制对齐到应用本体。
     /// 配置随 app 一起删 / 一起留——它自身被单独判 keep 也不会保留下来，
     /// 因为本体要删时它必然一起删；本体保留时它自然也保留。
     private func syncPWAAfterReview() {
@@ -624,7 +671,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 把模型对残留清单的复核结论落到界面：被判定为「可安全删除」的项勾选并写入理由。
+    /// 把模型对残留清单的分析结论落到界面：被判定为「可安全删除」的项勾选并写入理由。
     /// 这是 SkillEffect.reviewLeftovers 的落地点，**不得在此再次调用模型**。
     func applyAIReviewLeftovers(verdicts: [UUID: AIVerdict]) {
         for gi in leftoverGroups.indices {
@@ -641,11 +688,11 @@ final class AppState: ObservableObject {
             }
         }
         aiReviewPhaseLeftovers = .done
-        // 复核结论需要让用户逐条看到，自动展开所有残留分组。
+        // 分析结论需要让用户逐条看到，自动展开所有残留分组。
         leftoverCollapsed = []
     }
 
-    /// 撤销 AI 复核结论，恢复默认选中状态。
+    /// 撤销 AI 分析结论，恢复默认选中状态。
     func undoAIReview() {
         for i in artifacts.indices { artifacts[i].aiVerdict = nil }
         for gi in leftoverGroups.indices {

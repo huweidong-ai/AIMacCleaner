@@ -123,11 +123,11 @@ enum SkillEffect {
     case leftovers([LeftoverGroup])
     /// 进程快照。
     case processes([LiveProcess])
-    /// 对当前应用清单跑复核。关联字典携带模型对每一项的判定（UUID -> AIVerdict）：
+    /// 对当前应用清单做 AI 分析。关联字典携带模型对每一项的判定（UUID -> AIVerdict）：
     /// `.keep` 表示建议保留并取消勾选，`.safe` 表示可安全删除并保持勾选。
     /// 宿主直接按这个写 aiVerdict 与 selected，**禁止再调一次模型**。
     case reviewApps([UUID: AIVerdict])
-    /// 对当前残留清单跑复核。关联字典携带模型对每一项的判定（UUID -> AIVerdict）：
+    /// 对当前残留清单做 AI 分析。关联字典携带模型对每一项的判定（UUID -> AIVerdict）：
     /// `.safe` 表示可安全删除并勾选，`.keep` 表示建议保留并保持不勾选。
     case reviewLeftovers([UUID: AIVerdict])
 }
@@ -198,10 +198,10 @@ struct SkillSpec {
     }
 }
 
-// MARK: - 复核范围
+// MARK: - 分析范围
 
-/// 深链进入「问 AI」页时由界面入口注入的复核目标：
-/// `.apps` 表示复核当前已安装应用的扫描清单，`.leftovers` 表示复核残留清单。
+/// 深链进入「问 AI」页时由界面入口注入的分析目标：
+/// `.apps` 表示分析当前已安装应用的扫描清单，`.leftovers` 表示分析残留清单。
 /// 显式注入后 `review_plan` 不再依赖模型自行推断 scope，避免应用页被误判为残留。
 enum ReviewScope: String, CaseIterable, Identifiable, Hashable {
     case apps = "apps"
@@ -215,7 +215,7 @@ enum ReviewScope: String, CaseIterable, Identifiable, Hashable {
 /// 一次 Agent 会话里跨 skill 共享的中间状态。
 ///
 /// 存在的理由很实际：扫描是这个 app 里最慢的操作（几秒到十几秒）。
-/// 模型说「扫 Cursor，然后复核一下」时，`review_plan` 必须能拿到
+/// 模型说「扫 Cursor，然后分析一下」时，`review_plan` 必须能拿到
 /// 上一步 `scan_app` 的结果，而不是再扫一遍。
 /// 单条 Agent 运行里只会有一个 session、被同一个 async 任务串行访问，
 /// 不存在并发写，因此用 `@unchecked Sendable` 跨 MainActor 边界传递
@@ -228,22 +228,22 @@ final class AgentSession: @unchecked Sendable {
     /// 上一次残留扫描结果。
     var lastLeftovers: [LeftoverGroup] = []
     /// 残留深链时由「残留」页当前筛选档注入的来源约束：
-    /// 非 nil 时 `review_plan` 只复核该类残留（如 .aiTool），nil 表示判断全部。
+    /// 非 nil 时 `review_plan` 只分析该类残留（如 .aiTool），nil 表示判断全部。
     /// 这样「我在看哪一档，AI 就帮我判断哪一档」，既不重复扫、也不会被迫全量判断。
     var reviewLeftoverFilter: LeftoverSource? = nil
     /// 用户在残留页主动勾选后点「让 AI 帮我判断」时传入的清单。
-    /// `review_plan(scope: leftovers)` 优先复核这些项，而不是当前范围的全部残留。
+    /// `review_plan(scope: leftovers)` 优先分析这些项，而不是当前范围的全部残留。
     var reviewableLeftovers: [Artifact] = []
     /// 宿主注入的「当前界面上的清单」。GUI 打开时是应用页的实时勾选状态，
-    /// CLI 下为空 —— skill 通过它实现「复核我当前的删除清单」。
+    /// CLI 下为空 —— skill 通过它实现「分析我当前的删除清单」。
     var hostArtifacts: [Artifact] = []
-    /// 深链注入的复核范围。非 nil 时，`review_plan` 强制按此范围执行，
+    /// 深链注入的分析范围。非 nil 时，`review_plan` 强制按此范围执行，
     /// 不再让模型自行选择 apps / leftovers，避免应用页被误判为残留。
     var reviewScope: ReviewScope? = nil
 
     init() {}
 
-    /// 复核作用的清单：优先用界面上的，其次用本会话扫出来的。
+    /// 分析作用的清单：优先用界面上的，其次用本会话扫出来的。
     var reviewableArtifacts: [Artifact] {
         hostArtifacts.isEmpty ? lastArtifacts : hostArtifacts
     }

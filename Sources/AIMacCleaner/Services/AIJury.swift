@@ -3,7 +3,7 @@ import Foundation
 /// 真 AI 判定服务：用 `LLMClient` 做**单轮结构化判断**，不绕 Agent 多轮 loop。
 ///
 /// 三个用途：
-/// 1. 应用页「让 AI 复核」—— 挑出不该删的项（登录态 / 凭据 / 共享数据）；
+/// 1. 应用页「让 AI 分析」—— 挑出不该删的项（登录态 / 凭据 / 共享数据）；
 /// 2. 残留页「让 AI 帮我判断」—— 挑出能放心删的项；
 /// 3. 进程页「AI 判断后果」—— 判断结束某进程会怎样。
 ///
@@ -11,7 +11,7 @@ import Foundation
 /// 提示用户去配置或重试，**绝不降级成本地规则伪造结论**——这是「纯 AI」的底线。
 enum AIJury {
 
-    // MARK: - 应用复核：挑不该删的
+    // MARK: - 应用分析：挑不该删的
 
     static func reviewApps(_ items: [Artifact], config: AIModelConfig) async -> [UUID: String]? {
         guard config.isConfigured else { return nil }
@@ -21,7 +21,7 @@ enum AIJury {
             "\(i). [\(a.risk.label)] \(a.category.rawValue) \(a.path) (\(SizeFormat.human(a.size)))"
         }.joined(separator: "\n")
         let system = L10n.t(
-            "你是 macOS 深度卸载工具的复核助手。下面是一组准备随某应用一起删除的文件痕迹。请判断哪些【不应被删除】，通常是：登录态/凭据、被其它应用共享的数据、用户显式配置、订阅/授权信息、正在使用的数据库、插件或扩展。只输出 JSON，格式：{\"keep\": {\"<序号>\": \"<一句话理由>\"}}。只列出你建议保留的项；没有则输出 {\"keep\": {}}。不要输出 JSON 以外的任何文字。",
+            "你是 macOS 深度卸载工具的分析助手。下面是一组准备随某应用一起删除的文件痕迹。请判断哪些【不应被删除】，通常是：登录态/凭据、被其它应用共享的数据、用户显式配置、订阅/授权信息、正在使用的数据库、插件或扩展。只输出 JSON，格式：{\"keep\": {\"<序号>\": \"<一句话理由>\"}}。只列出你建议保留的项；没有则输出 {\"keep\": {}}。不要输出 JSON 以外的任何文字。",
             "You are the review assistant of a macOS deep-uninstall tool. Below is a set of file traces about to be deleted along with an app. Decide which ones should NOT be deleted — typically: login state/credentials, data shared with other apps, explicit user config, subscription/license info, live databases, plugins or extensions. Output ONLY JSON: {\"keep\": {\"<index>\": \"<one-line reason>\"}}. List only items to keep; if none, output {\"keep\": {}}. Do not output any text outside the JSON.")
         let user = L10n.t("待删除文件：\n", "Traces pending deletion:\n") + lines
         guard let reply = try? await LLMClient.complete(config: config,

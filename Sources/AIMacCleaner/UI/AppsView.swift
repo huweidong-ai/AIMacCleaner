@@ -39,7 +39,7 @@ struct AppsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await state.loadAppList() }
-        // AI 复核结束后展开全部分组，方便用户查看每一类 AI 写下的评语。
+        // AI 分析结束后展开全部分组，方便用户查看每一类 AI 写下的评语。
         .onChange(of: state.aiReviewPhaseApps) { _, phase in
             if phase == .done { state.appsCollapsed = [] }
         }
@@ -324,24 +324,24 @@ struct AppsView: View {
                     state.aiReviewPhaseApps = .needsConfig
                     return
                 }
-                // 不再原地跑复核，改为深链到「问 AI」页：预填诊断问句，复用 review_plan
-                // skill 回写勾选与理由，过程在对话里可见、可追加追问。
-                // 复核范围是「当前这个应用扫出来的全部项」，与右侧勾选状态无关——
-                // 勾选只是为了最后卸载时决定删哪些，不该缩小 AI 的复核视野。
+                // 后台跑 AI 分析：把 prompt 发到「问 AI」对话框并运行 Agent，
+                // 但不自动跳转到该 tab。分析结论会回写勾选与理由，
+                // 等用户点「去看 AI 怎么说」再切到问 AI 页查看完整对话。
+                // 分析范围是「当前这个应用扫出来的全部项」，与右侧勾选状态无关——
+                // 勾选只是为了最后卸载时决定删哪些，不该缩小 AI 的分析视野。
                 // reviewScope: .apps 强制让 review_plan 走 apps 分支，避免被误判成残留。
                 // 同时把当前清单直接写进问句：模型看不到 session 注入，必须显式给清单，
                 // 否则它不知道具体路径，会重复扫描或反问用户。
                 let appName = state.matchedApp?.displayName
                     ?? (state.searchText.isEmpty ? L10n.t("当前应用", "the current app") : state.searchText)
                 let list = AgentFormat.promptList(state.artifacts)
-                state.jumpToAskAI(L10n.t(
+                state.runAIReviewInBackground(prompt: L10n.t(
                     "我打算卸载已安装应用 \(appName)。下面是扫描器找出的全部相关文件/目录清单：\n\(list)\n\n请帮我完成三件事：\n1. 逐项确认清单中的文件/目录是否确实属于 \(appName)（主程序、用户数据、缓存），还是被扫描器误识别——例如其实是系统级文件、或属于其他已装应用、或别的 App 正在引用/共享它。\n2. 评估删除每一项的风险。重点不是「会不会让 \(appName) 无法使用」（卸载本身就是目的），而是：它是否属于系统级文件/目录、删除会否破坏系统稳定性；是否被其他应用引用或共享、删除会否导致别的 App 瘫痪；是否属于重要用户数据（凭据、登录态、项目文件等）、删了是否不可逆或需要人工确认。\n3. 给出最终建议：每一项是「可安全删除」还是「建议保留 / 需人工确认」，并说明原因。对「建议保留」的项，务必点明它为什么不能删（系统文件 / 其他应用共享 / 重要数据）。\n\n清单已经给出，不要重新扫描，请直接调用 review_plan(scope: apps) 把结论标记出来。",
                     "I plan to uninstall the installed app \(appName). Below is the full list of related files/directories the scanner found:\n\(list)\n\nPlease do three things:\n1. For each item, confirm whether it truly belongs to \(appName) (main bundle, user data, cache), or is a false positive — e.g. actually a system-level file, belongs to another installed app, or is referenced/shared by another app.\n2. Assess the risk of deleting each item. The point is NOT whether it breaks \(appName) (uninstalling is the goal) — instead: is it a system-level file whose deletion destabilizes the OS; is it referenced/shared by other apps whose deletion would break them; is it important user data (credentials, login state, project files) that is irreversible or needs a human decision.\n3. Give a final recommendation per item: \"safe to delete\" or \"keep / needs human confirmation\", with the reason. For \"keep\" items, state explicitly why it must not be deleted (system file / shared by other apps / important data).\n\nThe list is already provided — do not scan again. Call review_plan(scope: apps) directly to mark the verdicts."),
                     reviewScope: .apps)
             },
-            onUndo: {
-                state.undoAIReview()
-                state.aiReviewPhaseApps = .idle
+            onViewConclusion: {
+                state.selectedTab = .askAI
             },
             onConfigure: { showSettings = true }
         )
@@ -352,8 +352,8 @@ struct AppsView: View {
         switch state.aiReviewPhaseApps {
         case .done:
             return (L10n.t("AI 已分析完毕。", "AI analysis complete."),
-                    L10n.t("被判为不建议删除的项已自动取消勾选，理由写在对应行下方。结论仅供参考，最终由你决定。",
-                           "Items it advises keeping were unchecked, with the reason under each row. It’s a second opinion — the call is yours."))
+                    L10n.t("结论已发到「问 AI」并回写了勾选状态，点右侧按钮查看完整分析。",
+                           "The conclusion was sent to Ask AI and the checkboxes were updated. Tap the button to view the full analysis."))
         case .needsConfig:
             return (L10n.t("还没配置模型", "Model not configured"),
                     L10n.t("「让 AI 分析」需要先在 ⚙ 里填好 API Key（OpenAI / Anthropic 兼容都行）。",

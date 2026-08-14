@@ -117,7 +117,7 @@ enum Risk: String, Codable, Hashable {
     }
 }
 
-/// AI 对单个痕迹的复核结论。
+/// AI 对单个痕迹的分析结论。
 /// - keep: AI 认为不应删除（应用页自动取消勾选 / 残留页保持不勾），附带理由。
 /// - safe: AI 认为可以放心删除（主要给残留页用，自动勾选），附带理由。
 enum AIVerdict: Hashable {
@@ -134,7 +134,7 @@ struct Artifact: Identifiable, Hashable {
     /// 用于进程/launch agent 等不需要删路径而是需要 action 的项，填 nil
     let meta: String?
     var selected: Bool
-    /// AI 复核结论。nil 表示尚未复核。
+    /// AI 分析结论。nil 表示尚未分析。
     var aiVerdict: AIVerdict?
     /// 行内辅助说明（仅 UI 展示，不参与删除 / 历史）。
     /// 目前用于 PWA：给「随应用一起卸载」的 Library 配置项标注一句跟随提示。

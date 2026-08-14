@@ -1,6 +1,6 @@
 import Foundation
 
-/// 决策类 skill：复核清单、预演卸载。
+/// 决策类 skill：分析清单、预演卸载。
 ///
 /// 这两个是 Agent 能力的边界所在 —— 它们输出的是**判断和计划**，
 /// 不是已发生的事实。真正落盘的删除只可能来自用户在界面上的确认。
@@ -12,11 +12,11 @@ struct ReviewPlanSkill: AgentSkill {
     let spec = SkillSpec(
         name: "review_plan",
         cli: "--review <target>",
-        summaryZh: "对当前清单做安全复核：挑出不该删的项（登录态、密钥、被其它应用共享的数据）并说明理由，自动取消其勾选。",
+        summaryZh: "对当前清单做安全分析：挑出不该删的项（登录态、密钥、被其它应用共享的数据）并说明理由，自动取消其勾选。",
         summaryEn: "Safety-review the current list: flag items that should be kept (login state, keys, data shared with other apps), explain why, and uncheck them.",
         args: [
             SkillArg(name: "scope", required: false,
-                     desc: L10n.t("apps 复核应用清单（默认），leftovers 复核残留清单",
+                     desc: L10n.t("apps 分析应用清单（默认），leftovers 分析残留清单",
                                   "apps (default) reviews the app list; leftovers reviews the leftovers list"),
                      options: ["apps", "leftovers"])
         ],
@@ -24,12 +24,12 @@ struct ReviewPlanSkill: AgentSkill {
     )
 
     func invoke(_ args: SkillArgs, session: AgentSession) async -> SkillResult {
-        // 深链时由 UI 入口强制注入复核范围，避免模型把应用清单误判为残留。
+        // 深链时由 UI 入口强制注入分析范围，避免模型把应用清单误判为残留。
         // 若 session 没注入（例如 CLI 直接调用），再退回到模型传入的 scope 参数。
         let scope = session.reviewScope?.rawValue ?? args.string("scope", default: "apps").lowercased()
 
         if scope == "leftovers" {
-            // 优先复核用户已勾选的残留项；没有勾选时才按来源约束/全部判断。
+            // 优先分析用户已勾选的残留项；没有勾选时才按来源约束/全部判断。
             let selected = session.reviewableLeftovers
             let source = session.reviewLeftoverFilter
             let targetArtifacts: [Artifact]
@@ -57,21 +57,21 @@ struct ReviewPlanSkill: AgentSkill {
             }
             guard let cfg = ModelConfigStore.current.active, cfg.isConfigured else {
                 return SkillResult(ok: false,
-                    summary: L10n.t("AI 复核需要先在设置里配置模型。",
+                    summary: L10n.t("AI 分析需要先在设置里配置模型。",
                                     "AI review needs a model configured in Settings first."),
-                    observation: L10n.t("「问 AI」是纯 AI 模块，复核功能需要先填好 API Key（OpenAI / Anthropic 兼容）。",
+                    observation: L10n.t("「问 AI」是纯 AI 模块，分析功能需要先填好 API Key（OpenAI / Anthropic 兼容）。",
                                         "Ask AI is a pure-AI module; review needs an API key (OpenAI- or Anthropic-compatible) set first."))
             }
-            // 复核由真正的模型执行，不再用本地规则兜底。
+            // 分析由真正的模型执行，不再用本地规则兜底。
             guard let safeReasons = await AIJury.reviewLeftovers(targetArtifacts, config: cfg) else {
                 return SkillResult(ok: false,
-                    summary: L10n.t("AI 复核调用失败，请检查 API Key / 网络。",
+                    summary: L10n.t("AI 分析调用失败，请检查 API Key / 网络。",
                                     "AI review call failed — check the API key / network."),
                     observation: L10n.t("模型没能返回有效结论，可稍后重试。",
                                         "The model didn't return a valid verdict; try again later."))
             }
             let verdicts = safeReasons.reduce(into: [UUID: AIVerdict]()) { $0[$1.key] = .safe(reason: $1.value) }
-            let summary = L10n.t("复核完成（\(scopeNote)）：\(verdicts.count) 项判定为可安全删除，已自动勾选。",
+            let summary = L10n.t("分析完成（\(scopeNote)）：\(verdicts.count) 项判定为可安全删除，已自动勾选。",
                                  "Review done (\(scopeNote)): \(verdicts.count) items judged safe to remove and checked.")
             let detail = targetArtifacts.filter { verdicts[$0.id] != nil }.prefix(10)
                 .map { "  ✓ \($0.path) — \(safeReasons[$0.id] ?? "")" }
@@ -83,27 +83,27 @@ struct ReviewPlanSkill: AgentSkill {
 
         let artifacts = session.reviewableArtifacts
         guard !artifacts.isEmpty else {
-            return .failure(L10n.t("当前没有待复核的清单，请先调用 scan_app。",
+            return .failure(L10n.t("当前没有待分析的清单，请先调用 scan_app。",
                                    "Nothing to review — call scan_app first."))
         }
         guard let cfg = ModelConfigStore.current.active, cfg.isConfigured else {
             return SkillResult(ok: false,
-                summary: L10n.t("AI 复核需要先在设置里配置模型。",
+                summary: L10n.t("AI 分析需要先在设置里配置模型。",
                                 "AI review needs a model configured in Settings first."),
-                observation: L10n.t("「问 AI」是纯 AI 模块，复核功能需要先填好 API Key（OpenAI / Anthropic 兼容）。",
+                observation: L10n.t("「问 AI」是纯 AI 模块，分析功能需要先填好 API Key（OpenAI / Anthropic 兼容）。",
                                     "Ask AI is a pure-AI module; review needs an API key (OpenAI- or Anthropic-compatible) set first."))
         }
-        // 复核由真正的模型执行，不再用本地规则兜底。
+        // 分析由真正的模型执行，不再用本地规则兜底。
         guard let keepReasons = await AIJury.reviewApps(artifacts, config: cfg) else {
             return SkillResult(ok: false,
-                summary: L10n.t("AI 复核调用失败，请检查 API Key / 网络。",
+                summary: L10n.t("AI 分析调用失败，请检查 API Key / 网络。",
                                 "AI review call failed — check the API key / network."),
                 observation: L10n.t("模型没能返回有效结论，可稍后重试。",
                                     "The model didn't return a valid verdict; try again later."))
         }
         let kept = artifacts.filter { keepReasons[$0.id] != nil }
         let deletable = artifacts.filter { keepReasons[$0.id] == nil }
-        let safeReason = L10n.t("AI 复核通过，可安全删除", "AI review passed — safe to delete")
+        let safeReason = L10n.t("AI 分析认为可安全删除", "AI analysis: safe to delete")
         var verdicts: [UUID: AIVerdict] = [:]
         for a in artifacts {
             if let reason = keepReasons[a.id] {
@@ -113,14 +113,14 @@ struct ReviewPlanSkill: AgentSkill {
             }
         }
         if kept.isEmpty {
-            let msg = L10n.t("复核完成：\(artifacts.count) 项均可安全删除，没有发现需要保留的项目。仍建议自己扫一眼含用户数据的条目。",
+            let msg = L10n.t("分析完成：\(artifacts.count) 项均可安全删除，没有发现需要保留的项目。仍建议自己扫一眼含用户数据的条目。",
                              "Review done: all \(artifacts.count) items are safe to delete; none stands out as must-keep. Still worth eyeballing the user-data items.")
             return SkillResult(ok: true, summary: msg, observation: msg,
                                effect: .reviewApps(verdicts), redirect: .apps)
         }
         // 明确分两类说清楚：建议保留的（已自动取消勾选）+ 可安全删除的（保持勾选），
         // 避免只列保留项让用户去反推哪些能删。
-        let summary = L10n.t("复核完成：\(kept.count) 项建议保留（已自动取消勾选），其余 \(deletable.count) 项可安全删除。",
+        let summary = L10n.t("分析完成：\(kept.count) 项建议保留（已自动取消勾选），其余 \(deletable.count) 项可安全删除。",
                              "Review done: \(kept.count) recommended to keep (auto-unchecked), the other \(deletable.count) are safe to delete.")
         let keepDetail = kept.prefix(12)
             .map { "  ✗ \($0.path) — \(keepReasons[$0.id] ?? "")" }
