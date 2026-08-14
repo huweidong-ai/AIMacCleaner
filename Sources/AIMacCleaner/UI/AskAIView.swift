@@ -261,7 +261,8 @@ struct AskAIView: View {
                 Spacer(minLength: 80)
             }
             .padding(.horizontal, 20)
-            .frame(minHeight: 420)
+            .frame(maxWidth: .infinity, minHeight: 420)
+            .background(Theme.bgCanvas)
         }
         .background(Theme.bgCanvas)
     }
@@ -405,6 +406,8 @@ struct AskAIView: View {
                     .frame(maxWidth: .infinity)
                     Spacer(minLength: 40)
                 }
+                .frame(maxWidth: .infinity)
+                .background(Theme.bgCanvas)
             }
             .background(Theme.bgCanvas)
             .onAppear {

@@ -451,11 +451,6 @@ struct AppsView: View {
                 }
                 .frame(maxWidth: 520)
 
-                Text(L10n.t("包含沙箱容器 · 启动项 · 点文件 · Shell 配置 · 认证凭证",
-                            "Includes sandbox containers, launch agents, dotfiles, shell config and auth tokens"))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
                 Spacer(minLength: 20)
             }
             .frame(maxWidth: .infinity)
