@@ -1254,7 +1254,6 @@ private struct MessageBubble: View {
     let initialExpanded: Bool
     /// 是否允许折叠／展开：用户长问题、以及被 reset 前的 AI 长回复均可折叠。
     let collapsible: Bool
-    @State private var isHovering = false
     @State private var isExpanded: Bool
 
     init(message: AIMessage, initialExpanded: Bool, collapsible: Bool, onGo: @escaping () -> Void) {
@@ -1263,7 +1262,6 @@ private struct MessageBubble: View {
         self.collapsible = collapsible
         self.onGo = onGo
         _isExpanded = State(initialValue: initialExpanded)
-        print("[FoldDebug] MessageBubble.init id=\(message.id.uuidString.prefix(6)) role=\(message.role) initialExpanded=\(initialExpanded) collapsible=\(collapsible)")
     }
 
     /// 用户气泡折叠：超过这个行数就折叠，底部显示「展开」。
@@ -1282,8 +1280,8 @@ private struct MessageBubble: View {
             if message.role == .ai { avatar(ai: true) }
 
             VStack(alignment: message.role == .me ? .trailing : .leading, spacing: 4) {
-                // 发送者 + 时间（参考飞书/微信：头像右侧顶部一行）
-                senderTimeLine
+                // 发送者标签（时间移到气泡底部）
+                senderLabel
 
                 if !message.steps.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
@@ -1293,21 +1291,22 @@ private struct MessageBubble: View {
                     }
                 }
 
-                // 气泡：hover 时右上角浮出复制/展开工具栏；用户长消息可展开/收起；右键可复制。
-                messageText
-                    .padding(10)
-                    .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
-                    .overlay(alignment: .topTrailing) { bubbleToolbar }
-                    .onHover { isHovering = $0 }
-                    .contextMenu {
-                        Button {
-                            copyMessage(message.text)
-                        } label: {
-                            Text(L10n.t("复制", "Copy"))
-                            Image(systemName: "doc.on.doc")
-                        }
+                // 气泡：正文 + 底部工具栏（展开/收起、时间、复制）
+                VStack(alignment: .leading, spacing: 6) {
+                    messageText
+                    bubbleBottomBar
+                }
+                .padding(10)
+                .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
+                .contextMenu {
+                    Button {
+                        copyMessage(message.text)
+                    } label: {
+                        Text(L10n.t("复制", "Copy"))
+                        Image(systemName: "doc.on.doc")
                     }
+                }
 
                 if message.awaitingApproval {
                     Label(L10n.t("这是计划，还没有执行任何删除", "This is a plan — nothing has been deleted"),
@@ -1336,73 +1335,56 @@ private struct MessageBubble: View {
         }
     }
 
-    private var senderTimeLine: some View {
-        HStack(spacing: 6) {
-            if message.role == .ai {
-                Text(L10n.t("AI", "AI"))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary)
-                Text(smartTimeString(message.createdAt))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(smartTimeString(message.createdAt))
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                Text(L10n.t("我", "Me"))
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.primary)
-            }
-        }
+    private var senderLabel: some View {
+        Text(message.role == .ai ? L10n.t("AI", "AI") : L10n.t("我", "Me"))
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.primary)
     }
 
-    /// 气泡右上角：复制 + 用户长消息的展开/收起。
-    private var bubbleToolbar: some View {
-        Group {
-            if isHovering || isExpanded {
-                HStack(spacing: 2) {
-                    if isCollapsible {
-                        Button {
-                            withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
-                        } label: {
-                            Image(systemName: isExpanded
-                                  ? "arrow.down.forward.and.arrow.up.backward"
-                                  : "arrow.up.backward.and.arrow.down.forward")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .padding(5)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(isExpanded
-                              ? L10n.t("收起", "Collapse")
-                              : L10n.t("展开", "Expand"))
-                    }
-
-                    Button {
-                        copyMessage(message.text)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
+    /// 气泡底部工具栏：展开/收起（左）、时间 + 复制（右）。
+    private var bubbleBottomBar: some View {
+        HStack(spacing: 8) {
+            if isCollapsible {
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(isExpanded
+                             ? L10n.t("收起", "Collapse")
+                             : L10n.t("显示更多", "Show more"))
+                            .font(.system(size: 11.5, weight: .medium))
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(5)
-                            .contentShape(Circle())
                     }
-                    .buttonStyle(.plain)
-                    .help(L10n.t("复制", "Copy"))
+                    .foregroundStyle(.secondary)
                 }
-                .padding(4)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 0.5))
-                .padding(4)
+                .buttonStyle(.plain)
+                .help(isExpanded
+                      ? L10n.t("收起", "Collapse")
+                      : L10n.t("展开", "Expand"))
             }
+
+            Spacer(minLength: 0)
+
+            Text(smartTimeString(message.createdAt))
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+
+            Button {
+                copyMessage(message.text)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(L10n.t("复制", "Copy"))
         }
     }
 
     /// 气泡正文：AI 完整展示；用户长文本折叠 / 展开后滚动。
     private var messageText: some View {
         Group {
-            let _ = print("[FoldDebug] messageText id=\(message.id.uuidString.prefix(6)) isCollapsible=\(isCollapsible) isExpanded=\(isExpanded)")
             if isCollapsible {
                 if isExpanded {
                     ScrollView {
