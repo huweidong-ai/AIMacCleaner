@@ -300,7 +300,8 @@ struct AskAIView: View {
             ("wand.and.rays",   L10n.t("扫一遍所有残留", "Scan all leftovers")),
             ("waveform.path.ecg", L10n.t("列出后台进程", "List background processes")),
             ("bolt.fill",       L10n.t("ChatGPT 占的空间有多大？", "How much space does ChatGPT take?")),
-            ("magnifyingglass", L10n.t("看看有什么可以清理的", "See what can be cleaned up"))
+            ("magnifyingglass", L10n.t("看看有什么可以清理的", "See what can be cleaned up")),
+            ("macwindow",       L10n.t("macOS 工具使用指南", "macOS tools guide"))
         ]
         return FlowRow(spacing: 10) {
             ForEach(items, id: \.1) { icon, text in
@@ -899,10 +900,12 @@ private struct ComposerTextView: NSViewRepresentable {
         }
 
         // 斜杠面板状态通过 Binding 同步，确保上下键读取到的永远是最新值。
+        // 注意：不要在这里为 !isFocused 强制 resignFirstResponder。
+        // 用户第一次点击文本框时，NSTextView 已经 becomeFirstResponder，但通知 SwiftUI
+        // 改 isFocused=true 是异步的；updateNSView 如果在这期间带着旧值 false 进来，
+        // 会抢走焦点，导致「点第一下光标没落进去，点第二下才进去」的竞态。
         if isFocused, let window = textView.window, window.firstResponder != textView {
             window.makeFirstResponder(textView)
-        } else if !isFocused, let window = textView.window, window.firstResponder == textView {
-            window.makeFirstResponder(nil)
         }
     }
 
