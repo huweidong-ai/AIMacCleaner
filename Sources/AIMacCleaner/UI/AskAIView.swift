@@ -1244,13 +1244,12 @@ private struct MessageBubble: View {
                     }
                 }
 
-                // 气泡：hover 时右上角浮出复制按钮；用户长消息底部可展开/收起；右键可复制。
+                // 气泡：hover 时右上角浮出复制/展开工具栏；用户长消息可展开/收起；右键可复制。
                 messageText
                     .padding(10)
                     .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
-                    .overlay(alignment: .topTrailing) { copyToolbar }
-                    .overlay(alignment: .bottomLeading) { expandToolbar }
+                    .overlay(alignment: .topTrailing) { bubbleToolbar }
                     .onHover { isHovering = $0 }
                     .contextMenu {
                         Button {
@@ -1308,50 +1307,45 @@ private struct MessageBubble: View {
         }
     }
 
-    /// 气泡右上角：仅保留复制按钮。
-    private var copyToolbar: some View {
+    /// 气泡右上角：复制 + 用户长消息的展开/收起。
+    private var bubbleToolbar: some View {
         Group {
             if isHovering || isExpanded {
-                Button {
-                    copyMessage(message.text)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(5)
-                        .contentShape(Circle())
+                HStack(spacing: 2) {
+                    if isCollapsible {
+                        Button {
+                            withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+                        } label: {
+                            Image(systemName: isExpanded
+                                  ? "arrow.down.forward.and.arrow.up.backward"
+                                  : "arrow.up.backward.and.arrow.down.forward")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(5)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(isExpanded
+                              ? L10n.t("收起", "Collapse")
+                              : L10n.t("展开", "Expand"))
+                    }
+
+                    Button {
+                        copyMessage(message.text)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .padding(5)
+                            .contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.t("复制", "Copy"))
                 }
-                .buttonStyle(.plain)
-                .help(L10n.t("复制", "Copy"))
                 .padding(4)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 0.5))
                 .padding(4)
-            }
-        }
-    }
-
-    /// 气泡底部：用户长消息显示「展开 / 收起」。
-    private var expandToolbar: some View {
-        Group {
-            if isCollapsible {
-                Button {
-                    withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
-                } label: {
-                    Text(isExpanded
-                         ? L10n.t("收起", "Collapse")
-                         : L10n.t("展开", "Expand"))
-                        .font(.system(size: 10.5, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(message.role == .me ? .white : Theme.accent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(message.role == .me
-                            ? Color.white.opacity(0.2)
-                            : Theme.accentSubtle,
-                            in: Capsule())
-                .padding(6)
             }
         }
     }
