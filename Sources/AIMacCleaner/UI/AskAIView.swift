@@ -1398,13 +1398,13 @@ private struct MessageBubble: View {
             if isCollapsible {
                 if isExpanded {
                     ScrollView {
-                        markdownText(message.text, isMine: true)
+                        markdownText(message.text, isMine: message.role == .me)
                             .font(.system(size: 12.5))
                             .textSelection(.enabled)
                     }
                     .frame(maxHeight: Self.expandedMaxHeight)
                 } else {
-                    markdownText(message.text, isMine: true)
+                    markdownText(message.text, isMine: message.role == .me)
                         .font(.system(size: 12.5))
                         .textSelection(.enabled)
                         .lineLimit(Self.collapsedLines)
