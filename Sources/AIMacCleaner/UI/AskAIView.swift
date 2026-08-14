@@ -908,15 +908,19 @@ private struct ComposerTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? KeyHandlingTextView else { return }
-        // 展开/缩小切换时：动画期间压制滚动条显隐，结束后恢复并重算一次最终状态，
-        // 消除每帧高度变化导致的滚动条闪屏。
+        // 展开/缩小切换时：动画期间强制隐藏滚动条并跳过 reflect（滚动条显隐与滑块重算都在
+        // reflectScrolledClipView 里），结束后恢复可见性并让 reflect 按真实溢出决定显隐。
+        // 仅「跳过 reflect」不够——展开态里内容本就溢出、滚动条原本可见，跳过会让它全程露着、
+        // 动画后才被 reflect 藏掉，表现为「闪一下消失」被推迟。这里改为主动 isHidden=true。
         if let cs = scrollView as? ComposerScrollView, cs.wasExpanded != expanded {
             cs.wasExpanded = expanded
             cs.suppressScrollerFlash = true
+            cs.verticalScroller?.isHidden = true
             let target = cs
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak target] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak target] in
                 guard let sv = target else { return }
                 sv.suppressScrollerFlash = false
+                sv.verticalScroller?.isHidden = false
                 sv.reflectScrolledClipView(sv.contentView)
             }
         }
