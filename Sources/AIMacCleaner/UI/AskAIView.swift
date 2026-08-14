@@ -505,11 +505,14 @@ struct AskAIView: View {
     /// 气泡初始是否展开：用户消息默认折叠；AI 回复仅「被 reset 之前的历史」默认折叠，当前上下文默认展开
     private func bubbleInitialExpanded(at idx: Int) -> Bool {
         let m = state.chatMessages[idx]
+        let expanded: Bool
         switch m.role {
-        case .me:  return false
-        case .ai:  return !hasResetAfter(idx)
-        default:   return true
+        case .me:  expanded = false
+        case .ai:  expanded = !hasResetAfter(idx)
+        default:   expanded = true
         }
+        print("[FoldDebug] initialExpanded idx=\(idx) role=\(m.role) textLen=\(m.text.count) result=\(expanded)")
+        return expanded
     }
 
     /// 气泡是否可折叠：文本足够长才允许折叠。用户长输入可折叠；AI 仅 reset 前长历史可折叠
@@ -517,11 +520,14 @@ struct AskAIView: View {
         let m = state.chatMessages[idx]
         let estimatedLines = CGFloat(m.text.count) / 58
         let longEnough = estimatedLines > CGFloat(MessageBubble.collapsedLines)
+        let collapsible: Bool
         switch m.role {
-        case .me:  return longEnough
-        case .ai:  return longEnough && hasResetAfter(idx)
-        default:   return false
+        case .me:  collapsible = longEnough
+        case .ai:  collapsible = longEnough && hasResetAfter(idx)
+        default:   collapsible = false
         }
+        print("[FoldDebug] collapsible idx=\(idx) role=\(m.role) estimatedLines=\(estimatedLines) longEnough=\(longEnough) result=\(collapsible)")
+        return collapsible
     }
 
     // MARK: - 日期 / 时间分隔
@@ -1257,6 +1263,7 @@ private struct MessageBubble: View {
         self.collapsible = collapsible
         self.onGo = onGo
         _isExpanded = State(initialValue: initialExpanded)
+        print("[FoldDebug] MessageBubble.init id=\(message.id.uuidString.prefix(6)) role=\(message.role) initialExpanded=\(initialExpanded) collapsible=\(collapsible)")
     }
 
     /// 用户气泡折叠：超过这个行数就折叠，底部显示「展开」。
@@ -1395,6 +1402,7 @@ private struct MessageBubble: View {
     /// 气泡正文：AI 完整展示；用户长文本折叠 / 展开后滚动。
     private var messageText: some View {
         Group {
+            let _ = print("[FoldDebug] messageText id=\(message.id.uuidString.prefix(6)) isCollapsible=\(isCollapsible) isExpanded=\(isExpanded)")
             if isCollapsible {
                 if isExpanded {
                     ScrollView {

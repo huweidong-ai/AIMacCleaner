@@ -170,14 +170,14 @@ private struct NavItem: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .frame(width: 16)
                 Text(tab.displayName)
-                    .font(.system(size: 12.5, weight: isActive ? .semibold : .regular))
+                    .font(.system(size: 13.5, weight: isActive ? .semibold : .regular))
                 Spacer(minLength: 4)
                 if let badge {
                     Text("\(badge)")
-                        .font(.system(size: 10, weight: .medium).monospacedDigit())
+                        .font(.system(size: 11, weight: .medium).monospacedDigit())
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(isActive ? Theme.accent.opacity(0.16) : Color.secondary.opacity(0.12),
@@ -186,14 +186,14 @@ private struct NavItem: View {
             }
             .foregroundStyle(isActive ? Theme.accent : Color.primary.opacity(0.78))
             .padding(.horizontal, 9)
-            .frame(height: 30)
+            .frame(height: 32)
             .background(background)
             .overlay(alignment: .leading) {
                 // 选中态左侧的一小段竖条：比整块底色更轻，也更好定位。
                 if isActive {
                     Capsule()
                         .fill(Theme.accent)
-                        .frame(width: 2.5, height: 15)
+                        .frame(width: 2.5, height: 17)
                         .offset(x: -4)
                 }
             }
@@ -223,15 +223,15 @@ private struct SideLink: View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 10))
-                    .frame(width: 12)
+                    .font(.system(size: 12))
+                    .frame(width: 14)
                 Text(title)
-                    .font(.system(size: 11))
+                    .font(.system(size: 12.5))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(hovering ? Theme.accent : Color.secondary)
             .padding(.horizontal, 8)
-            .frame(height: 22)
+            .frame(height: 24)
             .background(hovering ? Theme.accentSubtle : .clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
