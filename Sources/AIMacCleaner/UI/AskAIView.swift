@@ -1247,12 +1247,10 @@ private struct MessageBubble: View {
         _isExpanded = State(initialValue: initialExpanded)
     }
 
-    /// 用户气泡折叠：超过这个行数就折叠，底部显示「展开」。
+    /// 用户气泡折叠：超过这个行数就折叠，底部显示「显示更多」。
     /// fileprivate：让同文件的 AskAIView 在默认的折叠策略里复用这个阈值。
     fileprivate static let collapsedLines = 8
     private static let lineHeight: CGFloat = 17
-    /// 用户气泡展开后的最大高度；超出则内部滚动，避免单个气泡无限撑高。
-    private static let expandedMaxHeight: CGFloat = 240
 
     /// 是否足够长，需要折叠。由调用方（chatLog）按角色与 reset 情况算好传入。
     private var isCollapsible: Bool { collapsible }
@@ -1344,7 +1342,7 @@ private struct MessageBubble: View {
                 .buttonStyle(.plain)
                 .help(isExpanded
                       ? L10n.t("收起", "Collapse")
-                      : L10n.t("展开", "Expand"))
+                      : L10n.t("显示更多", "Show more"))
             }
 
             Spacer(minLength: 0)
@@ -1365,26 +1363,27 @@ private struct MessageBubble: View {
         }
     }
 
-    /// 气泡正文：AI 完整展示；用户长文本折叠 / 展开后滚动。
+    /// 气泡正文：
+    /// - 折叠态（默认，`!isExpanded`）：定高 ScrollView，滚动条沿气泡大小显示，
+    ///   用户可在不展开的情况下滚动查看全文。
+    /// - 展开态（点「显示更多」，`isExpanded`）：直接完整渲染，无滚动条、不限高。
+    /// - 短消息（不可折叠）：始终完整展示。
     private var messageText: some View {
         Group {
             if isCollapsible {
                 if isExpanded {
+                    markdownText(message.text, isMine: message.role == .me)
+                        .font(.system(size: 12.5))
+                        .textSelection(.enabled)
+                } else {
                     ScrollView {
                         markdownText(message.text, isMine: message.role == .me)
                             .font(.system(size: 12.5))
                             .textSelection(.enabled)
                     }
-                    .frame(maxHeight: Self.expandedMaxHeight)
-                } else {
-                    markdownText(message.text, isMine: message.role == .me)
-                        .font(.system(size: 12.5))
-                        .textSelection(.enabled)
-                        // MarkdownUI 的 Markdown 视图不吃 .lineLimit，
-                        // 必须用定高 + 裁剪来实现折叠，否则折叠态仍渲染全文，
-                        // 看起来就像「展开/收起」失灵、默认折叠没生效。
-                        .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight, alignment: .top)
-                        .clipped()
+                    // 折叠态定高，滚动条沿气泡大小滚动；内容超出时用户可滚动查看。
+                    .scrollIndicators(.visible)
+                    .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight)
                 }
             } else {
                 markdownText(message.text, isMine: message.role == .me)
