@@ -622,9 +622,15 @@ struct AskAIView: View {
                             return true
                         },
                         onEscape: {
-                            guard showSlashPalette else { return false }
-                            slashDismissed = true
-                            return true
+                            if showSlashPalette {
+                                slashDismissed = true
+                                return true
+                            }
+                            if inputExpanded {
+                                withAnimation(.easeOut(duration: 0.15)) { inputExpanded = false }
+                                return true
+                            }
+                            return false
                         }
                     )
                     .frame(height: textAreaHeight, alignment: .topLeading)
@@ -1207,12 +1213,15 @@ private struct MessageBubble: View {
     @State private var isHovering = false
     @State private var isExpanded = false
 
-    /// 超过这个高度才显示展开/收起按钮（按行高 × 行数估算）。
+    /// 用户气泡折叠：超过这个行数就折叠，底部显示「展开」。
     private static let collapsedLines = 8
     private static let lineHeight: CGFloat = 17
+    /// 用户气泡展开后的最大高度；超出则内部滚动，避免单个气泡无限撑高。
+    private static let expandedMaxHeight: CGFloat = 240
 
-    /// 是否足够长，需要折叠。
+    /// 是否足够长，需要折叠。仅对用户消息折叠；AI 输出完整展示，不折叠。
     private var isCollapsible: Bool {
+        guard message.role == .me else { return false }
         // 粗略按行估算：Markdown 里代码块、列表会占更多高度，这里只作阈值判断。
         let estimatedLines = CGFloat(message.text.count) / 58
         return estimatedLines > CGFloat(Self.collapsedLines)
@@ -1235,16 +1244,13 @@ private struct MessageBubble: View {
                     }
                 }
 
-                // 气泡：hover 时右上角浮出复制按钮；长消息可展开/收起；右键可复制。
-                markdownText(message.text, isMine: message.role == .me)
-                    .font(.system(size: 12.5))
-                    .textSelection(.enabled)
-                    .lineLimit(isExpanded ? nil : Self.collapsedLines)
-                    .fixedSize(horizontal: false, vertical: true)
+                // 气泡：hover 时右上角浮出复制按钮；用户长消息底部可展开/收起；右键可复制。
+                messageText
                     .padding(10)
                     .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
-                    .overlay(alignment: .topTrailing) { bubbleToolbar }
+                    .overlay(alignment: .topTrailing) { copyToolbar }
+                    .overlay(alignment: .bottomLeading) { expandToolbar }
                     .onHover { isHovering = $0 }
                     .contextMenu {
                         Button {
@@ -1254,18 +1260,6 @@ private struct MessageBubble: View {
                             Image(systemName: "doc.on.doc")
                         }
                     }
-
-                if isCollapsible && !isExpanded {
-                    Button {
-                        withAnimation(.easeOut(duration: 0.15)) { isExpanded = true }
-                    } label: {
-                        Text(L10n.t("展开", "Expand"))
-                            .font(.system(size: 10.5, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 4)
-                }
 
                 if message.awaitingApproval {
                     Label(L10n.t("这是计划，还没有执行任何删除", "This is a plan — nothing has been deleted"),
@@ -1314,42 +1308,75 @@ private struct MessageBubble: View {
         }
     }
 
-    private var bubbleToolbar: some View {
+    /// 气泡右上角：仅保留复制按钮。
+    private var copyToolbar: some View {
         Group {
             if isHovering || isExpanded {
-                HStack(spacing: 2) {
-                    if isCollapsible {
-                        Button {
-                            withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
-                        } label: {
-                            Image(systemName: isExpanded ? "arrow.down.forward.and.arrow.up.backward" : "arrow.up.backward.and.arrow.down.forward")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .padding(5)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(isExpanded
-                              ? L10n.t("收起", "Collapse")
-                              : L10n.t("展开", "Expand"))
-                    }
-
-                    Button {
-                        copyMessage(message.text)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(5)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(L10n.t("复制", "Copy"))
+                Button {
+                    copyMessage(message.text)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(5)
+                        .contentShape(Circle())
                 }
+                .buttonStyle(.plain)
+                .help(L10n.t("复制", "Copy"))
                 .padding(4)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 0.5))
                 .padding(4)
+            }
+        }
+    }
+
+    /// 气泡底部：用户长消息显示「展开 / 收起」。
+    private var expandToolbar: some View {
+        Group {
+            if isCollapsible {
+                Button {
+                    withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+                } label: {
+                    Text(isExpanded
+                         ? L10n.t("收起", "Collapse")
+                         : L10n.t("展开", "Expand"))
+                        .font(.system(size: 10.5, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(message.role == .me ? .white : Theme.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(message.role == .me
+                            ? Color.white.opacity(0.2)
+                            : Theme.accentSubtle,
+                            in: Capsule())
+                .padding(6)
+            }
+        }
+    }
+
+    /// 气泡正文：AI 完整展示；用户长文本折叠 / 展开后滚动。
+    private var messageText: some View {
+        Group {
+            if isCollapsible {
+                if isExpanded {
+                    ScrollView {
+                        markdownText(message.text, isMine: true)
+                            .font(.system(size: 12.5))
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: Self.expandedMaxHeight)
+                } else {
+                    markdownText(message.text, isMine: true)
+                        .font(.system(size: 12.5))
+                        .textSelection(.enabled)
+                        .lineLimit(Self.collapsedLines)
+                }
+            } else {
+                markdownText(message.text, isMine: message.role == .me)
+                    .font(.system(size: 12.5))
+                    .textSelection(.enabled)
             }
         }
     }
