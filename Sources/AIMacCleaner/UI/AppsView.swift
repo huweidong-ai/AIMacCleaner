@@ -61,12 +61,15 @@ struct AppsView: View {
             }
         }
         .sheet(isPresented: $showResult) {
+            let elevatable = (state.lastResult?.record.deletedArtifacts ?? [])
+                .filter { !$0.success && !($0.requiresManual ?? false) && ($0.needsElevation ?? false) }
             ResultSheet(output: executorOutput,
                         successCount: state.lastResult?.successCount ?? 0,
                         failureCount: state.lastResult?.failureCount ?? 0,
                         manualCount: state.lastResult?.manualCount ?? 0,
                         freedBytes: state.lastResult?.record.freedBytes ?? 0,
-                        trashedBytes: state.lastResult?.record.trashedBytes ?? 0)
+                        trashedBytes: state.lastResult?.record.trashedBytes ?? 0,
+                        elevatableFailures: elevatable)
         }
         .sheet(isPresented: $showFeedback) {
             FeedbackSheet(target: state.artifacts.first)

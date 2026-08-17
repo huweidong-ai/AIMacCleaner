@@ -223,8 +223,14 @@ class RemovalExecutor {
             }
             let goesToTrash = (a.risk == .userData && trashUserData)
             let r = FileDeleter.delete(a.path, disposition: goesToTrash ? .trash : .permanent)
+            // 只有真正的「权限不足」失败才允许提权兜底；容器由 containermanagerd 独占
+            // 管理，即便 root 也删不干净，沿用原有的诚实提示、不提供提权入口。
+            let escalatable = r.needsElevation
+                && a.category != .container
+                && a.category != .groupContainer
             deleted.append(.init(category: a.category.rawValue, path: a.path, risk: a.risk.label,
-                                 success: r.success, requiresManual: false, message: r.message))
+                                 success: r.success, requiresManual: false,
+                                 message: r.message, needsElevation: escalatable))
             if r.success {
                 if goesToTrash {
                     if r.trashedTo != nil {

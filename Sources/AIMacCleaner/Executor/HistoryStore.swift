@@ -37,6 +37,20 @@ enum HistoryStore {
         /// 可选是为了兼容旧历史记录；新写入手动项时应显式传 true。
         let requiresManual: Bool?
         let message: String
+        /// true 表示该项因权限不足（root 拥有）普通删除失败，可「以管理员身份删除」兜底。
+        /// 可选是为了兼容旧历史记录（没这个字段时视为 false）。
+        let needsElevation: Bool?
+
+        init(category: String, path: String, risk: String, success: Bool,
+             requiresManual: Bool? = nil, message: String, needsElevation: Bool? = nil) {
+            self.category = category
+            self.path = path
+            self.risk = risk
+            self.success = success
+            self.requiresManual = requiresManual
+            self.message = message
+            self.needsElevation = needsElevation
+        }
     }
 
     static func append(_ record: RemovalRecord) {

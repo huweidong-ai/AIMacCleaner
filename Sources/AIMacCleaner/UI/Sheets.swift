@@ -6,17 +6,28 @@ import AppKit
 struct ResultSheet: View {
     @Environment(\.dismiss) var dismiss
     @State private var toast: String? = nil
+    /// false = 成功（绿色对勾），true = 失败/警告（红色叉）。
+    @State private var toastTone: Bool = false
     let output: [String]
     /// 成败必须由执行器的真实计数决定，不能写死。
     /// v1.3 的 bug：这个 sheet 无条件显示绿色「卸载完成」，即使
     /// 「成功 0 项，失败 4 项」也一样 —— 正是本项目最该避免的假报成功。
-    let successCount: Int
-    let failureCount: Int
     /// 需用户手动处理的项数（如 shell rc 配置行）。未自动删除，不能算成功。
     let manualCount: Int
     /// 直接删除释放的字节数与移入废纸篓的字节数（执行器统计，可为 0）。
     var freedBytes: Int64 = 0
     var trashedBytes: Int64 = 0
+    /// 因权限不足（root 拥有）普通删除失败、可「以管理员身份删除」兜底的项。
+    var elevatableFailures: [HistoryStore.DeletedArtifact] = []
+
+    // 成功 / 失败计数用 @State 工作副本：点「以管理员身份删除」成功后，
+    // 实时把失败数 −1、成功数 +1，让汇总卡片反映真实结果（避免假报）。
+    @State private var successCount: Int
+    @State private var failureCount: Int
+    /// 待「以管理员身份删除」的剩余项（点一次成功就从这里移除一条）。
+    @State private var elevatable: [HistoryStore.DeletedArtifact]
+    /// 每条提权删除后的结果说明（成功/失败原因），显示在对应行下方。
+    @State private var elevatableMsg: [String: String] = [:]
 
     /// 四态：全失败 / 部分失败 / 全手动 / 全成功。部分失败单独成一态，
     /// 因为「删了 8 项、剩 2 项没删掉」既不能报完成、也不该报失败。
@@ -64,6 +75,19 @@ struct ResultSheet: View {
         }
     }
 
+    init(output: [String], successCount: Int, failureCount: Int, manualCount: Int,
+         freedBytes: Int64 = 0, trashedBytes: Int64 = 0,
+         elevatableFailures: [HistoryStore.DeletedArtifact] = []) {
+        self.output = output
+        self.manualCount = manualCount
+        self.freedBytes = freedBytes
+        self.trashedBytes = trashedBytes
+        self.elevatableFailures = elevatableFailures
+        self._successCount = State(initialValue: successCount)
+        self._failureCount = State(initialValue: failureCount)
+        self._elevatable = State(initialValue: elevatableFailures)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
@@ -104,6 +128,48 @@ struct ResultSheet: View {
                     .foregroundStyle(Theme.warning)
                     .padding(.horizontal)
                     .padding(.bottom, 8)
+            }
+            if !elevatable.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n.t("以下 \(elevatable.count) 项因权限不足删除失败（文件由系统以 root 身份安装）。可点按钮以管理员身份删除 —— 会弹出系统密码框授权，且不可撤销。",
+                               "\(elevatable.count) item(s) failed due to insufficient permissions (installed by the system as root). Delete them as admin — this triggers the system password prompt and is unrecoverable."))
+                        .font(.callout)
+                        .foregroundStyle(Theme.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                    ForEach(elevatable, id: \.path) { item in
+                        HStack(alignment: .center, spacing: 10) {
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(Theme.warning)
+                                .frame(width: 18)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.path)
+                                    .font(.system(.callout, design: .monospaced))
+                                    .textSelection(.enabled)
+                                if let msg = elevatableMsg[item.path], !msg.isEmpty {
+                                    Text(msg)
+                                        .font(.caption)
+                                        .foregroundStyle(msg.hasPrefix(L10n.t("已用管理员权限删除", "Deleted with admin")) ? Theme.success : .secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                            Spacer(minLength: 8)
+                            Button {
+                                elevate(item.path)
+                            } label: {
+                                Text(L10n.t("以管理员身份删除", "Delete as admin"))
+                                    .font(.callout.weight(.semibold))
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Theme.destructive)
+                            .controlSize(.small)
+                        }
+                        .padding(10)
+                        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 1))
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 8)
             }
             Divider()
             ScrollView {
@@ -159,26 +225,46 @@ struct ResultSheet: View {
     private var toastOverlay: some View {
         if let toast {
             HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: toastTone ? "xmark.circle.fill" : "checkmark.circle.fill")
                 Text(toast)
             }
             .font(.caption.weight(.medium))
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            .background(Theme.success, in: RoundedRectangle(cornerRadius: 8))
+            .background(toastTone ? Theme.destructive : Theme.success, in: RoundedRectangle(cornerRadius: 8))
             .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
             .padding(.bottom, 48)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
 
-    /// 复制成功后底部浮出、约 1.6s 自动消失的轻提示（success toast）。
-    private func flash(_ msg: String) {
+    /// 复制成功 / 提权删除结果后底部浮出、约 1.8s 自动消失的轻提示。
+    /// `isError` 为 true 时显示红色叉（用于提权删除失败）。
+    private func flash(_ msg: String, isError: Bool = false) {
         toast = msg
+        toastTone = isError
         let token = msg
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
             if toast == token { toast = nil }
+        }
+    }
+
+    /// 「以管理员身份删除」：调 `PrivilegedDeleter` 以 root 删这一条。
+    /// NSAppleScript 的密码框由 SecurityAgent 在独立进程弹出，主线程等待不会死锁，
+    /// 且能确保 UI 状态在同一线程就地更新。
+    private func elevate(_ path: String) {
+        let results = PrivilegedDeleter.delete([path])
+        guard let r = results.first else { return }
+        if r.success {
+            // 成功：失败数 −1、成功数 +1，并从待处理列表移除，汇总卡片如实反映。
+            elevatable.removeAll { $0.path == path }
+            successCount += 1
+            failureCount = max(0, failureCount - 1)
+            flash(L10n.t("已用管理员权限删除：\(path)", "Deleted as admin: \(path)"))
+        } else {
+            elevatableMsg[path] = r.message
+            flash(L10n.t("管理员删除失败：\(r.message)", "Admin delete failed: \(r.message)"), isError: true)
         }
     }
 }

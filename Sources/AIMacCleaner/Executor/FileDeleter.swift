@@ -24,12 +24,18 @@ enum FileDeleter {
         /// 移到废纸篓后的实际位置。永久删除或失败时为 nil。
         /// 调用方据此判断磁盘空间是否真的释放了。
         let trashedTo: String?
+        /// true 表示删除失败是因为「没有权限」——通常是该路径由系统/安装器以 root
+        /// 身份写入（如 `/Applications` 下的原生安装器 app），普通用户删不动。
+        /// 此时可由 `PrivilegedDeleter` 以管理员身份兜底删除。
+        let needsElevation: Bool
 
-        init(path: String, success: Bool, message: String, trashedTo: String? = nil) {
+        init(path: String, success: Bool, message: String, trashedTo: String? = nil,
+             needsElevation: Bool = false) {
             self.path = path
             self.success = success
             self.message = message
             self.trashedTo = trashedTo
+            self.needsElevation = needsElevation
         }
     }
 
@@ -115,8 +121,13 @@ enum FileDeleter {
                 try fm.removeItem(atPath: standardized)
                 return Result(path: standardized, success: true, message: "已永久删除")
             } catch {
+                // NSFileWriteNoPermissionError(513)：路径由 root 拥有（系统安装器装的
+                // app 常见），普通用户删不动。标记 needsElevation，UI 可给出「以管理员
+                // 身份删除」的兜底入口。
+                let code = (error as NSError).code
                 return Result(path: standardized, success: false,
-                              message: "删除失败: \(error.localizedDescription)")
+                              message: "删除失败: \(error.localizedDescription)",
+                              needsElevation: code == NSFileWriteNoPermissionError)
             }
 
         case .trash:
@@ -140,7 +151,8 @@ enum FileDeleter {
                     return emptyContainer(standardized)
                 }
                 return Result(path: standardized, success: false,
-                              message: "移到废纸篓失败: \(error.localizedDescription)")
+                              message: "移到废纸篓失败: \(error.localizedDescription)",
+                              needsElevation: (error as NSError).code == NSFileWriteNoPermissionError)
             }
         }
     }
@@ -204,7 +216,9 @@ enum FileDeleter {
                       trashedTo: firstTrashLocation)
     }
 
-    private static func isAllowed(_ path: String) -> Bool {
+    /// 路径是否在允许删除的白名单内（含家目录根特例）。
+    /// `internal` 以便 `PrivilegedDeleter` 复用同一套白名单，避免提权删除绕过安全网。
+    static func isAllowed(_ path: String) -> Bool {
         let home = NSHomeDirectory()
         if path == home { return true }
         return allowedPrefixes.contains { path.hasPrefix($0) }

@@ -300,6 +300,15 @@ enum SelfTest {
                 let outside = "\(NSHomeDirectory())/Library/Keychains/expunge-should-refuse"
                 return FileDeleter.delete(outside).message.contains("白名单")
             },
+            Check(name: "PrivilegedDeleter 提权白名单与 FileDeleter 同口径（拒绝系统路径、放行 /Applications）") {
+                // 提权删除是 root 刀，安全网必须和 FileDeleter 一致，否则可能误删系统文件。
+                // 系统路径 / 家目录根一律拒绝；/Applications 下 root 拥有的 app（如 digiKam）放行。
+                !PrivilegedDeleter.isSafeToEscalate("/System/Library/foo")
+                    && !PrivilegedDeleter.isSafeToEscalate("/usr/bin/foo")
+                    && !PrivilegedDeleter.isSafeToEscalate("/private/var/foo")
+                    && !PrivilegedDeleter.isSafeToEscalate(NSHomeDirectory())
+                    && PrivilegedDeleter.isSafeToEscalate("/Applications/digiKam.org/digikam.app")
+            },
             Check(name: "扫描目录全部在 FileDeleter 白名单内（防 v1.1 假报成功重演）") {
                 // v1.1 的教训：ContainerScanner 扫出微信 3.6 GB、UI 报告会释放，
                 // 但白名单里没有 Containers/，执行阶段静默跳过 —— 数字是假的。
