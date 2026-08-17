@@ -24,11 +24,7 @@ private enum ComposerMetrics {
     static let maxWidth: CGFloat = 720   // 空态建议词卡片的最大宽度（输入框本身跟随软件宽度，见 composer）
     /// 不点放大钮时，输入框随内容自动长高的上限；超过后启用滚动条。
     /// 这个高度同时也是「粘贴大段文本后点放大前」最自然的天花板。
-    /// 放大后改用 `expandedMaxHeight` —— 抬高但有封顶，不再把聊天区整个盖住。
     static let maxAutoHeight: CGFloat = 280
-    /// 放大态文本区高度上限。空输入点放大时输入框直接撑到这一高（约 22 行），
-    /// 内容够多则继续向上长至此封顶。聊天历史不会被遮。
-    static let expandedMaxHeight: CGFloat = 480
     /// 底部工具栏高度：字数限制、发送钮，以及后续要扩展的按钮都放这里。
     static let footerHeight: CGFloat = 30
     /// 放大态输入框的固定开销（不含文本区、不含斜杠面板）：
@@ -39,6 +35,14 @@ private enum ComposerMetrics {
     /// 放大态斜杠命令框自身高度：面板 maxHeight(104) + 上下 padding(6+4)。
     /// 出现斜杠面板时再从可用高度里额外扣掉这部分（自适应：面板消失则回收）。
     static let slashPaletteHeight: CGFloat = 114
+}
+
+/// 测量「问 AI」整页可用高度，供放大态输入框取「整个框的 2/3」。
+private struct PageHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
 }
 
 // 放大态已改为抬高上限、不再铺满聊天区 —— 上报头高不再需要。
@@ -71,6 +75,9 @@ struct AskAIView: View {
     @State private var inputExpanded = false
     /// 当前文本在输入框宽度下排版后所需高度，用于不点放大钮时随内容自动增高。
     @State private var inputContentHeight: CGFloat = ComposerMetrics.inputHeight
+    /// 「问 AI」整页可用高度（页头以下到窗口底），由 GeometryReader 测量，
+    /// 放大态输入框据此取「整个框的 2/3」。
+    @State private var pageHeight: CGFloat = 0
     /// 输入框里一旦开始输入（含 IME 未确认的候选），placeholder 应立即隐藏，
     /// 避免与首字母重影。
     @State private var isTyping = false
@@ -135,6 +142,13 @@ struct AskAIView: View {
             composer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(
+            GeometryReader { g in
+                Color.clear
+                    .preference(key: PageHeightKey.self, value: g.size.height)
+            }
+        )
+        .onPreferenceChange(PageHeightKey.self) { pageHeight = $0 }
 
     .onAppear {
         bridge.attach(state)
@@ -466,8 +480,22 @@ struct AskAIView: View {
 
     /// 气泡初始是否展开：长消息一律默认折叠（用户问题、AI 回复都如此），
     /// 短消息没有折叠按钮、直接完整展示。
+    /// 最后一条 AI 回复的索引；最新 AI 消息默认展开，方便直接看到结论。
+    private var lastAIMessageIndex: Int? {
+        let msgs = state.chatMessages
+        for i in (0..<msgs.count).reversed() {
+            if msgs[i].role == .ai { return i }
+        }
+        return nil
+    }
+
     private func bubbleInitialExpanded(at idx: Int) -> Bool {
-        bubbleCollapsible(at: idx) ? false : true
+        let m = state.chatMessages[idx]
+        // 最新一条 AI 回复默认展开；其余长消息仍按原策略默认折叠。
+        if m.role == .ai, idx == lastAIMessageIndex {
+            return true
+        }
+        return bubbleCollapsible(at: idx) ? false : true
     }
 
     /// 气泡是否可折叠：文本足够长才允许折叠。用户长输入、AI 长回复都可折叠。
@@ -556,16 +584,24 @@ struct AskAIView: View {
         }
     }
 
+    /// 放大态输入框整体高度（含文本区、底部工具栏、内边距）。
+    /// 动态取「整个对话框可用高度 × 2/3」，使放大后输入框稳定占据页面的三分之二，
+    /// 聊天历史保留上方三分之一；窗口缩放时自动跟随。
+    private var expandedInputBoxHeight: CGFloat {
+        let fraction = pageHeight * 2 / 3
+        // 折叠态上限（280）作为保底下限：即使窗口极小也保证放大明显大于折叠态。
+        return max(fraction, ComposerMetrics.maxAutoHeight + ComposerMetrics.footerHeight + 16)
+    }
+
     /// 输入框文本区高度（不含底部工具栏、不含 padding）。
-    /// - 跟随内容在「最小默认行高 ~ 上限」之间弹性变化。
-    /// - 空输入 + 放大：直接给放大态的默认下限（`maxAutoHeight`），
-    ///   肉眼可见比收起态大一截，避免「点了放大却没反应」。
-    /// - 收起态上限 280pt，放大态上限 480pt —— 都不会撑满聊天区，聊天历史继续可见。
+    /// - 收起态：随内容在「默认行高 ~ 280 上限」之间弹性变化，超过后内部滚动。
+    /// - 放大态：直接撑到「整个框的 2/3」对应的文本区高度；内容再多也在其内部滚动，
+    ///   不再把聊天区整个盖住，也修掉了之前固定 480pt 偏矮、「达不到三分之二」的问题。
     private var textAreaHeight: CGFloat {
-        let cap = inputExpanded ? ComposerMetrics.expandedMaxHeight : ComposerMetrics.maxAutoHeight
-        let minH = inputExpanded ? ComposerMetrics.maxAutoHeight : ComposerMetrics.inputHeight
-        let desired = max(minH, inputContentHeight)
-        return min(desired, cap)
+        if inputExpanded {
+            return expandedInputBoxHeight - ComposerMetrics.footerHeight - 16
+        }
+        return min(max(ComposerMetrics.inputHeight, inputContentHeight), ComposerMetrics.maxAutoHeight)
     }
 
     /// 输入框整体高度（含编辑区、底部工具栏、内边距），防止右侧 Spacer 把框撑到窗口高度。
@@ -648,7 +684,6 @@ struct AskAIView: View {
         .padding(.horizontal, 12)
         .padding(.top, 10)
         .padding(.bottom, 6)
-        .animation(.easeOut(duration: 0.12), value: textAreaHeight)
         .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: ComposerMetrics.corner))
         .overlay(RoundedRectangle(cornerRadius: ComposerMetrics.corner)
             .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
