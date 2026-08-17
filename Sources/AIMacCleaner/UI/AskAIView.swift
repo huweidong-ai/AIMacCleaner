@@ -25,6 +25,9 @@ private enum ComposerMetrics {
     /// 不点放大钮时，输入框随内容自动长高的上限；超过后启用滚动条。
     /// 这个高度同时也是「粘贴大段文本后点放大前」最自然的天花板。
     static let maxAutoHeight: CGFloat = 280
+    /// 放大态「框比文字高」的额外余量：文字涨到多高，放大框至少再高出这一截，
+    /// 保证框永远高于文字、有呼吸感，不会贴着文字顶满。
+    static let expandedFollowMargin: CGFloat = 28
     /// 底部工具栏高度：字数限制、发送钮，以及后续要扩展的按钮都放这里。
     static let footerHeight: CGFloat = 30
     /// 放大态输入框的固定开销（不含文本区、不含斜杠面板）：
@@ -595,11 +598,16 @@ struct AskAIView: View {
 
     /// 输入框文本区高度（不含底部工具栏、不含 padding）。
     /// - 收起态：随内容在「默认行高 ~ 280 上限」之间弹性变化，超过后内部滚动。
-    /// - 放大态：直接撑到「整个框的 2/3」对应的文本区高度；内容再多也在其内部滚动，
-    ///   不再把聊天区整个盖住，也修掉了之前固定 480pt 偏矮、「达不到三分之二」的问题。
+    /// - 放大态：框始终比文字高。以「整页 2/3」为下限；文字更高时框跟着涨
+    ///   （额外留 `expandedFollowMargin` 余量），直到可用空间上限，超出才滚动。
+    ///   这样既满足「占满整框 2/3」，又保证放大的框永远高于文字实际高度。
     private var textAreaHeight: CGFloat {
         if inputExpanded {
-            return expandedInputBoxHeight - ComposerMetrics.footerHeight - 16
+            let design = expandedInputBoxHeight - ComposerMetrics.footerHeight - 16
+            let follow = inputContentHeight + ComposerMetrics.expandedFollowMargin
+            // 可用空间上限：整页高扣掉 composer 上下 padding(24) + footer(30) + 内 padding(16)。
+            let cap = max(design, pageHeight - 70)
+            return min(max(design, follow), cap)
         }
         return min(max(ComposerMetrics.inputHeight, inputContentHeight), ComposerMetrics.maxAutoHeight)
     }
@@ -964,11 +972,11 @@ private struct ComposerTextView: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
-        // 覆盖式滚动条：绘制在内容之上、不挤占布局，显隐为系统淡入淡出，配合下方
-        // 动画期抑制逻辑，展开/缩小时不再出现「闪一下消失」的横向抖动。
+        // 覆盖式滚动条：绘制在内容之上、不挤占布局。
         scrollView.scrollerStyle = .overlay
-        // 内容未超出可视高度时不显示滚动条；展开后空间足够也自动隐藏。
-        scrollView.autohidesScrollers = true
+        // 关闭系统 autohide：滚动条显隐完全由我们按「是否溢出 + 是否动画中」决定，
+        // 避免展开/缩小动画期间 AppKit 自己把轨道闪出来。
+        scrollView.autohidesScrollers = false
         scrollView.focusRingType = .none
 
         let textView = KeyHandlingTextView()
@@ -1008,20 +1016,20 @@ private struct ComposerTextView: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? KeyHandlingTextView else { return }
-        // 展开/缩小切换时：动画期间强制隐藏滚动条并跳过 reflect（滚动条显隐与滑块重算都在
-        // reflectScrolledClipView 里），结束后恢复可见性并让 reflect 按真实溢出决定显隐。
-        // 仅「跳过 reflect」不够——展开态里内容本就溢出、滚动条原本可见，跳过会让它全程露着、
-        // 动画后才被 reflect 藏掉，表现为「闪一下消失」被推迟。这里改为主动 isHidden=true。
+        // 展开/缩小切换时：进入动画窗口，强制隐藏滚动条并跳过 reflect；动画结束后再按
+        // 真实溢出决定是否显示（只有文字真正撑满才出现）。窗口时长覆盖 0.15s 缓动 + 布局余量。
         if let cs = scrollView as? ComposerScrollView, cs.wasExpanded != expanded {
             cs.wasExpanded = expanded
             cs.suppressScrollerFlash = true
             cs.verticalScroller?.isHidden = true
             let target = cs
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak target] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak target, weak textView] in
                 guard let sv = target else { return }
                 sv.suppressScrollerFlash = false
-                sv.verticalScroller?.isHidden = false
-                sv.reflectScrolledClipView(sv.contentView)
+                // 动画结束：由统一逻辑按「溢出 && 非动画中」决定显隐，不再无条件显示。
+                if let tv = textView {
+                    self.syncScrollerVisibility(sv, textView: tv)
+                }
             }
         }
         // 文本被外部改写（如发送后清空）或文字容器宽度变化（窗口缩放）时才重测高度；
@@ -1070,6 +1078,20 @@ private struct ComposerTextView: NSViewRepresentable {
         if abs(contentHeight - rounded) > 0.5 {
             contentHeight = rounded
         }
+        // 文字高度变化后，按「溢出 && 非动画中」同步滚动条显隐。
+        if let cs = textView.enclosingScrollView as? ComposerScrollView,
+           let ktv = textView as? KeyHandlingTextView {
+            syncScrollerVisibility(cs, textView: ktv)
+        }
+    }
+
+    /// 统一决定滚动条显隐：仅当文字真正溢出可视区、且不在展开/缩小动画中才显示；
+    /// 动画期间一律隐藏，满足「放大/缩小时不出现轨道，只有文字撑满才出现」。
+    func syncScrollerVisibility(_ scrollView: ComposerScrollView, textView: KeyHandlingTextView) {
+        let clipH = scrollView.contentView.bounds.height
+        let overflow = contentHeight > clipH + 1
+        let show = overflow && !scrollView.suppressScrollerFlash
+        scrollView.verticalScroller?.isHidden = !show
     }
 
     func makeCoordinator() -> Coordinator {
