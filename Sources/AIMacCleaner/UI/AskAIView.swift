@@ -989,11 +989,19 @@ private struct ComposerTextView: NSViewRepresentable {
                 sv.reflectScrolledClipView(sv.contentView)
             }
         }
-        if textView.string != text {
+        // 文本被外部改写（如发送后清空）或文字容器宽度变化（窗口缩放）时才重测高度；
+        // 放大/缩小动画期间文本与宽度都不变，跳过 lm.ensureLayout，避免每帧全量排版卡顿。
+        // 普通输入的增高由 Coordinator.textDidChange 负责触发。
+        let textChanged = (textView.string != text)
+        if textChanged {
             textView.string = text
         }
-        // 排版稳定后把内容高度同步回 SwiftUI，驱动输入框自动增高。
-        updateContentHeight(textView)
+        let containerWidth = textView.textContainer?.containerSize.width ?? 0
+        let widthChanged = abs(containerWidth - context.coordinator.lastMeasuredWidth) > 0.5
+        if textChanged || widthChanged {
+            updateContentHeight(textView)
+            context.coordinator.lastMeasuredWidth = containerWidth
+        }
         // 每次 body 重算都会生成新的 closure，必须同步回 NSTextView。
         textView.onReturn = onReturn
         textView.onOptionReturn = onOptionReturn
@@ -1015,7 +1023,9 @@ private struct ComposerTextView: NSViewRepresentable {
 
     /// 测量 NSTextView 在当前宽度下排完版需要的高度，写回 `contentHeight`。
     /// 值用于 SwiftUI 层按 `min...max(..., maxAutoHeight)` 自动调整输入框高度。
-    private func updateContentHeight(_ textView: NSTextView) {
+    /// 内部可见（供 Coordinator 在文本变化时调用）；做全量 ensureLayout，开销不低，
+    /// 只在文本或文字容器宽度真正变化时才调，避免放大/缩小动画每帧重排版。
+    func updateContentHeight(_ textView: NSTextView) {
         guard let lm = textView.layoutManager, let tc = textView.textContainer else { return }
         lm.ensureLayout(for: tc)
         let textH = lm.usedRect(for: tc).height
@@ -1034,6 +1044,9 @@ private struct ComposerTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: ComposerTextView
         weak var textView: KeyHandlingTextView?
+        /// 上次测量内容高度时文字容器的宽度；窗口缩放改宽度时才需重测，
+        /// 放大/缩小动画期间宽度不变，据此跳过 ensureLayout。
+        var lastMeasuredWidth: CGFloat = 0
 
         init(_ parent: ComposerTextView) {
             self.parent = parent
@@ -1045,6 +1058,8 @@ private struct ComposerTextView: NSViewRepresentable {
             // 不是这里的同步写回。延迟写回反而会引入快速输入丢字的竞态。
             parent.text = textView.string
             syncTypingState(textView)
+            // 文本高度随内容变化（打字/IME/粘贴/删除都走这里），立即重测驱动输入框自动增高。
+            parent.updateContentHeight(textView)
         }
 
         /// 在 insertText / setMarkedText / deleteBackward 等原始输入事件里立即调用，
