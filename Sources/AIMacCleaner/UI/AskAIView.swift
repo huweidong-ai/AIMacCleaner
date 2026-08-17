@@ -24,7 +24,11 @@ private enum ComposerMetrics {
     static let maxWidth: CGFloat = 720   // 空态建议词卡片的最大宽度（输入框本身跟随软件宽度，见 composer）
     /// 不点放大钮时，输入框随内容自动长高的上限；超过后启用滚动条。
     /// 这个高度同时也是「粘贴大段文本后点放大前」最自然的天花板。
+    /// 放大后改用 `expandedMaxHeight` —— 抬高但有封顶，不再把聊天区整个盖住。
     static let maxAutoHeight: CGFloat = 280
+    /// 放大态文本区高度上限。空输入点放大时输入框直接撑到这一高（约 22 行），
+    /// 内容够多则继续向上长至此封顶。聊天历史不会被遮。
+    static let expandedMaxHeight: CGFloat = 480
     /// 底部工具栏高度：字数限制、发送钮，以及后续要扩展的按钮都放这里。
     static let footerHeight: CGFloat = 30
     /// 放大态输入框的固定开销（不含文本区、不含斜杠面板）：
@@ -37,13 +41,8 @@ private enum ComposerMetrics {
     static let slashPaletteHeight: CGFloat = 114
 }
 
-/// 测量 PageHeader（标题栏 + 右侧工具钮）高度，用于计算放大态输入框可用高度。
-private struct HeaderHeightPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
+// 放大态已改为抬高上限、不再铺满聊天区 —— 上报头高不再需要。
+// 放大态已改为抬高上限、不再铺满聊天区 —— 上报头高不再需要。
 
 struct AskAIView: View {
     @EnvironmentObject var state: AppState
@@ -72,132 +71,101 @@ struct AskAIView: View {
     @State private var inputExpanded = false
     /// 当前文本在输入框宽度下排版后所需高度，用于不点放大钮时随内容自动增高。
     @State private var inputContentHeight: CGFloat = ComposerMetrics.inputHeight
-    /// 页头（问 AI 标题栏 + 工具钮）高度，用于计算放大态可用高度。
-    @State private var headerHeight: CGFloat = 0
-    /// body 总高度，用于计算放大态可用高度。
-    @State private var bodyHeight: CGFloat = 0
     /// 输入框里一旦开始输入（含 IME 未确认的候选），placeholder 应立即隐藏，
     /// 避免与首字母重影。
     @State private var isTyping = false
 
     var body: some View {
-        GeometryReader { outerGeo in
-            ZStack(alignment: .top) {
-                // 底层：正常布局。非放大态时 composer 落在底部；放大态隐藏，改由覆盖层承载。
-                VStack(spacing: 0) {
-                    PageHeader(title: L10n.t("问 AI", "Ask AI"),
-                               subtitle: L10n.t("用自然语言清理 Mac，执行删除前会请你确认",
-                                                 "Clean your Mac in plain language — it asks before deleting anything")) {
-                        modelStatusPill
-                        Button {
-                            showSkills = true
-                        } label: {
-                            Image(systemName: "square.grid.2x2")
-                                .font(.system(size: 13))
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.t("查看 Agent 可调用的 skill", "See the skills the agent can call"))
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gearshape")
-                                .font(.system(size: 13))
-                        }
-                        .buttonStyle(.plain)
-                        .help(L10n.t("配置模型（OpenAI / Anthropic / 自定义）",
-                                     "Configure model (OpenAI / Anthropic / custom)"))
-                        // 记忆与记录文件收进一个菜单：这两项都是低频入口，
-                        // 摊平成按钮会把头部挤成一排图标，反而让高频的「新会话」难找。
-                        Menu {
-                            Button {
-                                showMemory = true
-                            } label: {
-                                Label(state.memoryNotes.isEmpty
-                                        ? L10n.t("长期记忆…", "Long-term memory…")
-                                        : L10n.t("长期记忆（\(state.memoryNotes.count)）…",
-                                                 "Long-term memory (\(state.memoryNotes.count))…"),
-                                      systemImage: "brain")
-                            }
-                            Divider()
-                            Button {
-                                RevealService.revealDataFile(ChatStore.shared.fileURL)
-                            } label: {
-                                Label(L10n.t("在 Finder 中显示对话记录", "Reveal chat history in Finder"),
-                                      systemImage: "folder")
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis.circle")
-                                .font(.system(size: 13))
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .frame(width: 18)
-                        .help(L10n.t("记忆与对话记录", "Memory and chat history"))
-                        if state.chatHasConversation {
-                            Button(L10n.t("新会话", "New chat")) { showNewChatConfirm = true }
-                                .controlSize(.small)
-                        }
+        VStack(spacing: 0) {
+            PageHeader(title: L10n.t("问 AI", "Ask AI"),
+                       subtitle: L10n.t("用自然语言清理 Mac，执行删除前会请你确认",
+                                         "Clean your Mac in plain language — it asks before deleting anything")) {
+                modelStatusPill
+                Button {
+                    showSkills = true
+                } label: {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.t("查看 Agent 可调用的 skill", "See the skills the agent can call"))
+                Button {
+                    showSettings = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.t("配置模型（OpenAI / Anthropic / 自定义）",
+                             "Configure model (OpenAI / Anthropic / custom)"))
+                // 记忆与记录文件收进一个菜单：这两项都是低频入口，
+                // 摊平成按钮会把头部挤成一排图标，反而让高频的「新会话」难找。
+                Menu {
+                    Button {
+                        showMemory = true
+                    } label: {
+                        Label(state.memoryNotes.isEmpty
+                                ? L10n.t("长期记忆…", "Long-term memory…")
+                                : L10n.t("长期记忆（\(state.memoryNotes.count)）…",
+                                         "Long-term memory (\(state.memoryNotes.count))…"),
+                              systemImage: "brain")
                     }
-                    .background(GeometryReader { geo in
-                        Color.clear.preference(key: HeaderHeightPreferenceKey.self, value: geo.size.height)
-                    })
                     Divider()
-                    if !state.chatHasConversation && !state.chatIsThinking { emptyState } else { chatLog }
-                    if !inputExpanded { composer }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-
-                // 放大态覆盖层：铺满整个聊天区（页头以下），遮挡下方标题与对话内容；
-                // 页头区域用透明占位并放行点击，保留「新会话 / 设置」等按钮可用。
-                if inputExpanded {
-                    VStack(spacing: 0) {
-                        Color.clear
-                            .frame(height: headerHeight)
-                            .allowsHitTesting(false)
-                        composer
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                            .background(Theme.bgCanvas)
+                    Button {
+                        RevealService.revealDataFile(ChatStore.shared.fileURL)
+                    } label: {
+                        Label(L10n.t("在 Finder 中显示对话记录", "Reveal chat history in Finder"),
+                              systemImage: "folder")
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .zIndex(10)
-                    .transition(.opacity)
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 13))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .frame(width: 18)
+                .help(L10n.t("记忆与对话记录", "Memory and chat history"))
+                if state.chatHasConversation {
+                    Button(L10n.t("新会话", "New chat")) { showNewChatConfirm = true }
+                        .controlSize(.small)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .onPreferenceChange(HeaderHeightPreferenceKey.self) { headerHeight = $0 }
-            .onChange(of: outerGeo.size.height) { bodyHeight = $1 }
-            .onAppear {
-                bodyHeight = outerGeo.size.height
-                bridge.attach(state)
-                consumePendingPrompt()
-            }
-            // 已在问 AI 页时再从别的 tab 深链进来：selectedTab 没变，靠这个补捉。
-            .onChange(of: state.askAIPendingPrompt) { _, _ in consumePendingPrompt() }
-            .sheet(isPresented: $showSettings) { AIModelSettingsSheet() }
-            .sheet(isPresented: $showSkills) { SkillCatalogSheet() }
-            .sheet(isPresented: $showMemory) { MemorySheet() }
-            .alert(L10n.t("开始新会话", "Start a new chat?"), isPresented: $showNewChatConfirm) {
-                Button(L10n.t("取消", "Cancel"), role: .cancel) {}
-                Button(L10n.t("清空并开始新会话", "Clear and start new"), role: .destructive) {
-                    runNewChat()
-                }
-            } message: {
-                Text(L10n.t("当前对话历史将被清空。长期记忆（/remember 记的内容）不受影响。",
-                            "The current chat history will be cleared. Long-term memories (saved via /remember) are untouched."))
-            }
-            // 上下键在 SwiftUI 集成下的 NSTextView 里接收不可靠，改由全局 NSEvent monitor 拦截：
-            // 面板显示时吞掉上下键并移动选中项；面板隐藏时放行，光标才可正常移动。
-            .onAppear { SlashKeyInterceptor.shared.setActive(showSlashPalette) }
-            .onDisappear { SlashKeyInterceptor.shared.setActive(false) }
-            .onChange(of: showSlashPalette) { _, on in
-                SlashKeyInterceptor.shared.setActive(on)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .slashPaletteMove)) { note in
-                guard showSlashPalette, !slashMatches.isEmpty else { return }
-                let dir = (note.object as? Int) ?? 0
-                slashSelection = (slashSelection + dir + slashMatches.count) % slashMatches.count
-            }
+            Divider()
+            if !state.chatHasConversation && !state.chatIsThinking { emptyState } else { chatLog }
+            composer
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+    .onAppear {
+        bridge.attach(state)
+        consumePendingPrompt()
+    }
+    // 已在问 AI 页时再从别的 tab 深链进来：selectedTab 没变，靠这个补捉。
+    .onChange(of: state.askAIPendingPrompt) { _, _ in consumePendingPrompt() }
+    .sheet(isPresented: $showSettings) { AIModelSettingsSheet() }
+    .sheet(isPresented: $showSkills) { SkillCatalogSheet() }
+    .sheet(isPresented: $showMemory) { MemorySheet() }
+    .alert(L10n.t("开始新会话", "Start a new chat?"), isPresented: $showNewChatConfirm) {
+        Button(L10n.t("取消", "Cancel"), role: .cancel) {}
+        Button(L10n.t("清空并开始新会话", "Clear and start new"), role: .destructive) {
+            runNewChat()
+        }
+    } message: {
+        Text(L10n.t("当前对话历史将被清空。长期记忆（/remember 记的内容）不受影响。",
+                    "The current chat history will be cleared. Long-term memories (saved via /remember) are untouched."))
+    }
+    // 上下键在 SwiftUI 集成下的 NSTextView 里接收不可靠，改由全局 NSEvent monitor 拦截：
+    // 面板显示时吞掉上下键并移动选中项；面板隐藏时放行，光标才可正常移动。
+    .onAppear { SlashKeyInterceptor.shared.setActive(showSlashPalette) }
+    .onDisappear { SlashKeyInterceptor.shared.setActive(false) }
+    .onChange(of: showSlashPalette) { _, on in
+        SlashKeyInterceptor.shared.setActive(on)
+    }
+    .onReceive(NotificationCenter.default.publisher(for: .slashPaletteMove)) { note in
+        guard showSlashPalette, !slashMatches.isEmpty else { return }
+        let dir = (note.object as? Int) ?? 0
+        slashSelection = (slashSelection + dir + slashMatches.count) % slashMatches.count
+    }
     }
     // 头部右侧：当前使用的模型。未配置时点击去设置；已配置时可切换默认/具体模型。
     private var modelStatusPill: some View {
@@ -589,21 +557,15 @@ struct AskAIView: View {
     }
 
     /// 输入框文本区高度（不含底部工具栏、不含 padding）。
-    /// - 不点放大钮：随 `inputContentHeight` 在 3 行最小高度 ~ maxAutoHeight 之间弹性变化。
-    /// - 点放大钮：覆盖层已独占「页头以下」整个聊天区，文本区高度 = 该区域高度
-    ///   减去固定开销（`composerFixedOverhead`）与斜杠命令框高度（出现时才扣，
-    ///   自适应——面板消失则高度回收）。这样发送钮永远留在可视区，且输入 `/` 唤出
-    ///   命令框时输入框自动让位、不再把发送钮挤出窗口。
+    /// - 跟随内容在「最小默认行高 ~ 上限」之间弹性变化。
+    /// - 空输入 + 放大：直接给放大态的默认下限（`maxAutoHeight`），
+    ///   肉眼可见比收起态大一截，避免「点了放大却没反应」。
+    /// - 收起态上限 280pt，放大态上限 480pt —— 都不会撑满聊天区，聊天历史继续可见。
     private var textAreaHeight: CGFloat {
-        if inputExpanded {
-            var reserved = ComposerMetrics.composerFixedOverhead
-            if showSlashPalette { reserved += ComposerMetrics.slashPaletteHeight }
-            let available = max(0, bodyHeight - headerHeight - reserved)
-            return max(ComposerMetrics.inputHeight, available)
-        } else {
-            let desired = max(ComposerMetrics.inputHeight, inputContentHeight)
-            return min(desired, ComposerMetrics.maxAutoHeight)
-        }
+        let cap = inputExpanded ? ComposerMetrics.expandedMaxHeight : ComposerMetrics.maxAutoHeight
+        let minH = inputExpanded ? ComposerMetrics.maxAutoHeight : ComposerMetrics.inputHeight
+        let desired = max(minH, inputContentHeight)
+        return min(desired, cap)
     }
 
     /// 输入框整体高度（含编辑区、底部工具栏、内边距），防止右侧 Spacer 把框撑到窗口高度。
