@@ -104,6 +104,52 @@ let image = NSImage(size: size, flipped: false) { _ in
 
     ctx.restoreGraphicsState()
 
+    // AI badge in the bottom-right corner (white disc, Petrol Blue text)
+    ctx.saveGraphicsState()
+
+    let badgeCenter = NSPoint(x: 835, y: 190)
+    let badgeRadius: CGFloat = 90
+    let badgeRect = NSRect(
+        x: badgeCenter.x - badgeRadius,
+        y: badgeCenter.y - badgeRadius,
+        width: badgeRadius * 2,
+        height: badgeRadius * 2
+    )
+    let badgePath = NSBezierPath(
+        roundedRect: badgeRect,
+        xRadius: badgeRadius,
+        yRadius: badgeRadius
+    )
+
+    let badgeShadow = NSShadow()
+    badgeShadow.shadowOffset = NSSize(width: 0, height: -6)
+    badgeShadow.shadowBlurRadius = 16
+    badgeShadow.shadowColor = NSColor.black.withAlphaComponent(0.25)
+    badgeShadow.set()
+
+    NSColor.white.setFill()
+    badgePath.fill()
+
+    // Reset shadow before drawing the text
+    NSShadow().set()
+
+    let fontSize: CGFloat = 78
+    let font = NSFont.boldSystemFont(ofSize: fontSize)
+    let petrolBlue = NSColor(red: 0.0549, green: 0.4235, blue: 0.6196, alpha: 1.0)
+    let attrs: [NSAttributedString.Key: Any] = [
+        .font: font,
+        .foregroundColor: petrolBlue
+    ]
+    let text = "AI"
+    let textSize = (text as NSString).size(withAttributes: attrs)
+    let textOrigin = NSPoint(
+        x: badgeCenter.x - textSize.width / 2,
+        y: badgeCenter.y - textSize.height / 2 + 6
+    )
+    (text as NSString).draw(at: textOrigin, withAttributes: attrs)
+
+    ctx.restoreGraphicsState()
+
     return true
 }
 
