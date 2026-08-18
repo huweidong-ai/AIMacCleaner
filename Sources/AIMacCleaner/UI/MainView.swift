@@ -72,12 +72,13 @@ struct MainView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.white)
                 )
-            Text("AI Mac Cleaner")
-                .font(.system(size: 13.5, weight: .semibold))
-            Text("v\(AIMacCleanerApp.version)")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .padding(.leading, -2)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("AI Mac Cleaner")
+                    .font(.system(size: 13.5, weight: .semibold))
+                Text("v\(AIMacCleanerApp.version)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
