@@ -25,6 +25,8 @@ class RemovalExecutor {
     /// 扫描阶段读磁盘（那在构造 plan 时就已经发生了）。
     let dryRun: Bool
     var onProgress: ((String) -> Void)?
+    /// 与 onProgress 同步收集的完整日志，用于写入历史记录。
+    private var logLines: [String] = []
 
     init(plan: RemovalPlan, selected: [Artifact]? = nil,
          runPackageUninstallers: Bool = true, dryRun: Bool = false,
@@ -292,7 +294,8 @@ class RemovalExecutor {
             manualCount: manualCount,
             freedBytes: freedBytes,
             trashedBytes: trashedBytes,
-            deletedArtifacts: deleted
+            deletedArtifacts: deleted,
+            log: logLines.joined(separator: "\n")
         )
         // 预演不写历史 —— history.jsonl 是「实际发生过什么」的记录，
         // 把没发生的事写进去会让 --history 变得不可信。
@@ -344,6 +347,7 @@ class RemovalExecutor {
     private func log(_ s: String) {
         guard !silent else { return }
         onProgress?(s)
+        logLines.append(s)
         print(s)
     }
 

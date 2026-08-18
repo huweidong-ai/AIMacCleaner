@@ -26,6 +26,9 @@ enum HistoryStore {
         /// `try?` 跳过解不出的行，若设为非可选，旧记录会全部静默消失。
         let trashedBytes: Int64?
         let deletedArtifacts: [DeletedArtifact]
+        /// 本次卸载的完整文本日志，用于历史页点击查看详情。
+        /// 可选是为了兼容旧记录；新写入时必须包含。
+        let log: String?
     }
 
     struct DeletedArtifact: Codable, Hashable {

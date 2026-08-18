@@ -7,6 +7,8 @@ struct HistoryView: View {
     // 两个删除入口都需要确认弹窗保护：删除选中、滑动删除单条。
     @State private var showDeleteSelectedConfirm = false
     @State private var recordToDelete: HistoryStore.RemovalRecord?
+    /// 点击查看某条历史记录的详情。
+    @State private var selectedRecord: HistoryStore.RemovalRecord?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -64,6 +66,10 @@ struct HistoryView: View {
                                     }
                                 }
                             HistoryRow(record: record)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    selectedRecord = record
+                                }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
@@ -110,6 +116,10 @@ struct HistoryView: View {
                     selectedRecords.remove(record.id)
                 }
             )
+        }
+        // 点击查看某条历史记录的完整日志。
+        .sheet(item: $selectedRecord) { record in
+            HistoryDetailSheet(record: record)
         }
     }
 }
@@ -191,5 +201,132 @@ private struct HistoryConfirmSheet: View {
         }
         .padding(20)
         .frame(width: 420)
+    }
+}
+
+// MARK: - 历史记录详情弹窗
+
+/// 历史记录详情：展示一次卸载的统计摘要与完整日志。
+/// 日志与历史记录一起存在 JSONL 里；删除/清空历史时一并消失，不留痕迹。
+private struct HistoryDetailSheet: View {
+    @Environment(\.dismiss) var dismiss
+    let record: HistoryStore.RemovalRecord
+    @State private var toast: String? = nil
+    @State private var toastTone: Bool = false
+
+    var statusIcon: (name: String, color: Color) {
+        if record.failedCount > 0 {
+            return ("exclamationmark.triangle.fill", Theme.warning)
+        }
+        if let manual = record.manualCount, manual > 0 {
+            return ("exclamationmark.triangle.fill", Theme.warning)
+        }
+        return ("checkmark.circle.fill", Theme.success)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Label(record.targetName, systemImage: statusIcon.name)
+                    .font(.title2.bold())
+                    .foregroundStyle(statusIcon.color)
+                Spacer()
+                Text(record.startedAt.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding()
+
+            HStack(spacing: 10) {
+                HistoryDetailStat(value: "\(record.deletedCount)", label: L10n.t("已处理", "Processed"), tint: Theme.success)
+                if record.failedCount > 0 {
+                    HistoryDetailStat(value: "\(record.failedCount)", label: L10n.t("失败", "Failed"), tint: Theme.destructive)
+                }
+                if let manual = record.manualCount, manual > 0 {
+                    HistoryDetailStat(value: "\(manual)", label: L10n.t("需手动", "Manual"), tint: Theme.warning)
+                }
+                if record.freedBytes > 0 {
+                    HistoryDetailStat(value: SizeFormat.human(record.freedBytes), label: L10n.t("直接释放", "Freed"), tint: .primary)
+                }
+                if let trashed = record.trashedBytes, trashed > 0 {
+                    HistoryDetailStat(value: SizeFormat.human(trashed), label: L10n.t("进废纸篓", "To Trash"), tint: Theme.accent)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            if let log = record.log, !log.isEmpty {
+                ScrollView {
+                    Text(log)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+            } else {
+                Spacer()
+                VStack(spacing: 8) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.tertiary)
+                    Text(L10n.t("没有保存日志（可能是早期历史记录）", "No log saved (older history record)"))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Spacer()
+            }
+
+            Divider()
+            SheetActionBar {
+                if let log = record.log, !log.isEmpty {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(log, forType: .string)
+                        toast = L10n.t("已复制日志", "Log copied")
+                        toastTone = false
+                    } label: {
+                        Label(L10n.t("复制日志", "Copy log"), systemImage: "doc.on.doc")
+                    }
+                    .controlSize(.small)
+                }
+            } trailing: {
+                SheetCloseButton(title: L10n.t("关闭", "Close")) { dismiss() }
+            }
+        }
+        .frame(width: 560, height: 460)
+        .overlay(alignment: .bottom) {
+            if let toast {
+                Text(toast)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(toastTone ? Theme.destructive : .primary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 60)
+                    .transition(.opacity)
+            }
+        }
+    }
+}
+
+private struct HistoryDetailStat: View {
+    let value: String
+    let label: String
+    let tint: Color
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(tint)
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 60)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
     }
 }

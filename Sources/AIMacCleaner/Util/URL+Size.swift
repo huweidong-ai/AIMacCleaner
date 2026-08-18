@@ -29,6 +29,7 @@ extension URL {
 
 enum SizeFormat {
     static func human(_ bytes: Int64) -> String {
+        if bytes == 0 { return "0 KB" }
         let formatter = ByteCountFormatter()
         formatter.allowedUnits = [.useAll]
         formatter.countStyle = .file

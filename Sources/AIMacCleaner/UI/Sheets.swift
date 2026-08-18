@@ -49,20 +49,22 @@ struct ResultSheet: View {
     private var display: (title: String, icon: String, color: Color) {
         switch Self.status(successCount: successCount, failureCount: failureCount, manualCount: manualCount) {
         case .allFailed:
-            return (L10n.t("卸载失败", "Uninstall failed"),
+            return (L10n.t("卸载失败（\(failureCount) 项失败）",
+                           "Uninstall failed (\(failureCount) failed)"),
                     "xmark.octagon.fill", Theme.destructive)
         case .partial:
-            // 部分完成时，标题要告诉用户到底是哪类未完成。
+            // 部分完成时，标题必须同时把成功数和失败/手动数摆出来，
+            // 让用户一眼就知道这次到底发生了多少问题。
             let title: String
             if failureCount > 0 && manualCount > 0 {
-                title = L10n.t("部分完成（\(failureCount) 项失败、\(manualCount) 项需手动）",
-                               "Partially complete (\(failureCount) failed, \(manualCount) manual)")
+                title = L10n.t("部分完成：成功 \(successCount) 项，失败 \(failureCount) 项，需手动 \(manualCount) 项",
+                               "Partially complete: \(successCount) succeeded, \(failureCount) failed, \(manualCount) manual")
             } else if failureCount > 0 {
-                title = L10n.t("部分完成（\(failureCount) 项失败）",
-                               "Partially complete (\(failureCount) failed)")
+                title = L10n.t("部分完成：成功 \(successCount) 项，失败 \(failureCount) 项",
+                               "Partially complete: \(successCount) succeeded, \(failureCount) failed")
             } else {
-                title = L10n.t("部分完成（\(manualCount) 项需手动）",
-                               "Partially complete (\(manualCount) manual)")
+                title = L10n.t("部分完成：成功 \(successCount) 项，需手动 \(manualCount) 项",
+                               "Partially complete: \(successCount) succeeded, \(manualCount) manual")
             }
             return (title, "exclamationmark.triangle.fill", Theme.warning)
         case .manualOnly:
@@ -70,7 +72,8 @@ struct ResultSheet: View {
                            "Manual action required (\(manualCount) not auto-removed)"),
                     "exclamationmark.triangle.fill", Theme.warning)
         case .allSucceeded:
-            return (L10n.t("卸载完成", "Uninstall complete"),
+            return (L10n.t("卸载完成（成功 \(successCount) 项）",
+                           "Uninstall complete (\(successCount) succeeded)"),
                     "checkmark.circle.fill", Theme.success)
         }
     }
