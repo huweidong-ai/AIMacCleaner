@@ -32,15 +32,16 @@ private enum ComposerMetrics {
     static let footerHeight: CGFloat = 30
     /// 放大态输入框的固定开销（不含文本区、不含斜杠面板）：
     /// Divider(1) + 输入区外层 HStack 上下 padding(12+12) + 胶囊上下内边距(10+6)
-    /// + 底部工具栏(30) + 胶囊内 padding(10+6)。
-    /// 计算放大态文本区高度时从可用高度里扣掉这部分，保证发送钮永远留在可视区。
-    static let composerFixedOverhead: CGFloat = 87
+    /// + 底部工具栏(30) = 71。
+    /// 计算放大态文本区高度时从可用高度里扣掉这部分（斜杠面板出现再额外扣 slashPaletteHeight），
+    /// 保证发送钮与面板永远完整留在可视区。
+    static let composerFixedOverhead: CGFloat = 71
     /// 放大态斜杠命令框自身高度：面板 maxHeight(104) + 上下 padding(6+4)。
     /// 出现斜杠面板时再从可用高度里额外扣掉这部分（自适应：面板消失则回收）。
     static let slashPaletteHeight: CGFloat = 114
 }
 
-/// 测量「问 AI」整页可用高度，供放大态输入框取「整个框的 2/3」。
+/// 测量「问 AI」整页可用高度，供放大态输入框取「整个框的 4/5」。
 private struct PageHeightKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -78,6 +79,10 @@ struct AskAIView: View {
     @State private var inputExpanded = false
     /// 当前文本在输入框宽度下排版后所需高度，用于不点放大钮时随内容自动增高。
     @State private var inputContentHeight: CGFloat = ComposerMetrics.inputHeight
+    /// NSTextView 的稳定高度：不参与放大/缩小动画（瞬跳），只在外层裁剪框做高度动画，
+    /// 从架构上消除「每帧 resize NSTextView」导致的放大/缩小闪屏。
+    /// 静态时等于当前态所需高度：收起态=收起内容高，放大态=放大文本区高。
+    @State private var textViewStableHeight: CGFloat = ComposerMetrics.inputHeight
     /// 「问 AI」整页可用高度（页头以下到窗口底），由 GeometryReader 测量，
     /// 放大态输入框据此取「整个框的 2/3」。
     @State private var pageHeight: CGFloat = 0
@@ -177,7 +182,13 @@ struct AskAIView: View {
     .onDisappear { SlashKeyInterceptor.shared.setActive(false) }
     .onChange(of: showSlashPalette) { _, on in
         SlashKeyInterceptor.shared.setActive(on)
+        // 斜杠面板出现/消失会改变放大态可用高度，同步 NSTextView 稳定高度（瞬跳、不闪）。
+        syncStableHeight()
     }
+    // 文字高度变化（输入/粘贴）或放大态翻转后，同步 NSTextView 稳定高度，
+    // 使其始终贴合目标态（放大态≥文字高、收起态=收起高），且因 .transaction 禁用动画而瞬跳。
+    .onChange(of: inputContentHeight) { _, _ in syncStableHeight() }
+    .onChange(of: inputExpanded) { _, _ in syncStableHeight() }
     .onReceive(NotificationCenter.default.publisher(for: .slashPaletteMove)) { note in
         guard showSlashPalette, !slashMatches.isEmpty else { return }
         let dir = (note.object as? Int) ?? 0
@@ -588,33 +599,50 @@ struct AskAIView: View {
     }
 
     /// 放大态输入框整体高度（含文本区、底部工具栏、内边距）。
-    /// 动态取「整个对话框可用高度 × 2/3」，使放大后输入框稳定占据页面的三分之二，
-    /// 聊天历史保留上方三分之一；窗口缩放时自动跟随。
+    /// 动态取「整个对话框可用高度 × 4/5」，放大后输入框顶到聊天区近顶部
+    /// （约留 1/5 聊天历史露在上方），与用户期望的放大高度一致；窗口缩放时自动跟随。
     private var expandedInputBoxHeight: CGFloat {
-        let fraction = pageHeight * 2 / 3
+        let fraction = pageHeight * 4 / 5
         // 折叠态上限（280）作为保底下限：即使窗口极小也保证放大明显大于折叠态。
         return max(fraction, ComposerMetrics.maxAutoHeight + ComposerMetrics.footerHeight + 16)
     }
 
-    /// 输入框文本区高度（不含底部工具栏、不含 padding）。
-    /// - 收起态：随内容在「默认行高 ~ 280 上限」之间弹性变化，超过后内部滚动。
-    /// - 放大态：框始终比文字高。以「整页 2/3」为下限；文字更高时框跟着涨
-    ///   （额外留 `expandedFollowMargin` 余量），直到可用空间上限，超出才滚动。
-    ///   这样既满足「占满整框 2/3」，又保证放大的框永远高于文字实际高度。
-    private var textAreaHeight: CGFloat {
-        if inputExpanded {
+    /// 文本区高度（不含底部工具栏、不含 padding）的纯函数版本，按指定 expanded 态计算。
+    /// 放大/缩小动画前用它预先算出「目标态」文本区高度，赋给 `textViewStableHeight`，
+    /// 让 NSTextView 瞬跳到位、不参与动画，从架构上消除每帧 resize 导致的闪屏。
+    private func textHeight(expanded: Bool) -> CGFloat {
+        if expanded {
             let design = expandedInputBoxHeight - ComposerMetrics.footerHeight - 16
             let follow = inputContentHeight + ComposerMetrics.expandedFollowMargin
-            // 可用空间上限：整页高扣掉 composer 上下 padding(24) + footer(30) + 内 padding(16)。
-            let cap = max(design, pageHeight - 70)
-            return min(max(design, follow), cap)
+            // 可用空间上限：整页高扣掉 composer 固定开销(71)，出现斜杠面板再额外扣面板高(114)，
+            // 保证面板永远完整可见、不被输入框顶出可视区（根治遮挡）。
+            let overhead = ComposerMetrics.composerFixedOverhead
+                + (showSlashPalette ? ComposerMetrics.slashPaletteHeight : 0)
+            let avail = pageHeight - overhead
+            return min(max(design, follow), avail)
         }
         return min(max(ComposerMetrics.inputHeight, inputContentHeight), ComposerMetrics.maxAutoHeight)
+    }
+
+    /// 输入框文本区高度（不含底部工具栏、不含 padding），随 `inputExpanded` 当前态取值。
+    /// - 收起态：随内容在「默认行高 ~ 280 上限」之间弹性变化，超过后内部滚动。
+    /// - 放大态：框始终比文字高。以「整页 4/5」为下限；文字更高时框跟着涨
+    ///   （额外留 `expandedFollowMargin` 余量），直到可用空间上限，超出才滚动。
+    ///   斜杠面板出现时自动缩减文本区，避免面板被输入框顶出可视区。
+    private var textAreaHeight: CGFloat {
+        textHeight(expanded: inputExpanded)
     }
 
     /// 输入框整体高度（含编辑区、底部工具栏、内边距），防止右侧 Spacer 把框撑到窗口高度。
     private var inputBoxHeight: CGFloat {
         textAreaHeight + ComposerMetrics.footerHeight + 16 // 10 top + 6 bottom padding inside the pill
+    }
+
+    /// 让 NSTextView 的稳定高度跟随当前态：放大态取放大高度（框高于文字），
+    /// 收起态取收起高度（贴合裁剪框，内容多则在框内滚动）。在 `.transaction{disablesAnimations}`
+    /// 作用下瞬跳、不闪——放大/缩小的高度动画只发生在外层裁剪框，NSTextView 不参与。
+    private func syncStableHeight() {
+        textViewStableHeight = textHeight(expanded: inputExpanded)
     }
 
     /// 千问风格：白色胶囊输入框。左侧多行编辑区 + 底部工具栏，右侧按钮列。
@@ -623,6 +651,8 @@ struct AskAIView: View {
         HStack(alignment: .bottom, spacing: 0) {
             // 左侧：文字可输入区
             VStack(alignment: .leading, spacing: 0) {
+                // 裁剪容器：高度跟随 textAreaHeight 动画，但 NSTextView 不参与动画
+                // （见下方 .transaction 与 textViewStableHeight），从架构上消除放大/缩小闪屏。
                 ZStack(alignment: .topLeading) {
                     ComposerTextView(
                         text: $input,
@@ -656,13 +686,23 @@ struct AskAIView: View {
                                 return true
                             }
                             if inputExpanded {
+                                // 缩小：先把 NSTextView 瞬跳到收起高度（不动画），
+                                // 再由外层裁剪框做 0.15s 收缩动画。
+                                let target = textHeight(expanded: false)
+                                withTransaction(Transaction(animation: nil)) {
+                                    textViewStableHeight = target
+                                }
                                 withAnimation(.easeOut(duration: 0.15)) { inputExpanded = false }
                                 return true
                             }
                             return false
                         }
                     )
-                    .frame(height: textAreaHeight, alignment: .topLeading)
+                    // NSTextView 高度固定为 textViewStableHeight，且禁用动画：
+                    // 放大/缩小时它「瞬跳」到目标高度，只有外层裁剪框做动画，
+                    // 不再每帧 resize NSTextView，根除闪屏。
+                    .frame(height: textViewStableHeight, alignment: .topLeading)
+                    .transaction { $0.disablesAnimations = true }
 
                     // placeholder：与输入文本同字号、同颜色层级；一旦开始输入
                     // （包括 IME 的首个拼音字母）立即隐藏，避免与候选文字重影。
@@ -674,6 +714,9 @@ struct AskAIView: View {
                             .allowsHitTesting(false)
                     }
                 }
+                // 裁剪框：高度随 inputExpanded 动画；内部 NSTextView 已瞬跳到位，只揭幕/收拢，不重排。
+                .frame(height: textAreaHeight, alignment: .topLeading)
+                .clipped()
 
                 // 底部工具栏：文字不可输入，专门放字数限制和扩展按钮。
                 composerFooter
@@ -716,7 +759,14 @@ struct AskAIView: View {
     /// 右上角放大/缩小钮。
     private var expandButton: some View {
         Button {
-            withAnimation(.easeOut(duration: 0.15)) { inputExpanded.toggle() }
+            let willExpand = !inputExpanded
+            // 先把 NSTextView 瞬跳到目标态高度（不动画），再由外层裁剪框做 0.15s 动画，
+            // 消除每帧 resize 导致的闪屏。
+            let target = textHeight(expanded: willExpand)
+            withTransaction(Transaction(animation: nil)) {
+                textViewStableHeight = target
+            }
+            withAnimation(.easeOut(duration: 0.15)) { inputExpanded = willExpand }
         } label: {
             Image(systemName: inputExpanded
                   ? "arrow.down.right.and.arrow.up.left"
@@ -1282,8 +1332,9 @@ private struct MessageBubble: View {
     }
 
     /// 用户气泡折叠：超过这个行数就折叠，底部显示「显示更多」。
+    /// 10 行以内全露出，超过才折叠；折叠后不滚动，只靠「显示更多」展开。
     /// fileprivate：让同文件的 AskAIView 在默认的折叠策略里复用这个阈值。
-    fileprivate static let collapsedLines = 8
+    fileprivate static let collapsedLines = 10
     private static let lineHeight: CGFloat = 17
 
     /// 是否足够长，需要折叠。由调用方（chatLog）按角色与 reset 情况算好传入。
@@ -1398,9 +1449,9 @@ private struct MessageBubble: View {
     }
 
     /// 气泡正文：
-    /// - 折叠态（默认，`!isExpanded`）：定高 ScrollView，滚动条沿气泡大小显示，
-    ///   用户可在不展开的情况下滚动查看全文。
-    /// - 展开态（点「显示更多」，`isExpanded`）：直接完整渲染，无滚动条、不限高。
+    /// - 折叠态（默认，`!isExpanded`）：定高裁剪，无滚动条、不可滚动，只靠「显示更多」展开；
+    ///   底部用 alpha 渐隐提示「下面还有」，渐隐用 mask 实现，与气泡背景色无关（用户蓝/AI 灰都适用）。
+    /// - 展开态（点「显示更多」，`isExpanded`）：直接完整渲染，无裁剪、不限高。
     /// - 短消息（不可折叠）：始终完整展示。
     private var messageText: some View {
         Group {
@@ -1410,14 +1461,19 @@ private struct MessageBubble: View {
                         .font(.system(size: 12.5))
                         .textSelection(.enabled)
                 } else {
-                    ScrollView {
-                        markdownText(message.text, isMine: message.role == .me)
-                            .font(.system(size: 12.5))
-                            .textSelection(.enabled)
-                    }
-                    // 折叠态定高，滚动条沿气泡大小滚动；内容超出时用户可滚动查看。
-                    .scrollIndicators(.visible)
-                    .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight)
+                    markdownText(message.text, isMine: message.role == .me)
+                        .font(.system(size: 12.5))
+                        .textSelection(.enabled)
+                        .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight,
+                               alignment: .top)
+                        .clipped()
+                        // 底部渐隐：mask 只取 alpha，与气泡背景色无关；
+                        // 内容实际超过折叠高度时，末段自然淡出，提示可展开。
+                        .mask(LinearGradient(stops: [
+                            Gradient.Stop(color: .black, location: 0),
+                            Gradient.Stop(color: .black, location: 0.8),
+                            Gradient.Stop(color: .clear, location: 1)
+                        ], startPoint: .top, endPoint: .bottom))
                 }
             } else {
                 markdownText(message.text, isMine: message.role == .me)
