@@ -1077,13 +1077,15 @@ private struct ComposerTextView: NSViewRepresentable {
         if let cs = scrollView as? ComposerScrollView, cs.wasExpanded != expanded {
             cs.wasExpanded = expanded
             cs.suppressScrollerFlash = true
-            // 仅隐藏滑块仍会留下轨道/淡影；动画窗口内彻底移除垂直滚动条，
+            // 仅隐藏滑块仍会留下轨道/淡影；动画窗口内彻底移除垂直滚动条并置透明，
             // 0.35s 后再恢复并按真实溢出状态决定是否显示。
             cs.hasVerticalScroller = false
+            cs.verticalScroller = nil            // 彻底卸掉 scroller，避免移除前仍绘制一帧
             let target = cs
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak target, weak textView] in
                 guard let sv = target else { return }
                 sv.hasVerticalScroller = true
+                sv.verticalScroller?.alphaValue = 1
                 sv.suppressScrollerFlash = false
                 // 动画结束：由统一逻辑按「溢出 && 非动画中」决定显隐。
                 if let tv = textView {
