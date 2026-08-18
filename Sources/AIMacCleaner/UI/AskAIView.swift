@@ -1077,12 +1077,15 @@ private struct ComposerTextView: NSViewRepresentable {
         if let cs = scrollView as? ComposerScrollView, cs.wasExpanded != expanded {
             cs.wasExpanded = expanded
             cs.suppressScrollerFlash = true
-            cs.verticalScroller?.isHidden = true
+            // 仅隐藏滑块仍会留下轨道/淡影；动画窗口内彻底移除垂直滚动条，
+            // 0.35s 后再恢复并按真实溢出状态决定是否显示。
+            cs.hasVerticalScroller = false
             let target = cs
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak target, weak textView] in
                 guard let sv = target else { return }
+                sv.hasVerticalScroller = true
                 sv.suppressScrollerFlash = false
-                // 动画结束：由统一逻辑按「溢出 && 非动画中」决定显隐，不再无条件显示。
+                // 动画结束：由统一逻辑按「溢出 && 非动画中」决定显隐。
                 if let tv = textView {
                     self.syncScrollerVisibility(sv, textView: tv)
                 }
@@ -1117,6 +1120,11 @@ private struct ComposerTextView: NSViewRepresentable {
         // 会抢走焦点，导致「点第一下光标没落进去，点第二下才进去」的竞态。
         if isFocused, let window = textView.window, window.firstResponder != textView {
             window.makeFirstResponder(textView)
+        }
+
+        // 每次刷新都同步一次滚动条显隐：窗口缩放、布局变化后也能及时按真实溢出状态更新。
+        if let cs = scrollView as? ComposerScrollView, !cs.suppressScrollerFlash {
+            syncScrollerVisibility(cs, textView: textView)
         }
     }
 
