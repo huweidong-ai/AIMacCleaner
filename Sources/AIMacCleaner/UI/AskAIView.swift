@@ -619,7 +619,10 @@ struct AskAIView: View {
             let overhead = ComposerMetrics.composerFixedOverhead
                 + (showSlashPalette ? ComposerMetrics.slashPaletteHeight : 0)
             let avail = pageHeight - overhead
-            return min(max(design, follow), avail)
+            // 放大态至少要不小于收起态上限：窗口较小时 design/avail 可能很小，
+            // 避免点“放大”后输入框反而比收起态还矮的坍缩感。
+            let lowerBound = ComposerMetrics.maxAutoHeight
+            return min(max(design, follow, lowerBound), avail)
         }
         return min(max(ComposerMetrics.inputHeight, inputContentHeight), ComposerMetrics.maxAutoHeight)
     }
