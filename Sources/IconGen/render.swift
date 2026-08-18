@@ -1,11 +1,12 @@
 #!/usr/bin/env swift
 import AppKit
 
-// Render the AI Mac Cleaner app icon (Lucide broom outline on Petrol Blue gradient)
-// to a 1024x1024 PNG at Sources/IconGen/AIMacCleaner.png.
+// Render the AI Mac Cleaner app icon (Lucide broom outline + AI sparkle on a
+// Petrol Blue gradient) to a 1024x1024 PNG at Sources/IconGen/AIMacCleaner.png.
 //
 // The broom is the Lucide "broom" glyph (lucide-static v1.31.0), drawn as a white
-// outline. The previous solid broom and the "AI" corner badge have been removed.
+// outline. A white four-point sparkle near the broom's handle tip conveys the
+// "AI Agent" nature without reintroducing the old circular "AI" badge.
 
 let size = NSSize(width: 1024, height: 1024)
 let image = NSImage(size: size, flipped: false) { _ in
@@ -73,6 +74,33 @@ let image = NSImage(size: size, flipped: false) { _ in
     // Bristle / binding detail lines
     strokeSeg(NSPoint(x: 5, y: 18), NSPoint(x: 7, y: 16))
     strokeSeg(NSPoint(x: 7.699, y: 10.7), NSPoint(x: 13.301, y: 16.301))
+
+    // AI sparkle: a four-point star (white outline) signaling the "AI Agent"
+    // nature. Placed just off the broom handle tip (the wand casting the spell).
+    func drawSparkle(_ cx: CGFloat, _ cy: CGFloat, _ r: CGFloat) {
+        let sp = NSBezierPath()
+        sp.move(to: NSPoint(x: cx, y: cy - r))
+        sp.curve(to: NSPoint(x: cx + r, y: cy),
+                 controlPoint1: NSPoint(x: cx, y: cy),
+                 controlPoint2: NSPoint(x: cx, y: cy))
+        sp.curve(to: NSPoint(x: cx, y: cy + r),
+                 controlPoint1: NSPoint(x: cx, y: cy),
+                 controlPoint2: NSPoint(x: cx, y: cy))
+        sp.curve(to: NSPoint(x: cx - r, y: cy),
+                 controlPoint1: NSPoint(x: cx, y: cy),
+                 controlPoint2: NSPoint(x: cx, y: cy))
+        sp.curve(to: NSPoint(x: cx, y: cy - r),
+                 controlPoint1: NSPoint(x: cx, y: cy),
+                 controlPoint2: NSPoint(x: cx, y: cy))
+        sp.close()
+        sp.lineWidth = lw
+        sp.lineJoinStyle = .round
+        sp.stroke()
+    }
+
+    // Main sparkle trailing the wand tip + a smaller accent, both in open space.
+    drawSparkle(18.5, 8.0, 2.4)
+    drawSparkle(5.5, 6.5, 1.4)
 
     ctx.restoreGraphicsState()
 
