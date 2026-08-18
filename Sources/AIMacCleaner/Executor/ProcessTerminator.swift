@@ -88,7 +88,7 @@ enum ProcessTerminator {
     }
 
     /// 按 PID 终止一组进程（优雅退出 → 强杀）。用于「进程」tab 的手动清理。
-    /// - Returns: 实际结束（已退出）的进程数。
+    /// - Returns: 实际结束（已退出或已成 zombie）的进程数。
     ///
     /// 排除自身与 `pid ≤ 1`，绝不终止 AI Mac Cleaner 自己或 init/launchd 之类。
     @discardableResult
@@ -98,18 +98,31 @@ enum ProcessTerminator {
         guard !targets.isEmpty else { return 0 }
 
         // 1) 先 SIGTERM，给进程保存 / 退出的机会。
-        for pid in targets { kill(pid, SIGTERM) }
+        for pid in targets { _ = Darwin.kill(pid, SIGTERM) }
         // 2) 等 1 秒收尾。
         Thread.sleep(forTimeInterval: 1.0)
-        // 3) 还活着的强杀。
-        var killed = 0
-        for pid in targets {
-            if kill(pid, 0) == 0 {        // 仍然存活
-                kill(pid, SIGKILL)
-            }
-            // 再确认一次：已退出（ESRCH，kill 返回非 0）才算成功结束。
-            if kill(pid, 0) != 0 { killed += 1 }
+
+        // 3) 还活着的批量 SIGKILL。
+        var pending = targets.filter { Darwin.kill($0, 0) == 0 }
+        for pid in pending { _ = Darwin.kill(pid, SIGKILL) }
+
+        // 4) 轮询等 SIGKILL 生效（最多 0.5s）。
+        for _ in 0..<10 where !pending.isEmpty {
+            Thread.sleep(forTimeInterval: 0.05)
+            pending = pending.filter { Darwin.kill($0, 0) == 0 && !isZombie($0) }
         }
-        return killed
+
+        // 5) 最终统计：已不存在（ESRCH）或已成 zombie 都视为成功结束。
+        return targets.filter { Darwin.kill($0, 0) != 0 || isZombie($0) }.count
+    }
+
+    /// 判断进程是否为 zombie（已终止但父进程尚未 wait）。
+    private static func isZombie(_ pid: pid_t) -> Bool {
+        var bsdBuf = [UInt8](repeating: 0, count: 256)
+        let brc = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsdBuf, Int32(bsdBuf.count))
+        guard brc > 0 else { return false }
+        let bsd = bsdBuf.withUnsafeBytes { $0.bindMemory(to: proc_bsdshortinfo.self).baseAddress!.pointee }
+        // SZOMB == 5 in Darwin <sys/proc.h>
+        return bsd.pbsi_status == 5
     }
 }
