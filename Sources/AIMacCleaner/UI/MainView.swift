@@ -22,14 +22,15 @@ struct MainView: View {
         HSplitView {
             if !sidebarCollapsed {
                 sidebar
-                    .frame(minWidth: 136, idealWidth: 136, maxWidth: 180)
+                    .frame(minWidth: 165, idealWidth: 175, maxWidth: 220)
             }
             detail
                 .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: sidebarCollapsed ? 700 : 880, minHeight: 560)
+        .frame(minWidth: sidebarCollapsed ? 700 : 920, minHeight: 560)
         .toolbar {
-            ToolbarItem(placement: .automatic) {
+            // 按钮放在标题左侧，标题自然“移到后面”。
+            ToolbarItem(placement: .navigation) {
                 Button {
                     sidebarCollapsed.toggle()
                 } label: {
