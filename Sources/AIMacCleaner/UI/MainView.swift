@@ -62,6 +62,21 @@ struct MainView: View {
         }
         .frame(minWidth: sidebarCollapsed ? 700 : Self.windowMinWidth,
                minHeight: 560)
+        // 强制窗口物理最小尺寸：`.windowResizability(.contentMinSize)` 只约束新建窗口，
+        // macOS 会记住上一次的窗口尺寸（可能 < minWidth），此时 HStack 装不下，
+        // sidebar/detail 内容会向两侧溢出被边框遮挡。这里启动时强制校正一次。
+        .onAppear {
+            DispatchQueue.main.async {
+                guard let window = NSApp.windows.first(where: { $0.isVisible }) else { return }
+                let minW = sidebarCollapsed ? 700 : Self.windowMinWidth
+                window.minSize = NSSize(width: minW, height: 560)
+                if window.frame.width < minW {
+                    var frame = window.frame
+                    frame.size.width = minW
+                    window.setFrame(frame, display: true)
+                }
+            }
+        }
         .toolbar {
             // 按钮放在标题左侧，标题自然“移到后面”。
             ToolbarItem(placement: .navigation) {
