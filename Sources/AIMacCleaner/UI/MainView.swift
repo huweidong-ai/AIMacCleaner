@@ -22,12 +22,12 @@ struct MainView: View {
         HSplitView {
             if !sidebarCollapsed {
                 sidebar
-                    .frame(minWidth: 200, idealWidth: 210, maxWidth: 260)
+                    .frame(minWidth: 220, idealWidth: 230, maxWidth: 280)
             }
             detail
                 .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: sidebarCollapsed ? 700 : 920, minHeight: 560)
+        .frame(minWidth: sidebarCollapsed ? 700 : 940, minHeight: 560)
         .toolbar {
             // 按钮放在标题左侧，标题自然“移到后面”。
             ToolbarItem(placement: .navigation) {
@@ -67,7 +67,7 @@ struct MainView: View {
             nav
             Spacer(minLength: 8)
             DiskCard(reclaimable: reclaimableBytes)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 12)
                 .padding(.bottom, 10)
             footLinks
         }
@@ -77,7 +77,8 @@ struct MainView: View {
 
     private var brand: some View {
         HStack(spacing: 8) {
-            AppIconView(size: 36)
+            // 36 在窄 sidebar 里偏胖；30 与导航图标同尺度，视觉密度更稳。
+            AppIconView(size: 30)
             VStack(alignment: .leading, spacing: 1) {
                 Text("AI Mac Cleaner")
                     .font(.system(size: 13.5, weight: .semibold))
@@ -87,7 +88,7 @@ struct MainView: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 12)
     }
@@ -103,7 +104,7 @@ struct MainView: View {
                 }
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 12)
     }
 
     private var footLinks: some View {
@@ -117,7 +118,7 @@ struct MainView: View {
             SideLink(icon: "keyboard",
                      title: L10n.t("macOS 工具", "macOS Tools")) { showMacTools = true }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 12)
         .padding(.bottom, 10)
     }
 
