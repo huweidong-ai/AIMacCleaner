@@ -11,23 +11,56 @@ struct MainView: View {
     @State private var showFeedback = false
     @State private var showMacTools = false
     @State private var sidebarCollapsed = false
+    /// 实时窗口宽度，用于在窗口缩到接近 minWidth 时自动隐藏 sidebar。
+    /// SwiftUI 的 HSplitView 在窗口宽度不足以容纳 sidebar minWidth + detail minWidth
+    /// 时不会严格遵守 minWidth，sidebar 会被压缩、内容向左溢出 frame —— 这时
+    /// 「左边图标被窗口边框遮挡」。所以宽度不够时主动收起，让 detail 占满窗口。
+    @State private var windowWidth: CGFloat = 1280
     // 直接订阅语言键 —— AppState 也会推 objectWillChange，但本视图里的 DiskCard
     // 嵌套较深、SwiftUI 不一定传透。这里双保险：自己再观察一次，切换时强制重建。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
+
+    /// sidebar 实际显示条件：用户没主动关 ∧ 窗口宽度够。
+    /// 用户主动关过的（sidebarCollapsed=true）即便窗口变大也不会自动展开，
+    /// 尊重上一次手动选择；窗口太窄触发的自动隐藏则在窗口变大后自动恢复。
+    private var effectiveSidebarVisible: Bool {
+        !sidebarCollapsed && windowWidth >= Self.sidebarMinVisibleWidth
+    }
+
+    /// sidebar 可见的最小窗口宽度 = sidebar.minWidth + detail.minWidth + 安全 buffer。
+    /// 这里 buffer 是 25：split divider (~1) + 视觉余量 (~24)。
+    private static let sidebarMinVisibleWidth: CGFloat = 220 + 700 + 25
 
     var body: some View {
         // 不用 NavigationSplitView：它在 macOS 上的自动布局黑盒经常触发
         // 「detail view 扩张到整个窗口、sidebar 彻底消失」这个经典 bug。
         // 手动 HSplitView 加显式约束，100% 可控。
         HSplitView {
-            if !sidebarCollapsed {
+            if effectiveSidebarVisible {
                 sidebar
                     .frame(minWidth: 220, idealWidth: 230, maxWidth: 280)
             }
             detail
                 .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: sidebarCollapsed ? 700 : 940, minHeight: 560)
+        .frame(minWidth: sidebarCollapsed ? 700 : Self.sidebarMinVisibleWidth,
+               minHeight: 560)
+        // 在 HSplitView 之外挂一个零成本 GeometryReader 捕获窗口宽度。
+        // background(Color.clear) 不会改变 layout，只让 PreferenceKey 能拿到 size。
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: WindowWidthPreferenceKey.self,
+                    value: geo.size.width
+                )
+            }
+        )
+        .onPreferenceChange(WindowWidthPreferenceKey.self) { width in
+            // 容差过滤：HSplitView resize 中会有 ±1px 抖动，平掉避免触发不必要的 rebuild。
+            if abs(width - windowWidth) > 0.5 {
+                windowWidth = width
+            }
+        }
         .toolbar {
             // 按钮放在标题左侧，标题自然“移到后面”。
             ToolbarItem(placement: .navigation) {
@@ -327,5 +360,17 @@ struct HistorySheet: View {
         .blanketDismiss { dismiss() }
         .presentationBackground(Theme.bgSurface)
         .frame(width: SheetPreset.historyListOuter.width, height: SheetPreset.historyListOuter.height)
+    }
+}
+
+// MARK: - 窗口宽度监听
+
+/// 把窗口宽度沿 SwiftUI 视图树向上传递的 PreferenceKey。
+/// MainView 用它来判断 sidebar 是否还有空间显示 —— 缩到接近 minWidth
+/// 时主动收起 sidebar，避免 HSplitView 把 sidebar 压扁、内容溢出 frame。
+private struct WindowWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
