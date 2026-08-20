@@ -63,15 +63,7 @@ struct MainView: View {
 
     private var brand: some View {
         HStack(spacing: 8) {
-            RoundedRectangle(cornerRadius: 7)
-                .fill(LinearGradient(colors: [Theme.accent, Theme.accentActive],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                .frame(width: 24, height: 24)
-                .overlay(
-                    Image(systemName: "wand.and.rays")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.white)
-                )
+            AppIconView(size: 24, cornerRadius: 7)
             VStack(alignment: .leading, spacing: 1) {
                 Text("AI Mac Cleaner")
                     .font(.system(size: 13.5, weight: .semibold))

@@ -12,15 +12,7 @@ struct AboutSheet: View {
         VStack(spacing: 0) {
             // 顶部：图标 + 名称 + 版本
             VStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(LinearGradient(colors: [Theme.accent, Theme.accentActive],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 64, height: 64)
-                    .overlay(
-                        Image(systemName: "wand.and.rays")
-                            .font(.system(size: 30, weight: .semibold))
-                            .foregroundStyle(.white)
-                    )
+                AppIconView(size: 64, cornerRadius: 16)
                 Text("AI Mac Cleaner")
                     .font(.system(size: 20, weight: .bold))
                 Text(L10n.t("Mac 深度卸载工具", "Deep uninstaller for macOS"))
