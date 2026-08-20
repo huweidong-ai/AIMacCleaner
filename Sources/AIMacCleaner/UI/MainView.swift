@@ -22,7 +22,7 @@ struct MainView: View {
         HSplitView {
             if !sidebarCollapsed {
                 sidebar
-                    .frame(minWidth: 165, idealWidth: 175, maxWidth: 220)
+                    .frame(minWidth: 200, idealWidth: 210, maxWidth: 260)
             }
             detail
                 .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
