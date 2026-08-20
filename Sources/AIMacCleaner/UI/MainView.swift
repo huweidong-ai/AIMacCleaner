@@ -10,6 +10,7 @@ struct MainView: View {
     @State private var showHistory = false
     @State private var showFeedback = false
     @State private var showMacTools = false
+    @State private var sidebarCollapsed = false
     // 直接订阅语言键 —— AppState 也会推 objectWillChange，但本视图里的 DiskCard
     // 嵌套较深、SwiftUI 不一定传透。这里双保险：自己再观察一次，切换时强制重建。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
@@ -19,12 +20,24 @@ struct MainView: View {
         // 「detail view 扩张到整个窗口、sidebar 彻底消失」这个经典 bug。
         // 手动 HSplitView 加显式约束，100% 可控。
         HSplitView {
-            sidebar
-                .frame(minWidth: 136, idealWidth: 136, maxWidth: 180)
+            if !sidebarCollapsed {
+                sidebar
+                    .frame(minWidth: 136, idealWidth: 136, maxWidth: 180)
+            }
             detail
                 .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 880, minHeight: 560)
+        .frame(minWidth: sidebarCollapsed ? 700 : 880, minHeight: 560)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Button {
+                    sidebarCollapsed.toggle()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help(L10n.t("显示/隐藏边栏", "Show/hide sidebar"))
+            }
+        }
         .sheet(isPresented: $showHistory) {
             HistorySheet()
         }
