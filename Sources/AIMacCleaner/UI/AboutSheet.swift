@@ -12,7 +12,7 @@ struct AboutSheet: View {
         VStack(spacing: 0) {
             // 顶部：图标 + 名称 + 版本
             VStack(spacing: 10) {
-                AppIconView(size: 64, cornerRadius: 16)
+                AppIconView(size: 72)
                 Text("AI Mac Cleaner")
                     .font(.system(size: 20, weight: .bold))
                 Text(L10n.t("Mac 深度卸载工具", "Deep uninstaller for macOS"))

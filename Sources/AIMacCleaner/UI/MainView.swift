@@ -63,7 +63,7 @@ struct MainView: View {
 
     private var brand: some View {
         HStack(spacing: 8) {
-            AppIconView(size: 24, cornerRadius: 7)
+            AppIconView(size: 36)
             VStack(alignment: .leading, spacing: 1) {
                 Text("AI Mac Cleaner")
                     .font(.system(size: 13.5, weight: .semibold))
