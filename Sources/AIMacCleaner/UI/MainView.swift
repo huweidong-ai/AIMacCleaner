@@ -91,6 +91,23 @@ struct MainView: View {
                 windowWidth = width
             }
         }
+        // 启动时保证 sidebar 常驻：macOS 会记住上次的窗口尺寸，如果上次把窗口
+        // 缩到装不下常驻 sidebar（< 临界点），一打开 sidebar 就是折叠态。
+        // 这里在启动瞬间把窗口拉宽到能容纳 sidebar 的默认宽度，恢复「默认展开」。
+        .onAppear {
+            DispatchQueue.main.async {
+                guard let window = NSApp.windows.first(where: { $0.isVisible }) else { return }
+                let minDock = max(780, sidebarWidth + 526)
+                if window.frame.width < minDock {
+                    var frame = window.frame
+                    // 目标 = 屏幕可视宽 - 40 边距，封顶 1080；至少拉到 minDock。
+                    let screenW = window.screen?.visibleFrame.width ?? 1200
+                    let target = min(1080, screenW - 40)
+                    frame.size.width = max(target, minDock)
+                    window.setFrame(frame, display: true)
+                }
+            }
+        }
         .toolbar {
             // 按钮放在标题左侧，标题自然“移到后面”。
             ToolbarItem(placement: .navigation) {
