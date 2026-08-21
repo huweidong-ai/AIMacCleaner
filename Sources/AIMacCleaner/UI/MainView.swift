@@ -10,78 +10,95 @@ struct MainView: View {
     @State private var showHistory = false
     @State private var showFeedback = false
     @State private var showMacTools = false
-    @State private var sidebarCollapsed = false
+    /// 用户主动收起 sidebar（工具栏按钮 / 把分隔线拖到最左）。
+    @State private var userCollapsed = false
+    /// 临时展开（flyout）：窗口很窄、sidebar 被自动收起后，点工具栏按钮滑出，
+    /// 点击空白处收回。Xcode/Safari 同款交互。
+    @State private var transientVisible = false
     /// sidebar 实际宽度。不用 HSplitView —— 它在 macOS 上由底层 NSSplitView 管理，
     /// 窗口缩小时会把 sidebar 压得比 SwiftUI minWidth 还窄、内容向左溢出被边框遮挡。
-    /// 这里自己用 HStack + 拖拽把手控制宽度，clamp 在 220...280，物理上不可能被压扁。
+    /// 这里自己管宽度：拖拽把手 clamp 在 100...280，物理上不可能被压扁。
     @State private var sidebarWidth: CGFloat = 235
     @State private var widthAtDragStart: CGFloat = 235
+    /// 实时窗口宽度（由 GeometryReader + PreferenceKey 提供）。
+    @State private var windowWidth: CGFloat = 1200
     // 直接订阅语言键 —— AppState 也会推 objectWillChange，但本视图里的 DiskCard
     // 嵌套较深、SwiftUI 不一定传透。这里双保险：自己再观察一次，切换时强制重建。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
 
-    /// sidebar 可见时的窗口最小宽度 = sidebar 最大宽度 + detail 最小宽度 + 分隔线余量。
-    /// 窗口被 `.windowResizability(.contentMinSize)` 锁死，物理上缩不到更小，
-    /// 所以 sidebar 永远有完整空间。
-    private static let windowMinWidth: CGFloat = 280 + 700 + 12
+    /// 窗口太窄、放不下 sidebar + detail 时自动收起。实时计算而非 @State：
+    /// 窗口 resize 触发 body 重算，无需额外监听。
+    /// 706 = detail.minWidth(700) + 分隔线(~1) + 容差(~5)。
+    private var autoCollapsed: Bool {
+        windowWidth < sidebarWidth + 706
+    }
+
+    /// sidebar 是否应该显示：临时展开中，或（用户没主动收 ∧ 窗口够宽）。
+    private var sidebarVisible: Bool {
+        transientVisible || (!userCollapsed && !autoCollapsed)
+    }
+
+    /// 常驻展开模式（sidebar 挤压 detail）——只有用户没收、窗口够宽且不在临时展开时。
+    private var isDocked: Bool {
+        sidebarVisible && !transientVisible && !autoCollapsed
+    }
 
     var body: some View {
-        // 不用 NavigationSplitView / HSplitView：它们的自动布局黑盒在窗口缩小时
-        // 会无视 SwiftUI minWidth 把 sidebar 压扁。HStack + 自管宽度 100% 可控。
-        HStack(spacing: 0) {
-            if !sidebarCollapsed {
-                sidebar
-                    .frame(width: sidebarWidth)
-                    .overlay(alignment: .trailing) {
-                        // 拖拽把手：6px 透明命中区，拖它改变 sidebar 宽度。
-                        Rectangle()
-                            .fill(Color.clear)
-                            .frame(width: 6)
-                            .contentShape(Rectangle())
-                            .onHover { hovering in
-                                if hovering {
-                                    NSCursor.resizeLeftRight.push()
-                                } else {
-                                    NSCursor.pop()
-                                }
-                            }
-                            .gesture(
-                                DragGesture(minimumDistance: 1)
-                                    .onChanged { value in
-                                        if value.translation.width == 0 {
-                                            widthAtDragStart = sidebarWidth
-                                        }
-                                        sidebarWidth = min(max(220, widthAtDragStart + value.translation.width), 280)
-                                    }
-                            )
-                    }
-                Divider()
-            }
-            detail
-                .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(minWidth: sidebarCollapsed ? 700 : Self.windowMinWidth,
-               minHeight: 560)
-        // 强制窗口物理最小尺寸：`.windowResizability(.contentMinSize)` 只约束新建窗口，
-        // macOS 会记住上一次的窗口尺寸（可能 < minWidth），此时 HStack 装不下，
-        // sidebar/detail 内容会向两侧溢出被边框遮挡。这里启动时强制校正一次。
-        .onAppear {
-            DispatchQueue.main.async {
-                guard let window = NSApp.windows.first(where: { $0.isVisible }) else { return }
-                let minW = sidebarCollapsed ? 700 : Self.windowMinWidth
-                window.minSize = NSSize(width: minW, height: 560)
-                if window.frame.width < minW {
-                    var frame = window.frame
-                    frame.size.width = minW
-                    window.setFrame(frame, display: true)
+        ZStack {
+            if isDocked {
+                // 常驻模式：sidebar 与 detail 并排，中间分隔线。
+                HStack(spacing: 0) {
+                    sidebarWithHandle
+                    Divider()
+                    detail
+                        .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
                 }
+            } else {
+                // 收起 / 临时展开（flyout）：detail 占满全宽。
+                ZStack(alignment: .leading) {
+                    detail
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    if transientVisible {
+                        // 点击空白处收回 flyout。放在 sidebar 下层，点 sidebar 不触发。
+                        Color.black.opacity(0.05)
+                            .onTapGesture { transientVisible = false }
+                        sidebarWithHandle
+                            .shadow(color: .black.opacity(0.18), radius: 10, x: 3, y: 0)
+                            .zIndex(1)
+                    }
+                }
+            }
+        }
+        // 窗口可自由缩到 detail 最小宽度；再小也由 autoCollapsed 自动收起兜底。
+        .frame(minWidth: 700, minHeight: 560)
+        // 在布局之外挂一个零成本 GeometryReader 捕获窗口宽度。
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: WindowWidthPreferenceKey.self,
+                    value: geo.size.width
+                )
+            }
+        )
+        .onPreferenceChange(WindowWidthPreferenceKey.self) { width in
+            if abs(width - windowWidth) > 0.5 {
+                windowWidth = width
             }
         }
         .toolbar {
             // 按钮放在标题左侧，标题自然“移到后面”。
             ToolbarItem(placement: .navigation) {
                 Button {
-                    sidebarCollapsed.toggle()
+                    if transientVisible {
+                        // 正在临时展开 → 收回
+                        transientVisible = false
+                    } else if sidebarVisible {
+                        // 常驻展开中 → 收起
+                        userCollapsed = true
+                    } else {
+                        // 已收起（手动或窗口太窄自动）→ 临时滑出
+                        transientVisible = true
+                    }
                 } label: {
                     Image(systemName: "sidebar.left")
                 }
@@ -109,6 +126,47 @@ struct MainView: View {
     }
 
     // MARK: - 侧栏
+
+    /// sidebar + 右侧拖拽把手。常驻与 flyout 两种模式共用。
+    private var sidebarWithHandle: some View {
+        sidebar
+            .frame(width: sidebarWidth)
+            .overlay(alignment: .trailing) {
+                // 拖拽把手：6px 透明命中区，向右拖加宽、向左拖收窄；
+                // 拖到最左（< 160）等同点了 sidebar 按钮 —— 收回。
+                Rectangle()
+                    .fill(Color.clear)
+                    .frame(width: 6)
+                    .contentShape(Rectangle())
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.resizeLeftRight.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 1)
+                            .onChanged { value in
+                                if value.translation.width == 0 {
+                                    widthAtDragStart = sidebarWidth
+                                }
+                                sidebarWidth = min(max(100, widthAtDragStart + value.translation.width), 280)
+                            }
+                            .onEnded { _ in
+                                // 拖到最左 = 收回
+                                if sidebarWidth < 160 {
+                                    sidebarWidth = 235
+                                    if transientVisible {
+                                        transientVisible = false
+                                    } else {
+                                        userCollapsed = true
+                                    }
+                                }
+                            }
+                    )
+            }
+    }
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -376,5 +434,16 @@ struct HistorySheet: View {
         .blanketDismiss { dismiss() }
         .presentationBackground(Theme.bgSurface)
         .frame(width: SheetPreset.historyListOuter.width, height: SheetPreset.historyListOuter.height)
+    }
+}
+
+// MARK: - 窗口宽度监听
+
+/// 把窗口宽度沿 SwiftUI 视图树向上传递的 PreferenceKey。
+/// MainView 用它在窗口缩窄时自动收起 sidebar（`autoCollapsed`）。
+private struct WindowWidthPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
