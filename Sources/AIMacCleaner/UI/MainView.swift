@@ -28,9 +28,13 @@ struct MainView: View {
 
     /// 窗口太窄、放不下 sidebar + detail 时自动收起。实时计算而非 @State：
     /// 窗口 resize 触发 body 重算，无需额外监听。
-    /// 706 = detail.minWidth(700) + 分隔线(~1) + 容差(~5)。
+    ///
+    /// 临界点 = max(固定 780, sidebar 当前宽 + detail 可容忍最小宽 526 + 余量)。
+    /// - 780：接近窗口最小值（700），只有缩到很小才自动收起；平时 sidebar 常驻。
+    /// - 动态部分：sidebar 拖宽到 280 时临界点相应抬高，避免 280 宽的 sidebar
+    ///   和 detail 在同一窗口里互相挤爆。
     private var autoCollapsed: Bool {
-        windowWidth < sidebarWidth + 706
+        windowWidth < max(780, sidebarWidth + 526)
     }
 
     /// sidebar 是否应该显示：临时展开中，或（用户没主动收 ∧ 窗口够宽）。
@@ -51,7 +55,9 @@ struct MainView: View {
                     sidebarWithHandle
                     Divider()
                     detail
-                        .frame(minWidth: 700, maxWidth: .infinity, maxHeight: .infinity)
+                        // 常驻模式允许 detail 被压到 520 —— 页面自适应压缩，
+                        // 直到窗口接近最小才触发 autoCollapsed 收起 sidebar。
+                        .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
                 // 收起 / 临时展开（flyout）：detail 占满全宽。
