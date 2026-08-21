@@ -26,15 +26,17 @@ struct MainView: View {
     // 嵌套较深、SwiftUI 不一定传透。这里双保险：自己再观察一次，切换时强制重建。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
 
+    /// 常驻模式下 sidebar + detail 的最小总宽度 = sidebar 当前宽 + detail 最低宽度(360) + 分隔线(~1) + 余量。
+    /// 窗口宽度 < 这个值 → 自动收起（flyout），避免 sidebar/detail 互相挤爆导致左右遮挡。
+    /// 这个值同时用作「常驻时」窗口的最小宽度，二者保持一致，杜绝中间的溢出死区。
+    private var dockedMinWidth: CGFloat {
+        sidebarWidth + 360 + 8
+    }
+
     /// 窗口太窄、放不下 sidebar + detail 时自动收起。实时计算而非 @State：
     /// 窗口 resize 触发 body 重算，无需额外监听。
-    ///
-    /// 临界点 = max(固定 780, sidebar 当前宽 + detail 可容忍最小宽 526 + 余量)。
-    /// - 780：接近窗口最小值（700），只有缩到很小才自动收起；平时 sidebar 常驻。
-    /// - 动态部分：sidebar 拖宽到 280 时临界点相应抬高，避免 280 宽的 sidebar
-    ///   和 detail 在同一窗口里互相挤爆。
     private var autoCollapsed: Bool {
-        windowWidth < max(780, sidebarWidth + 526)
+        windowWidth < dockedMinWidth
     }
 
     /// sidebar 是否应该显示：临时展开中，或（用户没主动收 ∧ 窗口够宽）。
@@ -55,9 +57,9 @@ struct MainView: View {
                     sidebarWithHandle
                     Divider()
                     detail
-                        // 常驻模式允许 detail 被压到 520 —— 页面自适应压缩，
-                        // 直到窗口接近最小才触发 autoCollapsed 收起 sidebar。
-                        .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+                        // 常驻模式允许 detail 下探到 360：窗口很窄（但仍 >= dockedMinWidth）
+                        // 时页面自适应压缩，不再出现「sidebar+detail 超出窗口」的左右遮挡。
+                        .frame(minWidth: 360, maxWidth:  .infinity, maxHeight: .infinity)
                 }
             } else {
                 // 收起 / 临时展开（flyout）：detail 占满全宽。
@@ -75,8 +77,10 @@ struct MainView: View {
                 }
             }
         }
-        // 窗口可自由缩到 detail 最小宽度；再小也由 autoCollapsed 自动收起兜底。
-        .frame(minWidth: 700, minHeight: 560)
+        // 窗口最小宽度随状态变化：
+        // - 常驻（sidebar 展开并排）：必须 >= dockedMinWidth，窗口物理上装得下，杜绝左右遮挡。
+        // - 折叠 / 临时展开：detail 占满，只需 detail 最低 700。
+        .frame(minWidth: isDocked ? dockedMinWidth : 700, minHeight: 560)
         // 在布局之外挂一个零成本 GeometryReader 捕获窗口宽度。
         .background(
             GeometryReader { geo in
@@ -91,19 +95,20 @@ struct MainView: View {
                 windowWidth = width
             }
         }
-        // 启动时保证 sidebar 常驻：macOS 会记住上次的窗口尺寸，如果上次把窗口
-        // 缩到装不下常驻 sidebar（< 临界点），一打开 sidebar 就是折叠态。
-        // 这里在启动瞬间把窗口拉宽到能容纳 sidebar 的默认宽度，恢复「默认展开」。
+        // 启动时保证 sidebar 默认展开：macOS 会记住上次的窗口尺寸，如果上次把窗口
+        // 缩到装不下常驻 sidebar，一打开 sidebar 就是折叠态。这里在启动瞬间把窗口
+        // 拉宽到 comfortably 默认宽度（保持原位置、只改宽），恢复「默认展开」。
+        // 用一个短延迟，确保窗口已就位、躲过系统对记住尺寸的还原，避免被覆盖。
         .onAppear {
-            DispatchQueue.main.async {
-                guard let window = NSApp.windows.first(where: { $0.isVisible }) else { return }
-                let minDock = max(780, sidebarWidth + 526)
-                if window.frame.width < minDock {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                let candidates = [NSApp.mainWindow, NSApp.keyWindow] + NSApp.windows
+                guard let window = candidates.compactMap({ $0 }).first(where: { $0.isVisible }) else { return }
+                let targetWidth = max(dockedMinWidth, 1040)
+                let maxW = (window.screen?.visibleFrame.width ?? 1280) - 40
+                if window.frame.width < targetWidth {
                     var frame = window.frame
-                    // 目标 = 屏幕可视宽 - 40 边距，封顶 1080；至少拉到 minDock。
-                    let screenW = window.screen?.visibleFrame.width ?? 1200
-                    let target = min(1080, screenW - 40)
-                    frame.size.width = max(target, minDock)
+                    frame.size.width = min(targetWidth, maxW)
+                    frame.size.height = max(frame.size.height, 600)
                     window.setFrame(frame, display: true)
                 }
             }
