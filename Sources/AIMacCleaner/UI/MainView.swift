@@ -9,7 +9,6 @@ struct MainView: View {
     @EnvironmentObject var state: AppState
     @State private var showHistory = false
     @State private var showFeedback = false
-    @State private var showMacTools = false
     /// 用户主动收起 sidebar（工具栏按钮 / 把分隔线拖到最左）。
     @State private var userCollapsed = false
     /// 临时展开（flyout）：窗口很窄、sidebar 被自动收起后，点工具栏按钮滑出，
@@ -54,31 +53,40 @@ struct MainView: View {
     }
 
     var body: some View {
-        ZStack {
+        // 关键：detail 始终放在同一个结构位置（外层 ZStack 的第一个子视图），
+        // 只通过 leading padding 让出 sidebar 的宽度，再叠加 sidebar 浮层。
+        // 这样 isDocked 切换时 detail 的视图身份不变，AskAIView 不会被重建，
+        // 输入框里已输入的文字等 @State 才得以保留（否则点一下导航栏就丢字）。
+        ZStack(alignment: .leading) {
+            detail
+                .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.leading, isDocked ? sidebarWidth : 0)
+                .animation(.easeInOut(duration: 0.18), value: isDocked)
+
+            // flyout（窗口太窄或手动临时展开）的暗色遮罩：点空白处收回。
+            if transientVisible {
+                Color.black.opacity(0.05)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onTapGesture { transientVisible = false }
+            }
+
+            // sidebar 浮层：常驻时跟随 detail 左侧；flyout 时带阴影浮在上面。
             if isDocked {
-                // 常驻模式：sidebar 与 detail 并排，中间分隔线。
-                HStack(spacing: 0) {
-                    sidebarWithHandle
-                    Divider()
-                    detail
-                        // 常驻模式允许 detail 下探到 360：窗口很窄（但仍 >= dockedMinWidth）
-                        // 时页面自适应压缩，不再出现「sidebar+detail 超出窗口」的左右遮挡。
-                        .frame(minWidth: 360, maxWidth:  .infinity, maxHeight: .infinity)
-                }
-            } else {
-                // 收起 / 临时展开（flyout）：detail 占满全宽。
-                ZStack(alignment: .leading) {
-                    detail
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if transientVisible {
-                        // 点击空白处收回 flyout。放在 sidebar 下层，点 sidebar 不触发。
-                        Color.black.opacity(0.05)
-                            .onTapGesture { transientVisible = false }
-                        sidebarWithHandle
-                            .shadow(color: .black.opacity(0.18), radius: 10, x: 3, y: 0)
-                            .zIndex(1)
-                    }
-                }
+                sidebarWithHandle
+                    .frame(width: sidebarWidth)
+            } else if transientVisible {
+                sidebarWithHandle
+                    .frame(width: sidebarWidth)
+                    .shadow(color: .black.opacity(0.18), radius: 10, x: 3, y: 0)
+                    .zIndex(1)
+            }
+
+            // 常驻模式下 sidebar 右缘画一条分隔线（跟随 sidebarWidth 一起动）。
+            if isDocked {
+                Theme.divider
+                    .frame(width: 1, height: .infinity)
+                    .offset(x: sidebarWidth)
+                    .zIndex(2)
             }
         }
         // 根视图必须强制填满窗口，否则 SwiftUI 在 .contentMinSize 下可能按内容
@@ -97,8 +105,8 @@ struct MainView: View {
         // 比 GeometryReader 更贴近真实窗口尺寸。
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                let candidates = [NSApp.mainWindow, NSApp.keyWindow] + NSApp.windows
-                guard let window = candidates.compactMap({ $0 }).first(where: { $0.isVisible }) else { return }
+                let candidates: [NSWindow] = ([NSApp.mainWindow, NSApp.keyWindow] as [NSWindow?]).compactMap { $0 } + NSApp.windows
+                guard let window = candidates.first(where: { $0.isVisible }) else { return }
                 window.isRestorable = false
 
                 // 窗口宽度直接取 NSWindow.frame，避免 SwiftUI 几何误报。
@@ -120,8 +128,8 @@ struct MainView: View {
         }
         // 窗口 resize 时直接读 NSWindow.frame，持续保证 autoCollapsed 用真实宽度。
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { _ in
-            let candidates = [NSApp.mainWindow, NSApp.keyWindow] + NSApp.windows
-            if let window = candidates.compactMap({ $0 }).first(where: { $0.isVisible }) {
+            let candidates: [NSWindow] = ([NSApp.mainWindow, NSApp.keyWindow] as [NSWindow?]).compactMap { $0 } + NSApp.windows
+            if let window = candidates.first(where: { $0.isVisible }) {
                 windowWidth = window.frame.width
             }
         }
@@ -150,7 +158,7 @@ struct MainView: View {
         .sheet(isPresented: $showFeedback) {
             FeedbackHistorySheet()
         }
-        .sheet(isPresented: $showMacTools) {
+        .sheet(isPresented: $state.showMacTools) {
             MacToolkitSheet()
         }
         .sheet(isPresented: $state.showAbout) {
@@ -262,7 +270,7 @@ struct MainView: View {
             SideLink(icon: "flag",
                      title: L10n.t("反馈记录", "Feedback")) { showFeedback = true }
             SideLink(icon: "keyboard",
-                     title: L10n.t("macOS 工具", "macOS Tools")) { showMacTools = true }
+                     title: L10n.t("macOS 工具", "macOS Tools")) { state.showMacTools = true }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 10)

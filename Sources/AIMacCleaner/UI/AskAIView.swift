@@ -352,11 +352,22 @@ struct AskAIView: View {
         return FlowRow(spacing: 10) {
             ForEach(items, id: \.1) { icon, text in
                 Button {
-                    // 只填入、不发送：建议词是起点不是终点，用户往往要改一改
-                    //（换个 app 名、加个限定）再发。直接发出去等于替他做主。
-                    inputFocused = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        input = text
+                    if text == L10n.t("macOS 工具使用指南", "macOS tools guide") {
+                        // 这条 chip 直接给出介绍并带「打开面板」按钮，
+                        // 不需要走模型，避免模型把它当成普通清理请求去调工具。
+                        let guide = L10n.t(
+                            "AI Mac Cleaner 在侧边栏底部放了一个「macOS 工具」入口，集合了常用的系统小工具：截图、窗口管理、剪贴板、文件与隐私等。点下方按钮即可打开工具面板。",
+                            "AI Mac Cleaner provides a \"macOS Tools\" entry at the bottom of the sidebar, grouping common system utilities: screenshots, window management, clipboard, files, and privacy. Tap the button below to open the toolkit."
+                        )
+                        state.appendChat(AIMessage(role: .me, text: text))
+                        state.appendChat(AIMessage(role: .ai, text: guide, redirect: .macTools))
+                    } else {
+                        // 只填入、不发送：建议词是起点不是终点，用户往往要改一改
+                        //（换个 app 名、加个限定）再发。直接发出去等于替他做主。
+                        inputFocused = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            input = text
+                        }
                     }
                 } label: {
                     Label(text, systemImage: icon)
@@ -368,7 +379,9 @@ struct AskAIView: View {
                         .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
-                .help(L10n.t("填入输入框，可修改后按回车发送",
+                .help(text == L10n.t("macOS 工具使用指南", "macOS tools guide")
+                      ? L10n.t("查看 macOS 工具介绍", "View macOS tools guide")
+                      : L10n.t("填入输入框，可修改后按回车发送",
                              "Fills the input box — edit it, then press Return"))
             }
         }
@@ -441,6 +454,7 @@ struct AskAIView: View {
                                             case .apps:      state.selectedTab = .apps
                                             case .leftovers: state.selectedTab = .leftovers
                                             case .processes: state.selectedTab = .processes
+                                            case .macTools:  state.showMacTools = true
                                             }
                                         }
                                     }

@@ -102,13 +102,14 @@ struct SkillArgs {
 /// 所以这里放一份纯数据的副本，到 `AgentBridge` / `AskAIView`（都是 MainActor）
 /// 再映射回 `AppState.Tab`。
 enum AgentTab: String, Codable, Sendable {
-    case apps, leftovers, processes
+    case apps, leftovers, processes, macTools
 
     var displayName: String {
         switch self {
         case .apps:      return L10n.t("应用", "Apps")
         case .leftovers: return L10n.t("残留", "Leftovers")
         case .processes: return L10n.t("进程", "Processes")
+        case .macTools:  return L10n.t("macOS 工具", "macOS Tools")
         }
     }
 }

@@ -198,6 +198,8 @@ final class AppState: ObservableObject {
     @Published var showAbout: Bool = false
     /// AI 模型设置面板（菜单栏 设置 → 配置 AI 模型… 触发）。
     @Published var showAIModelSettings: Bool = false
+    /// macOS 工具面板（侧栏底部「macOS 工具」入口触发）。
+    @Published var showMacTools: Bool = false
 
     /// 是否拥有完全磁盘访问权限（FDA）。冷启动检测一次，app 激活时重测。
     /// 没它扫不了 `~/Library` 下其他 app 的数据，扫描入口会据此改弹引导页。
