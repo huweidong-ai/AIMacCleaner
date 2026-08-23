@@ -165,6 +165,12 @@ struct AIMacCleanerApp: App {
                 .preferredColorScheme(.light)
         }
         .windowResizability(.contentMinSize)
+        // 新开窗口的默认尺寸：1040×680，远超 sidebar 常驻所需（~603px）。
+        // 这样「默认展开」由 SwiftUI 自己保证 —— 只要用户没手动关过 sidebar、
+        // 窗口也没窄到触发 autoCollapsed，一打开就是展开态。
+        // 注意：defaultSize 只在「首次创建窗口」生效；已记住的旧窄尺寸会覆盖它。
+        // 彻底解决旧尺寸问题靠 build_app.sh 发布时清一次 Saved Application State。
+        .defaultSize(width: 1040, height: 680)
         .commands {
             CommandGroup(replacing: .help) {
                 Link(L10n.t("AI Mac Cleaner 主页", "AI Mac Cleaner Homepage"), destination: URL(string: "https://github.com/hwd8080-ai/AIMacCleaner")!)

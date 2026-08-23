@@ -95,12 +95,21 @@ struct MainView: View {
                 windowWidth = width
             }
         }
-        // 启动时保证 sidebar 默认展开：macOS 会记住上次的窗口尺寸，如果上次把窗口
-        // 缩到装不下常驻 sidebar，一打开 sidebar 就是折叠态。这里在启动瞬间把窗口
-        // 拉宽到 comfortably 默认宽度（保持原位置、只改宽），恢复「默认展开」。
-        // 用一个短延迟，确保窗口已就位、躲过系统对记住尺寸的还原，避免被覆盖。
+        // 侧边栏「默认展开」的最终保障：
+        // macOS 会按位置/屏幕记住每个窗口的 frame，adhoc 重新打包后窗口身份仍按
+        // 位置匹配，于是重新打开时常带着上次缩小的旧窄尺寸 → autoCollapsed 为真 →
+        // 一打开就是折叠态。这里做两层兜底：
+        //   1) 清掉 Saved Application State 里记住的窗口尺寸（用户上一次关闭时的状态），
+        //      让 SwiftUI 的 .defaultSize(1040×680) 真正生效；
+        //   2) 若窗口仍偏窄（< dockedMinWidth），拉宽到 comfortably 默认宽度，恢复展开。
+        // 用短延迟确保窗口已就位、躲过系统对记住尺寸的还原，避免被旧值覆盖。
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            // 1) 清窗口记忆：删 Saved Application State（只删本 app 的，不动其他）。
+            let savedState = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Saved Application State/com.aicleaner.app.savedState")
+            try? FileManager.default.removeItem(at: savedState)
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 let candidates = [NSApp.mainWindow, NSApp.keyWindow] + NSApp.windows
                 guard let window = candidates.compactMap({ $0 }).first(where: { $0.isVisible }) else { return }
                 let targetWidth = max(dockedMinWidth, 1040)

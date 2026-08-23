@@ -189,7 +189,16 @@ else
     echo "  ! 签名标识符不符预期，TCC 授权可能记不住"
 fi
 
-echo "━━ 5/5 验证 ━━"
+echo "━━ 5/5 验证 + 重置窗口记忆 ━━"
+# 清掉本 app 记住的窗口尺寸（Saved Application State）。
+# 原因：macOS 按位置/屏幕记住窗口 frame，adhoc 重打包后身份仍按位置匹配，
+# 于是重新打开常带着「上次缩小的旧窄尺寸」→ 侧边栏一开就折叠。
+# 删掉它，让用户装完新包第一次打开就用 SwiftUI .defaultSize(1040×680) 的默认展开态。
+SS_DIR="$HOME/Library/Saved Application State/com.aicleaner.app.savedState"
+if [ -d "$SS_DIR" ]; then
+  rm -rf "$SS_DIR"
+  echo "  ✓ 已重置窗口记忆（下次打开默认展开侧边栏）"
+fi
 test -x "$TARGET/Contents/MacOS/$CLI_NAME" && echo "  ✓ 可执行文件就绪"
 test -f "$TARGET/Contents/Info.plist" && echo "  ✓ Info.plist 就绪"
 test -f "$TARGET/Contents/Resources/$APP_NAME.icns" && echo "  ✓ 图标就绪"
