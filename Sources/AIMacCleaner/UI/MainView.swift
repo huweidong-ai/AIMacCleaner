@@ -20,17 +20,21 @@ struct MainView: View {
     /// 这里自己管宽度：拖拽把手 clamp 在 100...280，物理上不可能被压扁。
     @State private var sidebarWidth: CGFloat = 235
     @State private var widthAtDragStart: CGFloat = 235
-    /// 实时窗口宽度（由 GeometryReader + PreferenceKey 提供）。
+    /// 实时窗口宽度：由 AppKit NSWindow 的 frame 与 didResize 通知驱动，
+    /// 比 GeometryReader 更稳，避免 SwiftUI 在 .contentMinSize 下读到内容固有宽度。
     @State private var windowWidth: CGFloat = 1200
     // 直接订阅语言键 —— AppState 也会推 objectWillChange，但本视图里的 DiskCard
     // 嵌套较深、SwiftUI 不一定传透。这里双保险：自己再观察一次，切换时强制重建。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
 
-    /// 常驻模式下 sidebar + detail 的最小总宽度 = sidebar 当前宽 + detail 最低宽度(360) + 分隔线(~1) + 余量。
-    /// 窗口宽度 < 这个值 → 自动收起（flyout），避免 sidebar/detail 互相挤爆导致左右遮挡。
-    /// 这个值同时用作「常驻时」窗口的最小宽度，二者保持一致，杜绝中间的溢出死区。
+    /// 常驻模式下 sidebar + detail 的最小总宽度。
+    /// 这里用 670 作为 detail 区的真实下限：AppsView 内部是 230+440 的左右分栏，
+    /// 比 AskAI 的 360 更宽；若 threshold 用 360，窗口缩到 880（外层 minWidth）
+    /// 时仍大于 603，autoCollapsed 永远不会触发。用 670 后，默认 1040 展开，
+    /// 缩到约 913 以下就自动收起 sidebar，符合「缩窄到怕遮挡才折叠」的诉求。
+    private let detailMinWidth: CGFloat = 670
     private var dockedMinWidth: CGFloat {
-        sidebarWidth + 360 + 8
+        sidebarWidth + detailMinWidth + 8
     }
 
     /// 窗口太窄、放不下 sidebar + detail 时自动收起。实时计算而非 @State：
@@ -77,49 +81,48 @@ struct MainView: View {
                 }
             }
         }
-        // 窗口最小宽度随状态变化：
-        // - 常驻（sidebar 展开并排）：必须 >= dockedMinWidth，窗口物理上装得下，杜绝左右遮挡。
-        // - 折叠 / 临时展开：detail 占满，只需 detail 最低 700。
-        .frame(minWidth: isDocked ? dockedMinWidth : 700, minHeight: 560)
-        // 在布局之外挂一个零成本 GeometryReader 捕获窗口宽度。
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: WindowWidthPreferenceKey.self,
-                    value: geo.size.width
-                )
-            }
-        )
-        .onPreferenceChange(WindowWidthPreferenceKey.self) { width in
-            if abs(width - windowWidth) > 0.5 {
-                windowWidth = width
-            }
-        }
+        // 根视图必须强制填满窗口，否则 SwiftUI 在 .contentMinSize 下可能按内容
+        // 固有宽度（~593）布局，导致 detail 区域溢出或被错误压缩。
+        .frame(minWidth: isDocked ? dockedMinWidth : 700,
+               maxWidth: .infinity,
+               minHeight: 560,
+               maxHeight: .infinity)
         // 侧边栏「默认展开」的最终保障：
         // macOS 会按位置/屏幕记住每个窗口的 frame，adhoc 重新打包后窗口身份仍按
         // 位置匹配，于是重新打开时常带着上次缩小的旧窄尺寸 → autoCollapsed 为真 →
         // 一打开就是折叠态。这里做两层兜底：
-        //   1) 清掉 Saved Application State 里记住的窗口尺寸（用户上一次关闭时的状态），
-        //      让 SwiftUI 的 .defaultSize(1040×680) 真正生效；
+        //   1) 窗口级 isRestorable=false，避免记住本次关闭时的窄尺寸；
         //   2) 若窗口仍偏窄（< dockedMinWidth），拉宽到 comfortably 默认宽度，恢复展开。
-        // 用短延迟确保窗口已就位、躲过系统对记住尺寸的还原，避免被旧值覆盖。
+        // 用 AppKit 的 NSWindow.frame 与 didResize 通知驱动 windowWidth，
+        // 比 GeometryReader 更贴近真实窗口尺寸。
         .onAppear {
-            // 1) 清窗口记忆：删 Saved Application State（只删本 app 的，不动其他）。
-            let savedState = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Saved Application State/com.aicleaner.app.savedState")
-            try? FileManager.default.removeItem(at: savedState)
-
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 let candidates = [NSApp.mainWindow, NSApp.keyWindow] + NSApp.windows
                 guard let window = candidates.compactMap({ $0 }).first(where: { $0.isVisible }) else { return }
+                window.isRestorable = false
+
+                // 窗口宽度直接取 NSWindow.frame，避免 SwiftUI 几何误报。
+                let currentWidth = window.frame.width
+                windowWidth = currentWidth
+
+                // 若由于某种原因窗口还是被恢复了窄尺寸，强制拉宽到默认展开态。
                 let targetWidth = max(dockedMinWidth, 1040)
                 let maxW = (window.screen?.visibleFrame.width ?? 1280) - 40
-                if window.frame.width < targetWidth {
+                if currentWidth < targetWidth {
                     var frame = window.frame
                     frame.size.width = min(targetWidth, maxW)
                     frame.size.height = max(frame.size.height, 600)
                     window.setFrame(frame, display: true)
+                    windowWidth = frame.size.width
                 }
+
+            }
+        }
+        // 窗口 resize 时直接读 NSWindow.frame，持续保证 autoCollapsed 用真实宽度。
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResizeNotification)) { _ in
+            let candidates = [NSApp.mainWindow, NSApp.keyWindow] + NSApp.windows
+            if let window = candidates.compactMap({ $0 }).first(where: { $0.isVisible }) {
+                windowWidth = window.frame.width
             }
         }
         .toolbar {
@@ -474,13 +477,3 @@ struct HistorySheet: View {
     }
 }
 
-// MARK: - 窗口宽度监听
-
-/// 把窗口宽度沿 SwiftUI 视图树向上传递的 PreferenceKey。
-/// MainView 用它在窗口缩窄时自动收起 sidebar（`autoCollapsed`）。
-private struct WindowWidthPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
