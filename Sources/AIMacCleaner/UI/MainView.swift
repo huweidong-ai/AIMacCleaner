@@ -129,15 +129,14 @@ struct MainView: View {
             // 按钮放在标题左侧，标题自然“移到后面”。
             ToolbarItem(placement: .navigation) {
                 Button {
-                    if transientVisible {
-                        // 正在临时展开 → 收回
-                        transientVisible = false
-                    } else if sidebarVisible {
-                        // 常驻展开中 → 收起
+                    if sidebarVisible {
+                        // 当前处于展开态（常驻或临时 flyout）→ 统一收起来
                         userCollapsed = true
+                        transientVisible = false
                     } else {
-                        // 已收起（手动或窗口太窄自动）→ 临时滑出
-                        transientVisible = true
+                        // 已收起：窗口够宽就恢复常驻展开，太窄就临时滑出
+                        userCollapsed = false
+                        transientVisible = autoCollapsed
                     }
                 } label: {
                     Image(systemName: "sidebar.left")
