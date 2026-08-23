@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct AIMacCleanerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var state = AppState()
 
     /// 版本号由 `build_app.sh` 在打包时生成 `AppVersion.generated.swift` 注入
