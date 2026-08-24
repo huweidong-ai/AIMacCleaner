@@ -506,9 +506,14 @@ struct AppsView: View {
         if let app = state.matchedApp {
             // 关键词只接「强标识」：helper 进程靠 bundle id 前缀 / 名称前缀兜底（见 ProcessTerminator.isTarget），
             // 不再下发 bundle id 末段这种弱片段（com.qoder.work 的 "work" 曾误杀 WorkBuddy）。
+            // 用 aliases（文件名、显示名、bundle id、去空格紧凑写法）兜底，确保 ChatGPT 这类
+            // helper 进程（名称可能是 "OpenAI Helper" 而不是 "ChatGPT Helper"）也能被终止。
+            let keywords = app.aliases
+                .filter { $0.count >= 3 && !AppIdentity.genericBundleSuffixes.contains($0) }
+                .sorted()
             let n = ProcessTerminator.terminate(targetBundleId: app.bundleId,
                                                 targetName: app.displayName,
-                                                keywords: [])
+                                                keywords: keywords)
             if n > 0 {
                 output.append(L10n.t("已终止 \(n) 个运行中的进程：\(app.displayName)",
                                       "Terminated \(n) running process(es): \(app.displayName)"))
