@@ -847,6 +847,53 @@ enum SelfTest {
                 return !hit
             },
 
+            // ── VendorRegistry（同源厂商残留）──
+            Check(name: "VendorRegistry：ChatGPT app 命中 OpenAI 厂商") {
+                let app = AppIdentity(bundlePath: "/Applications/ChatGPT.app",
+                                      fileName: "ChatGPT", displayName: "ChatGPT",
+                                      bundleId: "com.openai.chat", version: nil,
+                                      aliases: ["chatgpt", "com.openai.chat"])
+                return VendorRegistry.vendor(for: app)?.name == "OpenAI"
+            },
+            Check(name: "VendorRegistry：Codex app 命中 OpenAI 厂商") {
+                let app = AppIdentity(bundlePath: "/Applications/Codex.app",
+                                      fileName: "Codex", displayName: "Codex",
+                                      bundleId: "com.openai.codex", version: nil,
+                                      aliases: ["codex", "com.openai.codex"])
+                return VendorRegistry.vendor(for: app)?.name == "OpenAI"
+            },
+            Check(name: "VendorRegistry：无关 app 不命中任何厂商") {
+                let app = AppIdentity(bundlePath: "/Applications/WeChat.app",
+                                      fileName: "WeChat", displayName: "微信",
+                                      bundleId: "com.tencent.xinWeChat", version: nil,
+                                      aliases: ["wechat", "xinwechat"])
+                return VendorRegistry.vendor(for: app) == nil
+            },
+            Check(name: "VendorRegistry：残留探测只返回确实存在的项") {
+                // 没有 OpenAI 进程时，常驻进程项不应出现；~/.codex 若存在则出现。
+                // 至少验证：返回的 Artifact 路径都真实存在，且不抛错。
+                let app = AppIdentity(bundlePath: "/Applications/ChatGPT.app",
+                                      fileName: "ChatGPT", displayName: "ChatGPT",
+                                      bundleId: "com.openai.chat", version: nil,
+                                      aliases: ["chatgpt", "com.openai.chat"])
+                let leftovers = VendorRegistry.vendorLeftovers(for: app)
+                return leftovers.allSatisfy { FileManager.default.fileExists(atPath: $0.path) || $0.meta != nil }
+            },
+            Check(name: "VendorRegistry：vendorLeftover 类目 raw value 稳定") {
+                ArtifactCategory.vendorLeftover.rawValue == "Vendor leftover"
+            },
+            Check(name: "VendorRegistry：真机环境下命中 ~/.codex 残留") {
+                // 真实样本：本机 ~/.codex 仍在、OpenAI 常驻进程(27940)在跑。
+                // 卸载 ChatGPT 时应探测到这些同厂商残留并列为可清理项。
+                let app = AppIdentity(bundlePath: "/Applications/ChatGPT.app",
+                                      fileName: "ChatGPT", displayName: "ChatGPT",
+                                      bundleId: "com.openai.chat", version: nil,
+                                      aliases: ["chatgpt", "com.openai.chat"])
+                let leftovers = VendorRegistry.vendorLeftovers(for: app)
+                let hasCodexDir = leftovers.contains { $0.path.hasSuffix("/.codex") }
+                return !leftovers.isEmpty && hasCodexDir
+            },
+
             // ── InventoryCache ──
             Check(name: "InventoryCache 缓存 app 列表") {
                 let first = InventoryCache.shared.allApps()

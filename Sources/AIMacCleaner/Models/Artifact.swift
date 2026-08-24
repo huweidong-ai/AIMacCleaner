@@ -28,6 +28,9 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
     /// pkg 安装收据（/var/db/receipts 下的 *.plist / *.bom）。root 所有，
     /// app 无权限直接删除（也无提权机制），只能提示用户用 sudo 手动清理。
     case pkgReceipt     = "Pkg receipt"
+    /// 同源厂商残留：卸载某厂商 app 时，额外发现的同厂商其他入口（如 OpenAI 的
+    /// `~/.codex/`、常驻菜单栏进程、launch agent）。让用户勾选是否一并清理。
+    case vendorLeftover = "Vendor leftover"
 
     /// 界面显示名（双语）。
     var displayName: String {
@@ -50,6 +53,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .masApp:         return L10n.t("Mac App Store", "Mac App Store")
         case .toolCache:      return L10n.t("工具缓存", "Tool cache")
         case .pkgReceipt:     return L10n.t("pkg 安装收据", "Pkg receipt")
+        case .vendorLeftover: return L10n.t("同厂商残留", "Vendor leftover")
         }
     }
 
@@ -73,6 +77,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .masApp:         return "storefront"
         case .toolCache:      return "internaldrive"
         case .pkgReceipt:     return "doc.badge.ellipsis"
+        case .vendorLeftover: return "building.2.crop.circle"
         }
     }
 }

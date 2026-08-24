@@ -64,6 +64,8 @@ enum Theme {
     static let success     = Color(red: 0.1020, green: 0.4784, blue: 0.3294) // #1A7A54
     /// 警示（免责声明、确认弹窗标题）。与用户数据橙同源——同属「需要人类判断」。
     static let warning     = riskUserData // #E8833A
+    /// 警示浅底（同厂商残留提示卡等）。
+    static let warningSubtle = riskUserDataBg // #FDF0E4
 
     // MARK: - 中性色（浅色 macOS）
 

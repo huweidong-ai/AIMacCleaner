@@ -234,6 +234,9 @@ struct AppsView: View {
                         SectionLabel(text: L10n.t("扫描结果 · 按类别分组", "Results · grouped by category"),
                                      onExpand: { expandAllCategories(expanded: true) },
                                      onCollapse: { expandAllCategories(expanded: false) })
+                        if hasVendorLeftover {
+                            vendorBanner
+                        }
                         groupCards
                     }
                     .padding(16)
@@ -395,6 +398,36 @@ struct AppsView: View {
                 }
             }
         }
+    }
+
+    /// 结果里是否含有「同厂商残留」类目（同源厂商清理建议）。
+    private var hasVendorLeftover: Bool {
+        state.artifacts.contains { $0.category == .vendorLeftover }
+            || state.artifacts.contains { $0.category == .runningProcess && $0.note?.contains("OpenAI") == true }
+    }
+
+    /// 同源厂商残留引导提示：解释为什么卸载 ChatGPT 还会留下 Codex CLI 目录 /
+    /// 菜单栏幽灵图标，并建议一并清理。
+    private var vendorBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(Theme.warning)
+                    .font(.system(size: 13))
+                Text(L10n.t("发现同厂商残留", "Same-vendor leftovers found"))
+                    .font(.system(size: 12.5, weight: .semibold))
+                Spacer()
+            }
+            Text(L10n.t("OpenAI 把 ChatGPT、Codex CLI、浏览器扩展宿主拆成多个独立入口，卸载主 app 不会自动带走它们——这正是卸载后菜单栏图标点不动、文件夹还在的原因。下方「同厂商残留」分组已帮你列出，安全项默认勾选，用户数据项默认不勾（留一线可找回）。",
+                           "OpenAI ships ChatGPT, Codex CLI and a browser-extension host as separate entries; uninstalling the main app leaves the others behind — that’s why a dead menu-bar icon or leftover folder remains. The “Same-vendor leftovers” group below lists them: safe items are pre-checked, user-data items are left unchecked (recoverable)."))
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.warningSubtle, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.warning.opacity(0.35), lineWidth: 1))
     }
 
     private var bottomBar: some View {

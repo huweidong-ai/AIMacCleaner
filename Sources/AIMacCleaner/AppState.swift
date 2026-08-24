@@ -321,6 +321,17 @@ final class AppState: ObservableObject {
         allArtifacts = allArtifacts.filter { seen.insert($0.path).inserted }
         // 应用页默认全选（含用户数据），把选择权交给用户。
         for i in allArtifacts.indices { allArtifacts[i].selected = true }
+
+        // 同源厂商残留：卸载某厂商 app 时，额外探测同厂商其他入口（如 OpenAI 的
+        // ~/.codex、常驻菜单栏进程、launch agent），单独成组让用户勾选是否一并清理。
+        // 这些项的 selected 默认值由 VendorRegistry 按风险设定（userData 默认不勾）。
+        if let app = query.app {
+            let vendorLeftovers = VendorRegistry.vendorLeftovers(for: app)
+            for lo in vendorLeftovers where seen.insert(lo.path).inserted {
+                allArtifacts.append(lo)
+            }
+        }
+
         artifacts = allArtifacts
         plan = RemovalPlan(targetName: query.displayTarget, artifacts: allArtifacts)
         linkPWACompanions()
