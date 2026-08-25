@@ -1361,39 +1361,42 @@ private struct MessageBubble: View {
         _isExpanded = State(initialValue: initialExpanded)
     }
 
-    /// 用户气泡折叠：超过这个行数就折叠，底部显示「显示更多」。
-    /// 10 行以内全露出，超过才折叠；折叠后不滚动，只靠「显示更多」展开。
+    /// 气泡折叠阈值：超过这个行数就折叠，底部显示「显示更多」。
     /// fileprivate：让同文件的 AskAIView 在默认的折叠策略里复用这个阈值。
     fileprivate static let collapsedLines = 10
     private static let lineHeight: CGFloat = 17
 
+    /// 气泡圆角：大圆角让气泡更柔软、更像对话。
+    private static let cornerRadius: CGFloat = 16
+
     /// 是否足够长，需要折叠。由调用方（chatLog）按角色与 reset 情况算好传入。
     private var isCollapsible: Bool { collapsible }
 
+    private var isMine: Bool { message.role == .me }
+
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if message.role == .me { Spacer(minLength: 40) }
-            if message.role == .ai { avatar(ai: true) }
+            if isMine { Spacer(minLength: 40) }
+            if !isMine { avatar(ai: true) }
 
-            VStack(alignment: message.role == .me ? .trailing : .leading, spacing: 4) {
-                if !message.steps.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(message.steps) { step in
-                            StepRow(step: step)
-                        }
-                    }
-                }
-
-                // 气泡：正文 + 底部工具栏（角色名、展开/收起、时间、复制）
+            VStack(alignment: isMine ? .trailing : .leading, spacing: 6) {
+                // 气泡本体：执行步骤 + 正文 + 底部栏
                 VStack(alignment: .leading, spacing: 0) {
+                    // 执行步骤（只有 AI 气泡且有步骤时显示），收进气泡顶部
+                    if !message.steps.isEmpty {
+                        stepsSection
+                            .padding(.bottom, 8)
+                    }
+
                     messageText
-                        .frame(maxWidth: 660, alignment: .leading)
+                        .frame(maxWidth: 620, alignment: .leading)
+
                     bubbleBottomBar
-                        .padding(.top, 6)
+                        .padding(.top, 8)
                 }
-                .padding(10)
-                .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(bubbleBorder, lineWidth: 1))
+                .padding(12)
+                .background(bubbleBg, in: bubbleShape)
+                .shadow(color: bubbleShadow, radius: 3, y: 1)
                 .contextMenu {
                     Button {
                         copyMessage(message.text)
@@ -1406,9 +1409,9 @@ private struct MessageBubble: View {
                 if message.awaitingApproval {
                     Label(L10n.t("这是计划，还没有执行任何删除", "This is a plan — nothing has been deleted"),
                           systemImage: "hand.raised.fill")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Theme.riskUserDataText)
-                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(Theme.riskUserDataBg, in: Capsule())
                         .overlay(Capsule().stroke(Theme.riskUserDataBorder, lineWidth: 1))
                 }
@@ -1417,38 +1420,57 @@ private struct MessageBubble: View {
                     Button { onGo() } label: {
                         Label(L10n.t("前往 \(tab.displayName)", "Go to \(tab.displayName)"),
                               systemImage: "arrow.forward")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .tint(Theme.accent)
                 }
             }
-            .frame(maxWidth: 680, alignment: message.role == .me ? .trailing : .leading)
+            .frame(maxWidth: 660, alignment: isMine ? .trailing : .leading)
 
-            if message.role == .me { avatar(ai: false) }
-            if message.role == .ai { Spacer(minLength: 40) }
+            if isMine { avatar(ai: false) }
+            if !isMine { Spacer(minLength: 40) }
+        }
+    }
+
+    /// 气泡形状：左侧/右侧尾巴方向决定哪两个角是小圆角（靠尾巴那侧）。
+    /// 靠头像一侧上下角稍小（12），对侧上下角大（16），形成自然的对话气泡感。
+    private var bubbleShape: some InsettableShape {
+        let big = Self.cornerRadius
+        let small: CGFloat = 12
+        if isMine {
+            return UnevenRoundedRectangle(
+                topLeadingRadius: big, bottomLeadingRadius: big,
+                bottomTrailingRadius: small, topTrailingRadius: big
+            )
+        } else {
+            return UnevenRoundedRectangle(
+                topLeadingRadius: small, bottomLeadingRadius: big,
+                bottomTrailingRadius: big, topTrailingRadius: big
+            )
         }
     }
 
     /// 气泡底部工具栏：角色名（左）、展开/收起（左）、时间 + 复制（右）。
+    /// 更疏朗的间距 + 统一 11 号字，告别拥挤感。
     private var bubbleBottomBar: some View {
-        HStack(spacing: 8) {
-            Text(message.role == .ai ? L10n.t("AI", "AI") : L10n.t("我", "Me"))
-                .font(.system(size: 10.5, weight: .semibold))
+        HStack(spacing: 10) {
+            Text(isMine ? L10n.t("我", "Me") : L10n.t("AI", "AI"))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(bubbleFooterFg)
 
             if isCollapsible {
                 Button {
                     withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         Text(isExpanded
                              ? L10n.t("收起", "Collapse")
                              : L10n.t("显示更多", "Show more"))
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(.system(size: 9.5, weight: .medium))
                     }
                     .foregroundStyle(bubbleFooterFg)
                 }
@@ -1461,65 +1483,72 @@ private struct MessageBubble: View {
             Spacer(minLength: 0)
 
             Text(smartTimeString(message.createdAt))
-                .font(.system(size: 10.5))
+                .font(.system(size: 11))
                 .foregroundStyle(bubbleFooterFg)
 
             Button {
                 copyMessage(message.text)
             } label: {
                 Image(systemName: "doc.on.doc")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(bubbleFooterFg)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(bubbleFooterFg.opacity(0.8))
             }
             .buttonStyle(.plain)
             .help(L10n.t("复制", "Copy"))
         }
     }
 
-    /// 底部栏文字/图标颜色：用户气泡用白色（与蓝色背景对比），AI 气泡用次要色。
+    /// 底部栏文字/图标颜色：用户气泡用白色（与蓝色背景对比），AI 气泡用 tertiary（更淡、不抢正文）。
     private var bubbleFooterFg: some ShapeStyle {
-        message.role == .me
-            ? Color.white.opacity(0.9)
-            : Color.secondary
+        isMine
+            ? Color.white.opacity(0.85)
+            : Color.secondary.opacity(0.8)
     }
 
-    /// 气泡边框：用户气泡用半透明白色，AI 气泡用系统分隔色。
-    private var bubbleBorder: Color {
-        message.role == .me
-            ? Color.white.opacity(0.22)
-            : Theme.divider
+    /// 气泡阴影：AI 气泡有轻阴影（浮在背景上），用户气泡几乎没有（蓝色本身已经够突出）。
+    private var bubbleShadow: Color {
+        isMine
+            ? Color.black.opacity(0.06)
+            : Color.black.opacity(0.06)
+    }
+
+    /// 执行步骤区块：收进气泡顶部，作为气泡内的一块独立区域。
+    private var stepsSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(message.steps) { step in
+                StepRow(step: step, inBubble: true)
+            }
+        }
     }
 
     /// 气泡正文：
     /// - 折叠态（默认，`!isExpanded`）：定高裁剪，无滚动条、不可滚动，只靠「显示更多」展开；
-    ///   底部用 alpha 渐隐提示「下面还有」，渐隐用 mask 实现，与气泡背景色无关（用户蓝/AI 灰都适用）。
+    ///   底部用 alpha 渐隐提示「下面还有」。
     /// - 展开态（点「显示更多」，`isExpanded`）：直接完整渲染，无裁剪、不限高。
     /// - 短消息（不可折叠）：始终完整展示。
     private var messageText: some View {
         Group {
             if isCollapsible {
                 if isExpanded {
-                    markdownText(message.text, isMine: message.role == .me)
-                        .font(.system(size: 12.5))
+                    markdownText(message.text)
+                        .font(.system(size: 13))
                         .textSelection(.enabled)
                 } else {
-                    markdownText(message.text, isMine: message.role == .me)
-                        .font(.system(size: 12.5))
+                    markdownText(message.text)
+                        .font(.system(size: 13))
                         .textSelection(.enabled)
                         .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight,
                                alignment: .top)
                         .clipped()
-                        // 底部渐隐：mask 只取 alpha，与气泡背景色无关；
-                        // 内容实际超过折叠高度时，末段自然淡出，提示可展开。
                         .mask(LinearGradient(stops: [
                             Gradient.Stop(color: .black, location: 0),
-                            Gradient.Stop(color: .black, location: 0.8),
+                            Gradient.Stop(color: .black, location: 0.82),
                             Gradient.Stop(color: .clear, location: 1)
                         ], startPoint: .top, endPoint: .bottom))
                 }
             } else {
-                markdownText(message.text, isMine: message.role == .me)
-                    .font(.system(size: 12.5))
+                markdownText(message.text)
+                    .font(.system(size: 13))
                     .textSelection(.enabled)
             }
         }
@@ -1530,12 +1559,8 @@ private struct MessageBubble: View {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    private var bubbleBg: some ShapeStyle {
-        message.role == .me
-            ? LinearGradient(colors: [Theme.accent, Theme.accentActive],
-                            startPoint: .topLeading, endPoint: .bottomTrailing)
-            : LinearGradient(colors: [Theme.bgSurface, Theme.bgSurface],
-                            startPoint: .topLeading, endPoint: .bottomTrailing)
+    private var bubbleBg: Color {
+        isMine ? Theme.accent : Theme.bgSurface
     }
 
     private func avatar(ai: Bool) -> some View {
@@ -1545,15 +1570,15 @@ private struct MessageBubble: View {
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
                   : LinearGradient(colors: [Theme.accent, Theme.accentActive],
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(width: 26, height: 26)
+            .frame(width: 28, height: 28)
             .overlay(Image(systemName: ai ? "sparkles" : "person.fill")
-                .font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
+                .font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
+            .shadow(color: Color.black.opacity(0.08), radius: 1, y: 1)
     }
 
-    /// 用 MarkdownUI 渲染对话文本，支持 GitHub 风格 Markdown（加粗、斜体、
-    /// 链接、行内代码、列表、引用、代码块、表格）。用户气泡背景为蓝色渐变，
-    /// 需把文字颜色统一为白色；AI 气泡用默认深色文字。
-    private func markdownText(_ raw: String, isMine: Bool) -> some View {
+    /// 用 MarkdownUI 渲染对话文本。
+    /// 用户气泡文字为白色，AI 气泡为默认深色。
+    private func markdownText(_ raw: String) -> some View {
         Markdown(raw)
             .markdownTextStyle {
                 ForegroundColor(isMine ? .white : .primary)
@@ -1581,63 +1606,84 @@ private struct MessageBubble: View {
 }
 
 /// 一步执行记录：命令 + 结果。Agent 做了什么必须原样摆出来。
+/// `inBubble=true` 时用更轻的样式（弱化边框、与气泡底色协调），
+/// `inBubble=false`（思考气泡中）保持稍强的对比。
 private struct StepRow: View {
     let step: AgentStep
+    var inBubble: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: 5) {
                 Image(systemName: step.ok ? "terminal" : "exclamationmark.triangle.fill")
-                    .font(.system(size: 9))
+                    .font(.system(size: 9.5))
                 Text(step.command)
-                    .font(.system(size: 10, design: .monospaced))
+                    .font(.system(size: 10.5, design: .monospaced))
                 if step.risk == .destructive {
                     Text(L10n.t("预演", "preview"))
-                        .font(.system(size: 8.5, weight: .semibold))
-                        .padding(.horizontal, 4).padding(.vertical, 1)
-                        .background(Theme.riskUserDataBg, in: RoundedRectangle(cornerRadius: 3))
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1.5)
+                        .background(Theme.riskUserDataBg, in: RoundedRectangle(cornerRadius: 4))
                         .foregroundStyle(Theme.riskUserDataText)
                 }
             }
             .foregroundStyle(step.ok ? Theme.aiText : Theme.riskUncertainText)
 
             Text(step.summary)
-                .font(.system(size: 10))
+                .font(.system(size: 10.5))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.horizontal, 9).padding(.vertical, 6)
-        .frame(maxWidth: 460, alignment: .leading)
-        .background(step.ok ? Theme.aiBg : Theme.riskUncertainBg, in: RoundedRectangle(cornerRadius: 7))
-        .overlay(RoundedRectangle(cornerRadius: 7)
-            .stroke(step.ok ? Theme.aiBorder : Theme.riskUncertainBorder, lineWidth: 1))
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(step.ok ? rowBg : Theme.riskUncertainBg,
+                    in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(step.ok ? rowBorder : Theme.riskUncertainBorder, lineWidth: 0.5))
+    }
+
+    private var rowBg: Color {
+        inBubble ? Theme.aiBg.opacity(0.6) : Theme.aiBg
+    }
+
+    private var rowBorder: Color {
+        inBubble ? Theme.aiBorder.opacity(0.5) : Theme.aiBorder
     }
 }
 
 /// 思考中：把已经跑完的步骤和正在跑的命令都摆出来，不让用户对着转圈猜。
+/// 视觉风格与 AI 气泡对齐：大圆角 + 轻阴影 + 小尾巴。
 private struct ThinkingBubble: View {
     let steps: [AgentStep]
     let running: String?
+    private static let cornerRadius: CGFloat = 16
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             avatar
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(steps) { StepRow(step: $0) }
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 6) {
+                if !steps.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(steps) { StepRow(step: $0, inBubble: false) }
+                    }
+                }
+                HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
+                        .scaleEffect(0.8)
                     if let running {
                         Text(running)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(.system(size: 11.5, design: .monospaced))
                             .foregroundStyle(Theme.aiText)
                     } else {
                         Text(L10n.t("Agent 思考中…", "The agent is thinking…"))
-                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                            .font(.system(size: 12.5)).foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 0)
                 }
-                .padding(10)
-                .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
+                .padding(12)
+                .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+                .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
             }
             Spacer(minLength: 40)
         }
@@ -1647,9 +1693,10 @@ private struct ThinkingBubble: View {
         Circle()
             .fill(LinearGradient(colors: [Theme.aiPrimary, Theme.aiDeep],
                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(width: 26, height: 26)
+            .frame(width: 28, height: 28)
             .overlay(Image(systemName: "sparkles")
-                .font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
+                .font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
+            .shadow(color: Color.black.opacity(0.08), radius: 1, y: 1)
     }
 }
 
