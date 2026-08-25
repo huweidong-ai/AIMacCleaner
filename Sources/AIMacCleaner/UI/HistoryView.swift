@@ -13,10 +13,15 @@ struct HistoryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Spacer()
+                // 多选用共用组件，放在左侧与列表勾选框列对齐。
+                // 历史页没有体积概念，selectedSize 传 nil。
+                SelectionToolbar(selectedCount: selectedRecords.count,
+                                 totalCount: records.count,
+                                 onSelectAll: { selectedRecords = Set(records.map(\.id)) },
+                                 onDeselectAll: { selectedRecords.removeAll() })
                 if !selectedRecords.isEmpty {
-                    // 删除选中记录：可逆性弱、但非「清空全部」—— 安静红（红字，
-                    // 不抢过「清空」）。点击后先出确认弹窗。
+                    // 删除选中记录：可逆性弱、但非「清空全部」—— 安静红（红字）。
+                    // 点击后先出确认弹窗。
                     Button(L10n.t("删除选中 (\(selectedRecords.count))", "Delete selected (\(selectedRecords.count))")) {
                         showDeleteSelectedConfirm = true
                     }
@@ -24,19 +29,10 @@ struct HistoryView: View {
                     .buttonStyle(.borderless)
                     .foregroundStyle(Theme.destructive)
                 }
+                Spacer()
                 Text(L10n.t("\(records.count) 条", "\(records.count) records"))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                // 刷新按钮去掉了：历史只在本 app 卸载后增长，而那条路径
-                // 已经会主动重读（onAppear + 卸载完成后刷新）。留一个永远
-                // 不改变任何东西的按钮，只会让人怀疑是不是漏了什么要手动同步。
-                //
-                // 多选用共用组件，和扫描页、残留页同一套交互。历史页没有
-                // 体积概念，selectedSize 传 nil。
-                SelectionToolbar(selectedCount: selectedRecords.count,
-                                 totalCount: records.count,
-                                 onSelectAll: { selectedRecords = Set(records.map(\.id)) },
-                                 onDeselectAll: { selectedRecords.removeAll() })
             }
             .padding()
             Divider()
