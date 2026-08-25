@@ -1376,9 +1376,6 @@ private struct MessageBubble: View {
             if message.role == .ai { avatar(ai: true) }
 
             VStack(alignment: message.role == .me ? .trailing : .leading, spacing: 4) {
-                // 发送者标签（时间移到气泡底部）
-                senderLabel
-
                 if !message.steps.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(message.steps) { step in
@@ -1387,14 +1384,16 @@ private struct MessageBubble: View {
                     }
                 }
 
-                // 气泡：正文 + 底部工具栏（展开/收起、时间、复制）
-                VStack(alignment: .leading, spacing: 6) {
+                // 气泡：正文 + 底部工具栏（角色名、展开/收起、时间、复制）
+                VStack(alignment: .leading, spacing: 0) {
                     messageText
+                        .frame(maxWidth: 660, alignment: .leading)
                     bubbleBottomBar
+                        .padding(.top, 6)
                 }
                 .padding(10)
                 .background(bubbleBg, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(bubbleBorder, lineWidth: 1))
                 .contextMenu {
                     Button {
                         copyMessage(message.text)
@@ -1425,21 +1424,20 @@ private struct MessageBubble: View {
                     .tint(Theme.accent)
                 }
             }
+            .frame(maxWidth: 680, alignment: message.role == .me ? .trailing : .leading)
 
             if message.role == .me { avatar(ai: false) }
             if message.role == .ai { Spacer(minLength: 40) }
         }
     }
 
-    private var senderLabel: some View {
-        Text(message.role == .ai ? L10n.t("AI", "AI") : L10n.t("我", "Me"))
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.primary)
-    }
-
-    /// 气泡底部工具栏：展开/收起（左）、时间 + 复制（右）。
+    /// 气泡底部工具栏：角色名（左）、展开/收起（左）、时间 + 复制（右）。
     private var bubbleBottomBar: some View {
         HStack(spacing: 8) {
+            Text(message.role == .ai ? L10n.t("AI", "AI") : L10n.t("我", "Me"))
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(bubbleFooterFg)
+
             if isCollapsible {
                 Button {
                     withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
@@ -1452,7 +1450,7 @@ private struct MessageBubble: View {
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 10, weight: .medium))
                     }
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(bubbleFooterFg)
                 }
                 .buttonStyle(.plain)
                 .help(isExpanded
@@ -1464,18 +1462,32 @@ private struct MessageBubble: View {
 
             Text(smartTimeString(message.createdAt))
                 .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(bubbleFooterFg)
 
             Button {
                 copyMessage(message.text)
             } label: {
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(bubbleFooterFg)
             }
             .buttonStyle(.plain)
             .help(L10n.t("复制", "Copy"))
         }
+    }
+
+    /// 底部栏文字/图标颜色：用户气泡用白色（与蓝色背景对比），AI 气泡用次要色。
+    private var bubbleFooterFg: some ShapeStyle {
+        message.role == .me
+            ? Color.white.opacity(0.9)
+            : Color.secondary
+    }
+
+    /// 气泡边框：用户气泡用半透明白色，AI 气泡用系统分隔色。
+    private var bubbleBorder: Color {
+        message.role == .me
+            ? Color.white.opacity(0.22)
+            : Theme.divider
     }
 
     /// 气泡正文：
