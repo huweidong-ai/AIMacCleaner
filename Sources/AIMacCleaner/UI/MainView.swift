@@ -147,9 +147,9 @@ struct MainView: View {
                         transientVisible = autoCollapsed
                     }
                 } label: {
-                    Image(systemName: "sidebar.left")
+                    Image(systemName: sidebarVisible ? "sidebar.left" : "sidebar.right")
                 }
-                .help(L10n.t("显示/隐藏边栏", "Show/hide sidebar"))
+                .help(sidebarVisible ? L10n.t("隐藏边栏", "Hide sidebar") : L10n.t("显示边栏", "Show sidebar"))
             }
         }
         .sheet(isPresented: $showHistory) {
