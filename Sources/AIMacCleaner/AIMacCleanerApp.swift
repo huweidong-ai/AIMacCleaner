@@ -200,14 +200,16 @@ struct AIMacCleanerApp: App {
                 }
                 .pickerStyle(.inline)
             }
-            CommandMenu(L10n.t("设置", "Settings")) {
-                Picker(L10n.t("主题", "Theme"), selection: themeBinding) {
+            // 主题切换（独立「主题」菜单）：.system 时不覆盖系统外观
+            CommandMenu(L10n.t("主题", "Theme")) {
+                Picker("", selection: themeBinding) {
                     ForEach(ThemeMode.allCases) { mode in
                         Text(mode.label).tag(mode)
                     }
                 }
                 .pickerStyle(.inline)
-                Divider()
+            }
+            CommandMenu(L10n.t("设置", "Settings")) {
                 Button(L10n.t("配置 AI 模型…", "Configure AI model…")) {
                     state.showAIModelSettings = true
                 }
