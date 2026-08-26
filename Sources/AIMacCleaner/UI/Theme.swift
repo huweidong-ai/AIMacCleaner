@@ -1,5 +1,32 @@
 import SwiftUI
 
+// MARK: - 主题模式（主动切换：跟随系统 / 浅色 / 深色）
+
+enum ThemeMode: String, CaseIterable, Identifiable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .system: return L10n.t("跟随系统", "Follow System")
+        case .light:  return L10n.t("浅色", "Light")
+        case .dark:   return L10n.t("深色", "Dark")
+        }
+    }
+
+    /// .system = 不覆盖，完全跟随系统外观
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light:  return .light
+        case .dark:   return .dark
+        }
+    }
+}
+
 /// 明暗双值动态色：同一枚令牌在浅色/深色外观下各有一套校准值，
 /// 跟随系统外观自动切换（与 macOS 控件行为一致）。
 private func dyn(_ light: (Double, Double, Double),

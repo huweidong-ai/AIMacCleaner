@@ -21,6 +21,17 @@ struct AIMacCleanerApp: App {
         )
     }
 
+    /// 主题模式（跟随系统/浅色/深色），存 UserDefaults。
+    /// 和语言一样用 `@AppStorage`：切换后视图树立刻重建，外观即时生效。
+    @AppStorage("expunge.theme") private var themeRaw: String = ThemeMode.system.rawValue
+
+    private var themeBinding: Binding<ThemeMode> {
+        Binding(
+            get: { ThemeMode(rawValue: themeRaw) ?? .system },
+            set: { themeRaw = $0.rawValue }
+        )
+    }
+
     init() {
         let args = CommandLine.arguments
         let userArgs = Array(args.dropFirst())
@@ -160,6 +171,8 @@ struct AIMacCleanerApp: App {
                 // 全局强调色 = Petrol Blue。所有 Color.accentColor 与
                 // borderedProminent 按钮会自动套用，无需逐处改色。
                 .tint(Theme.accent)
+                // 主动主题切换（「设置」菜单）：.system 时 colorScheme 为 nil，不覆盖、跟随系统
+                .preferredColorScheme(ThemeMode(rawValue: themeRaw)?.colorScheme)
         }
         .windowResizability(.contentMinSize)
         // 新开窗口的默认尺寸：1040×680，远超 sidebar 常驻所需（~603px）。
@@ -188,6 +201,13 @@ struct AIMacCleanerApp: App {
                 .pickerStyle(.inline)
             }
             CommandMenu(L10n.t("设置", "Settings")) {
+                Picker(L10n.t("主题", "Theme"), selection: themeBinding) {
+                    ForEach(ThemeMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.inline)
+                Divider()
                 Button(L10n.t("配置 AI 模型…", "Configure AI model…")) {
                     state.showAIModelSettings = true
                 }
