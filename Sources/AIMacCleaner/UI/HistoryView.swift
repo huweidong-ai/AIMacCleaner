@@ -46,7 +46,7 @@ struct HistoryView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(selection: $selectedRecords) {
+                List {
                     ForEach(records) { record in
                         HStack(spacing: 8) {
                             // 勾选框常驻。左上角那个按钮现在是「全选/全不选」开关，
