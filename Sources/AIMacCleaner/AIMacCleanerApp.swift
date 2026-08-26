@@ -160,10 +160,6 @@ struct AIMacCleanerApp: App {
                 // 全局强调色 = Petrol Blue。所有 Color.accentColor 与
                 // borderedProminent 按钮会自动套用，无需逐处改色。
                 .tint(Theme.accent)
-                // 当前设计令牌（bgSidebar/bgCanvas 等）全部按浅色 macOS 校准，
-                // 暂时锁定浅色模式，避免系统自动切深色后出现「侧栏浅色、内容区深色」
-                // 这类半成品效果。未来若补深色令牌，可移除此限制。
-                .preferredColorScheme(.light)
         }
         .windowResizability(.contentMinSize)
         // 新开窗口的默认尺寸：1040×680，远超 sidebar 常驻所需（~603px）。
