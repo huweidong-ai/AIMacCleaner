@@ -18,7 +18,7 @@ enum UserDataDisposition {
 ///
 /// v1.5 起不再让用户全局二选一「废纸篓 / 彻底删除」——那是把「删到哪」的实现细节
 /// 甩给用户。改成按 `risk` 自动分流：可安全删除的项（应用、缓存、日志、安装器）直接删，
-/// 用户数据默认进废纸篓可找回。想连用户数据也彻底删，是一个显式勾选，而不是默认。
+/// **默认连用户数据也一起直接删**（彻底干净），想保留到废纸篓可找回是一个显式的取消勾选。
 struct ConfirmSheet: View {
     @Environment(\.dismiss) var dismiss
     @State private var toast: String? = nil
@@ -29,10 +29,23 @@ struct ConfirmSheet: View {
 
     private var totalSize: Int64 { artifacts.reduce(0) { $0 + $1.size } }
     private var userDataItems: [Artifact] { artifacts.filter { $0.risk == .userData } }
-    private var directCount: Int { artifacts.count - userDataItems.count }
 
-    /// 是否连用户数据也直接彻底删除。默认 false —— 用户数据进废纸篓可找回。
-    @State private var hardDeleteUserData = false
+    /// 实际会进「直接删除」通道的项数：
+    /// - 勾选硬删时 = `artifacts.count`（用户数据也跟着直接删，不留任何东西）
+    /// - 取消勾选时 = `artifacts.count - userDataItems.count`（只算非用户数据部分）
+    private var effectiveDirectCount: Int {
+        hardDeleteUserData ? artifacts.count : artifacts.count - userDataItems.count
+    }
+    /// 实际会进「废纸篓」的项数：
+    /// - 勾选硬删时 = 0
+    /// - 取消勾选时 = `userDataItems.count`
+    private var effectiveTrashCount: Int {
+        hardDeleteUserData ? 0 : userDataItems.count
+    }
+
+    /// 是否连用户数据也直接彻底删除。**默认勾选**（true）——用户数据默认就一起硬删除，
+    /// 想保留到废纸篓可找回，就**取消**这个勾选。
+    @State private var hardDeleteUserData = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -48,14 +61,14 @@ struct ConfirmSheet: View {
                     .font(.callout)
                 HStack(spacing: 12) {
                     Label {
-                        Text(L10n.t("\(directCount) 项直接删除（应用 / 缓存 / 日志，不可恢复）",
-                                    "\(directCount) deleted directly (app, caches, logs — not recoverable)"))
+                        Text(L10n.t("\(effectiveDirectCount) 项直接删除（应用 / 缓存 / 日志，不可恢复）",
+                                    "\(effectiveDirectCount) deleted directly (app, caches, logs — not recoverable)"))
                     } icon: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.destructive)
                     }
                     Label {
-                        Text(L10n.t("\(userDataItems.count) 项移到废纸篓（用户数据，可找回）",
-                                    "\(userDataItems.count) moved to Trash (user data, recoverable)"))
+                        Text(L10n.t("\(effectiveTrashCount) 项移到废纸篓（用户数据，可找回）",
+                                    "\(effectiveTrashCount) moved to Trash (user data, recoverable)"))
                     } icon: {
                         Image(systemName: "trash.fill").foregroundStyle(Theme.accent)
                     }
@@ -112,8 +125,8 @@ struct ConfirmSheet: View {
                                   "Also hard-delete user data (unrecoverable)"),
                            isOn: $hardDeleteUserData)
                         .font(.callout)
-                        .help(L10n.t("默认用户数据（聊天记录、账号、配置）只移到废纸篓，清空废纸篓前都能找回。勾选此项则一并彻底删除。",
-                                     "By default user data goes to Trash and is recoverable until you empty it. Check to delete it permanently too."))
+                        .help(L10n.t("默认连用户数据也一起彻底删除（不可恢复）。取消勾选则只移到废纸篓，清空废纸篓前都能找回。",
+                                     "By default user data is also hard-deleted (unrecoverable). Uncheck to keep it in Trash — recoverable until you empty it."))
                 }
             } trailing: {
                 Button(L10n.t("取消", "Cancel")) { dismiss() }
