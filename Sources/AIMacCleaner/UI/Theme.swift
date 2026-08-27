@@ -239,3 +239,54 @@ struct TagPill: View {
         .overlay(Capsule().stroke(border, lineWidth: 1))
     }
 }
+
+// MARK: - 主题同步到 AppKit
+
+/// 把用户选择的主题同步推给 AppKit 层，替代 SwiftUI 的 `.preferredColorScheme`。
+///
+/// SwiftUI 的 `.preferredColorScheme` 在 macOS 上从非 nil 切回 nil（从「深色」
+/// 切回「跟随系统」）时，内容区会残留旧 colorScheme，出现标题栏已变浅、
+/// 内容区仍深色的「黑底 + 白横线」现象。本管理器直接操作 AppKit 的
+/// `NSApp.appearance` 与 `NSWindow.appearance`，让窗口 chrome 与 SwiftUI
+/// 内容区在同一帧跟随新的 effectiveAppearance。
+enum ThemeManager {
+    private static let themeKey = "expunge.theme"
+
+    /// 当前应使用的 NSAppearance。`.system` 返回 `nil`（让窗口真正跟随系统）。
+    private static var resolvedAppearance: NSAppearance? {
+        let raw = UserDefaults.standard.string(forKey: themeKey) ?? ThemeMode.system.rawValue
+        switch ThemeMode(rawValue: raw) ?? .system {
+        case .system: return nil
+        case .light:  return NSAppearance(named: .aqua)
+        case .dark:   return NSAppearance(named: .darkAqua)
+        }
+    }
+
+    /// 立即应用主题到 NSApp 与所有窗口 chrome，并标记内容视图需要重绘。
+    /// `nil` 表示跟随系统 effectiveAppearance（`.system` 模式）。
+    /// 注意：不在窗口创建早期强制 `display()`，否则可能阻塞 SwiftUI hosting
+    /// view 的布局，导致窗口无法出现或尺寸异常。
+    static func apply() {
+        let appearance = resolvedAppearance
+        NSApp.appearance = appearance
+        for window in NSApp.windows {
+            window.appearance = appearance
+            // 标记需要重绘；SwiftUI 会在下一帧用新的 effectiveAppearance 重建。
+            window.contentView?.needsDisplay = true
+            window.contentView?.setNeedsDisplay(window.contentView?.bounds ?? .zero)
+            window.invalidateShadow()
+        }
+    }
+
+    /// 监听 UserDefaults 中主题键的变化并即时同步。
+    /// 返回的 observer 需要被调用方持有；这里由 AppState / App 生命周期持有即可。
+    static func startObserving() -> NSObjectProtocol {
+        NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            apply()
+        }
+    }
+}

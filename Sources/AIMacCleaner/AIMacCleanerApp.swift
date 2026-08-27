@@ -171,8 +171,20 @@ struct AIMacCleanerApp: App {
                 // 全局强调色 = Petrol Blue。所有 Color.accentColor 与
                 // borderedProminent 按钮会自动套用，无需逐处改色。
                 .tint(Theme.accent)
-                // 主动主题切换（「设置」菜单）：.system 时 colorScheme 为 nil，不覆盖、跟随系统
-                .preferredColorScheme(ThemeMode(rawValue: themeRaw)?.colorScheme)
+                // 主题由 AppKit 层（NSApp.appearance + 各 NSWindow.appearance）统一控制，
+                // 不通过 .preferredColorScheme 走 SwiftUI 内部覆盖。后者在 macOS 上从
+                // 非 nil 切回 nil 时容易残留旧 colorScheme，出现「标题栏已浅、内容仍深」。
+                // ThemeManager.apply() 在启动/切换时同步设置 appearance 并强制重绘。
+                // 主题切换不要动画，防止深色/浅色过渡期间产生黑底残留、白横线。
+                .animation(.none, value: themeRaw)
+                // 主题键变化时同步把决定推给 AppKit，比 UserDefaults.didChangeNotification
+                // 更早生效，缩短「标题栏已切、内容区还黑」的过渡窗口。
+                .onChange(of: themeRaw) { _ in
+                    ThemeManager.apply()
+                    // 强制 SwiftUI 整树立即重建，否则 AppKit appearance 已切、
+                    // SwiftUI 内容区还要等下一帧才跟新 effectiveAppearance。
+                    state.objectWillChange.send()
+                }
         }
         .windowResizability(.contentMinSize)
         // 新开窗口的默认尺寸：1040×680，远超 sidebar 常驻所需（~603px）。

@@ -25,6 +25,8 @@ struct MainView: View {
     // 直接订阅语言键 —— AppState 也会推 objectWillChange，但本视图里的 DiskCard
     // 嵌套较深、SwiftUI 不一定传透。这里双保险：自己再观察一次，切换时强制重建。
     @AppStorage("expunge.language") private var languageRaw: String = L10n.Language.system.rawValue
+    // 订阅主题键，用于禁用主题切换动画并触发重建。
+    @AppStorage("expunge.theme") private var themeRaw: String = ThemeMode.system.rawValue
 
     /// 常驻模式下 sidebar + detail 的最小总宽度。
     /// 这里用 670 作为 detail 区的真实下限：AppsView 内部是 230+440 的左右分栏，
@@ -95,6 +97,9 @@ struct MainView: View {
                maxWidth: .infinity,
                minHeight: 560,
                maxHeight: .infinity)
+        // 主题切换不要动画：AppKit 层已经同步刷新，SwiftUI 再补一个淡入淡出
+        // 反而会产生黑底残留、白横线等过渡残影。
+        .animation(.none, value: themeRaw)
         // 侧边栏「默认展开」的最终保障：
         // macOS 会按位置/屏幕记住每个窗口的 frame，adhoc 重新打包后窗口身份仍按
         // 位置匹配，于是重新打开时常带着上次缩小的旧窄尺寸 → autoCollapsed 为真 →
@@ -104,6 +109,10 @@ struct MainView: View {
         // 用 AppKit 的 NSWindow.frame 与 didResize 通知驱动 windowWidth，
         // 比 GeometryReader 更贴近真实窗口尺寸。
         .onAppear {
+            // 窗口已创建，把 SwiftUI 主题决定同步给 AppKit 层（标题栏/窗口 chrome），
+            // 防止启动瞬间或主题切换后残留旧外观。
+            ThemeManager.apply()
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 let candidates: [NSWindow] = ([NSApp.mainWindow, NSApp.keyWindow] as [NSWindow?]).compactMap { $0 } + NSApp.windows
                 guard let window = candidates.first(where: { $0.isVisible }) else { return }
