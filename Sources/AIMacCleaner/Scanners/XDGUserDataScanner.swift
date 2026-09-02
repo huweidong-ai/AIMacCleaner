@@ -12,6 +12,7 @@ struct XDGUserDataScanner: Scanner {
 
     let baseDirs: [DirSpec] = [
         DirSpec(path: "\(NSHomeDirectory())/.local/share", risk: .userData),
+        DirSpec(path: "\(NSHomeDirectory())/.local/bin",   risk: .safe),
         DirSpec(path: "\(NSHomeDirectory())/.cache",       risk: .safe),
         DirSpec(path: "\(NSHomeDirectory())/.config",      risk: .safe),
         DirSpec(path: "\(NSHomeDirectory())/.local/state", risk: .userData)

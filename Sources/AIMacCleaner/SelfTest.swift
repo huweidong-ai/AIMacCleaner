@@ -893,6 +893,23 @@ enum SelfTest {
                 let hasCodexDir = leftovers.contains { $0.path.hasSuffix("/.codex") }
                 return !leftovers.isEmpty && hasCodexDir
             },
+            Check(name: "VendorRegistry：ego lite app 命中 Citro Labs 厂商") {
+                let app = AppIdentity(bundlePath: "/Applications/ego lite.app",
+                                      fileName: "ego lite", displayName: "ego lite",
+                                      bundleId: "com.citrolabs.ego.lite", version: nil,
+                                      aliases: ["ego lite", "com.citrolabs.ego.lite", "egobrowser"])
+                return VendorRegistry.vendor(for: app)?.name == "Citro Labs (ego lite)"
+            },
+            Check(name: "VendorRegistry：ego lite 残留覆盖 keystone 启动项 / CLI / 崩溃报告") {
+                // 仅验证结构：不依赖真机是否装了 ego。确认该厂商把通用扫描器漏掉的
+                // 维度（keystone 框架启动项、~/.local/bin CLI、DiagnosticReports）纳入。
+                guard let v = VendorRegistry.vendors.first(where: { $0.name == "Citro Labs (ego lite)" }) else { return false }
+                let names = v.traces.map { $0.displayName }
+                let hasKeystone = names.contains { $0.contains("Keystone") }
+                let hasCLI = names.contains { $0.contains("ego-browser") }
+                let hasCrash = names.contains { $0.contains("崩溃报告") }
+                return hasKeystone && hasCLI && hasCrash
+            },
 
             // ── InventoryCache ──
             Check(name: "InventoryCache 缓存 app 列表") {
