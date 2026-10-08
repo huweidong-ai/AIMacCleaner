@@ -213,6 +213,16 @@ struct TagPill: View {
                 fg: Theme.aiText, bg: Theme.aiBg, border: Theme.aiBorder)
     }
 
+    /// 这条是「AI 补充发现」提议出来的。
+    ///
+    /// 与 `aiSafe` 是两回事：`aiSafe` 是 AI 分析后的**删除结论**
+    /// （「这条可以删」），这个是**来源**（「这条是模型猜出来的，不是规则找到的」）。
+    /// 混在一起用户会误以为 AI 已经替他确认过可以删了。
+    static var aiProposed: TagPill {
+        TagPill(icon: "sparkles", text: L10n.t("AI 补充发现", "AI-suggested"),
+                fg: Theme.aiText, bg: Theme.aiBg, border: Theme.aiBorder)
+    }
+
     /// AI 判定「可以放心删」。
     static var aiSafe: TagPill {
         TagPill(icon: "checkmark.seal.fill", text: L10n.t("AI 判定可删", "AI says safe"),

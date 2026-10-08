@@ -102,6 +102,42 @@ struct AIMacCleanerApp: App {
             let json = CLIAgent.value(after: "--args", in: userArgs)
             exit(CLIAgent.runSkill(name: name, args: CLIAgent.args(fromJSON: json)))
         }
+        // ── 调查类子命令（给Agent / 人用的「翻目录」能力）──
+        // 全部只读，唯一例外是 --propose（只往清单里加候选，永不代表授权删除）。
+        if userArgs.contains("--trace-roots") {
+            exit(CLIAgent.runSkill(name: "list_trace_roots", args: SkillArgs()))
+        }
+        if let idx = userArgs.firstIndex(of: "--search"), idx + 1 < userArgs.count {
+            var args: [String: String] = ["token": userArgs[idx + 1]]
+            if let l = CLIAgent.value(after: "--limit", in: userArgs) { args["limit"] = l }
+            exit(CLIAgent.runSkill(name: "search_paths", args: SkillArgs(args)))
+        }
+        if let idx = userArgs.firstIndex(of: "--inspect"), idx + 1 < userArgs.count {
+            // --target 可选：给了才能排除目标 app 自身（否则它自己的数据目录
+            // 会被「活 app 反查」判成被别人认领）。
+            let target = CLIAgent.value(after: "--target", in: userArgs)
+            let session = AgentSession()
+            if let target { session.lastApp = AppState.resolveQuery(from: target).app }
+            exit(CLIAgent.runSkill(name: "inspect_path",
+                                   args: SkillArgs(["path": userArgs[idx + 1]]),
+                                   session: session))
+        }
+        if let idx = userArgs.firstIndex(of: "--propose"), idx + 1 < userArgs.count {
+            // 校验网需要知道「除目标 app 外的其它活 app」，所以必须同时给出目标。
+            let target = CLIAgent.value(after: "--target", in: userArgs)
+            guard let target, let app = AppState.resolveQuery(from: target).app else {
+                FileHandle.standardError.write(Data(L10n.t(
+                    "--propose 需要 --target <已安装应用>（校验网要排除目标之外的其它活 app）。\n",
+                    "--propose requires --target <installed app> (validation must exclude the other live apps).\n").utf8))
+                return
+            }
+            let session = AgentSession()
+            session.lastApp = app
+            session.lastTarget = app.displayName
+            exit(CLIAgent.runSkill(name: "propose_paths",
+                                   args: SkillArgs(["path": userArgs[idx + 1]]),
+                                   session: session))
+        }
         if userArgs.contains("--ps") {
             var args: [String: String] = [:]
             if let f = CLIAgent.value(after: "--filter", in: userArgs) { args["filter"] = f }
@@ -145,6 +181,10 @@ struct AIMacCleanerApp: App {
           ai-mac-cleaner --skill <名称> [--args '{...}']    直接调一个 skill / call a skill directly
           ai-mac-cleaner --ps [--filter background|user|system] [--keyword <名>] [--limit <N>]   列出进程 / list processes
           ai-mac-cleaner --review [--scope apps|leftovers]   分析删除清单 / review a removal plan
+          ai-mac-cleaner --trace-roots                     列出可搜索的痕迹根目录 / list trace roots
+          ai-mac-cleaner --search <宽泛词> [--limit <N>]     在痕迹目录里按宽 token 枚举候选 / search traces by broad token
+          ai-mac-cleaner --inspect <绝对路径>               查看一个路径的归属线索 / inspect one path
+          ai-mac-cleaner --propose <路径[,路径...]> --target <应用>   把候选提交进清单（仍需用户勾选确认）/ submit candidates
           ai-mac-cleaner --self-test                      运行自检 / run self-test
           ai-mac-cleaner --help                           显示本帮助 / show this help
 
@@ -153,10 +193,17 @@ struct AIMacCleanerApp: App {
           --include-userdata       同时清理用户数据 / also remove user data
           --no-package-managers    跳过 brew/npm/pipx/mas / skip package managers
 
-        Agent 只能通过 7 个 skill 干活（--skills 可看全部），没有通用 shell、不读文件内容、不联网。
+        Agent 只能通过 11 个 skill 干活（--skills 可看全部）：没有通用 shell、不联网，
+        只能在白名单目录内读元数据和极短文件头（最多 512 字节）用于判断归属。
         所有 skill 都不会删除文件，删除只发生在你确认之后。
-        The agent works only through 7 skills (see --skills) — no shell, no file reads, no network.
+        The agent works only through 11 skills (see --skills): no shell, no network; it may read
+        metadata and tiny file heads (512 bytes max) inside allow-listed dirs to verify ownership.
         No skill deletes anything; removal happens only after you confirm.
+
+        内置扫描器靠关键词命中，会在「目录名和app 名对不上」时漏项（StoryFab → story-fab）。
+        遇到这种app，用 --search拿更宽的词去找，再用 --inspect 逐个确认归属。
+        The built-in scanners match on keywords and miss paths whose name doesn't line up with the
+        app name. For those, search with a broader token, then inspect each hit to confirm ownership.
 
         默认走废纸篓，可恢复。/ Deletes to Trash by default — recoverable.
 

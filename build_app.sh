@@ -71,7 +71,10 @@ SWIFT
 echo "  版本：$APP_VERSION（短版本 $APP_VERSION_SHORT）"
 
 echo "━━ 1/5 编译 release ━━"
-swift build -c release
+# --disable-sandbox：SwiftPM 默认用 sandbox-exec 编译 manifest，在受限环境
+# （沙箱/容器）里会被拒（sandbox_apply: Operation not permitted）。本地常规
+# 构建也兼容此参数，只是跳过清单沙箱这道额外防护。
+swift build -c release --disable-sandbox
 
 BIN="$PROJECT_DIR/.build/release/$CLI_NAME"
 test -f "$BIN" || { echo "✗ 编译产物未找到: $BIN"; exit 1; }

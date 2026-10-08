@@ -58,7 +58,12 @@ enum CLIAgent {
 
     /// `ai-mac-cleaner --skill <名称> [--args '{...}']` / `--ps` / `--review`：
     /// 直接调一个注册过的 skill（白名单之外一律拒绝）。
-    static func runSkill(name: String, args: SkillArgs) -> Int32 {
+    ///
+    /// - Parameter session: 预置会话。`propose_paths` 需要 `lastApp` 才能构建校验网
+    ///   （要排除「目标 app 之外的其它活 app」），而 CLI 每次调用都是新进程、
+    ///   没法靠先跑一次 `scan_app` 把状态留下来，所以由调用方显式注入。
+    static func runSkill(name: String, args: SkillArgs,
+                         session: AgentSession = AgentSession()) -> Int32 {
         guard let skill = SkillRegistry.resolve(name) else {
             FileHandle.standardError.write(Data(
                 L10n.t("未知 skill：\(name)\n", "Unknown skill: \(name)\n").utf8))
@@ -71,7 +76,7 @@ enum CLIAgent {
         let sem = DispatchSemaphore(value: 0)
         var code: Int32 = 0
         Task.detached {
-            let result = await skill.invoke(args, session: AgentSession())
+            let result = await skill.invoke(args, session: session)
             print(result.summary)
             if !result.observation.isEmpty && result.observation != result.summary {
                 print("")

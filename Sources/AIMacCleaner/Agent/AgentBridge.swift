@@ -63,6 +63,8 @@ final class AgentBridge: ObservableObject {
             state.applyAIReviewApps(verdicts: verdicts)
         case .reviewLeftovers(let verdicts):
             state.applyAIReviewLeftovers(verdicts: verdicts)
+        case .proposedArtifacts(_, let artifacts):
+            state.applyAIProposals(artifacts)
         }
     }
 

@@ -48,11 +48,24 @@ enum CLIScan {
         return query
     }
 
+    /// 「AI 补充发现」是否可用：开启开关 + 已配置模型 + 已锁定到具体 app。
+    ///
+    /// 返回 nil 表示这轮不走 AI。三条缺一即整步跳过，行为与未接 AI 时完全一致。
+    /// 只在 `--scan`（只列出）启用；`--uninstall` 是破坏性动作，不采纳模型提议。
+    private static func aiProposer(for query: ScanQuery) -> (AppIdentity, AIModelConfig)? {
+        guard Prefs.aiProposeEnabled,
+              let app = query.app,
+              let cfg = ModelConfigStore.current.active, cfg.isConfigured
+        else { return nil }
+        return (app, cfg)
+    }
+
     /// 扫描并打印
     static func scan(target: String) -> Int32 {
         let query = resolve(target: target)
         let sem = DispatchSemaphore(value: 0)
         var allArtifacts: [Artifact] = []
+        let aiPropose = Self.aiProposer(for: query)
         Task.detached {
             for scanner in allScanners {
                 let results = await scanner.scan(query: query)
@@ -61,9 +74,17 @@ enum CLIScan {
             // 去重
             var seen = Set<String>()
             allArtifacts = allArtifacts.filter { seen.insert($0.path).inserted }
+            if let (app, config) = aiPropose {
+                let proposed = await AIScanProposer.propose(app: app, knownPaths: seen, config: config).artifacts
+                for p in proposed where seen.insert(p.path).inserted {
+                    allArtifacts.append(p)
+                }
+            }
             sem.signal()
         }
-        if sem.wait(timeout: .now() + 60) == .timedOut {
+        // 开了 AI 补充发现就要给模型留出网络时间，否则稳定超时。
+        let timeout: TimeInterval = aiPropose == nil ? 60 : 120
+        if sem.wait(timeout: .now() + timeout) == .timedOut {
             print(L10n.t("✗ 扫描超时", "✗ Scan timed out"))
             return 1
         }
@@ -84,6 +105,12 @@ enum CLIScan {
             print(L10n.t("发现 \(allArtifacts.count) 项，合计 \(SizeFormat.human(plan.totalSize))", "\(L10n.plural(allArtifacts.count, zh: "项", one: "item", many: "items")), \(SizeFormat.human(plan.totalSize)) total"))
         }
         print(String(repeating: "─", count: 60))
+        // AI 参与过就要说清楚：静默采纳模型的提议等于让用户不知道清单里混了什么。
+        if aiPropose != nil {
+            let n = allArtifacts.filter { $0.category == .aiProposed }.count
+            print(L10n.t("※ AI 补充发现：采纳 \(n) 条（均已过本地校验，默认不勾选）",
+                         "※ AI suggestions: \(n) adopted (all locally validated, unchecked by default)"))
+        }
 
         for (category, items) in plan.grouped {
             print("\n[\(category.displayName)]  " + L10n.plural(items.count, zh: "项", one: "item", many: "items"))
@@ -91,6 +118,12 @@ enum CLIScan {
                 let mark = item.risk == .safe ? "●" : (item.risk == .userData ? "○" : "?")
                 var line = "  \(mark) \(item.path)  (\(SizeFormat.human(item.size)), \(item.risk.label))"
                 if let meta = item.meta { line += "  {\(meta)}" }
+                // AI 提议项把模型的理由一并打印：CLI 里没有勾选项，
+                // 用户只能靠这句理由判断要不要手动删。
+                if item.category == .aiProposed,
+                   case .safe(let reason)? = item.aiVerdict {
+                    line += "  [AI: \(reason)]"
+                }
                 print(line)
             }
         }

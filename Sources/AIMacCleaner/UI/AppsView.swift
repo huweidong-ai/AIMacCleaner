@@ -55,9 +55,19 @@ struct AppsView: View {
             }
         }
         .sheet(isPresented: $showConfirm) {
-            ConfirmSheet(title: L10n.t("确认卸载", "Confirm uninstall"),
-                         artifacts: state.artifacts.filter(\.selected)) { userData in
-                runUninstall(userData: userData)
+            if let mode = state.slimMode {
+                ConfirmSheet(title: confirmTitle(mode: mode),
+                             artifacts: state.artifacts.filter(\.selected),
+                             warning: mode.confirmWarning(appName: state.matchedApp?.displayName ?? ""),
+                             confirmTitle: mode.actionTitle,
+                             trashByDefault: true) { userData in
+                    runUninstall(userData: userData)
+                }
+            } else {
+                ConfirmSheet(title: L10n.t("确认卸载", "Confirm uninstall"),
+                             artifacts: state.artifacts.filter(\.selected)) { userData in
+                    runUninstall(userData: userData)
+                }
             }
         }
         .sheet(isPresented: $showResult) {
@@ -160,6 +170,29 @@ struct AppsView: View {
                 .padding(.vertical, 2)
                 .tag(app.bundlePath)
                 .help(app.bundlePath)
+                // 右键菜单：瘦身的入口放在这里，因为它是一个「针对某个已装 app」的动作，
+                // 不该要求用户先做一次完整卸载扫描才能用。菜单里也保留了常规扫描。
+                .contextMenu {
+                    Button {
+                        Task { await state.slim(app: app, mode: .cacheOnly) }
+                    } label: {
+                        Label(L10n.t("轻量瘦身（只清缓存）", "Light slim (caches only)"),
+                              systemImage: "leaf")
+                    }
+                    Button {
+                        Task { await state.slim(app: app, mode: .fullReset) }
+                    } label: {
+                        Label(L10n.t("彻底重置（等同新装）", "Full reset (like a fresh install)"),
+                              systemImage: "arrow.counterclockwise")
+                    }
+                    Divider()
+                    Button {
+                        Task { await state.scan(app: app) }
+                    } label: {
+                        Label(L10n.t("扫描以便卸载", "Scan for uninstall"),
+                              systemImage: "magnifyingglass")
+                    }
+                }
             }
         }
         .listStyle(.sidebar)
@@ -214,13 +247,7 @@ struct AppsView: View {
     @ViewBuilder
     private var resultPane: some View {
         if state.isScanning {
-            VStack(spacing: 12) {
-                ProgressView()
-                Text(L10n.t("正在调用 \(state.scanners.count) 个扫描器…",
-                            "Running \(state.scanners.count) scanners…"))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            scanningView
         } else if !hasVisibleResults {
             scannerShowcase
         } else {
@@ -228,14 +255,34 @@ struct AppsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         summaryCard
-                        if !state.artifacts.isEmpty {
-                            aiBar
+                        // 瘦身模式：先讲清这一档会动什么、不会动什么（尤其「不会卸载 app」），
+                        // 再让人看清单。放在分组之前，避免用户先看到一堆路径再被告知后果。
+                        if let mode = state.slimMode, let app = state.matchedApp {
+                            slimBanner(mode: mode, appName: app.displayName)
+                            userDataKeptNotice
+                        }
+                        // AI 分析条与「AI 补充发现」状态条都是**卸载语义**：
+                        // 前者的 prompt 写的是「我打算卸载…」，后者只有真的调过模型
+                        // 才有意义。瘦身流程两者都不走，show 出来只会误导。
+                        if state.slimMode == nil {
+                            if !state.artifacts.isEmpty {
+                                aiBar
+                            }
+                            // 只在agent 真的跑过之后才显示结果条。
+                            // AI 调查已并入「让 AI 分析」，不再是扫描时自动发生的一步——
+                            // 所以「还没跑」时不该显示任何关于它的提示。
+                            if state.aiProposeOutcome != .idle {
+                                aiProposeStatusBar
+                            }
                         }
                         SectionLabel(text: L10n.t("扫描结果 · 按类别分组", "Results · grouped by category"),
                                      onExpand: { expandAllCategories(expanded: true) },
                                      onCollapse: { expandAllCategories(expanded: false) })
                         if hasVendorLeftover {
                             vendorBanner
+                        }
+                        if hasAIProposed {
+                            aiProposedBanner
                         }
                         groupCards
                     }
@@ -245,6 +292,38 @@ struct AppsView: View {
                 bottomBar
             }
         }
+    }
+
+    /// 扫描中：把「正在调用 N 个扫描器」细化成「一个一个跑、每个显示找到了几项」。
+    ///
+    /// `state.scannerProgress` 是后台线程逐条回传的，主 actor 在每次 await 后让出，
+    /// 这里就能逐个刷新——正在跑的扫描器高亮 + 转圈，跑完的打勾并标出命中数。
+    private var scanningView: some View {
+        ScrollView {
+            VStack(spacing: 14) {
+                Spacer(minLength: 16)
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(L10n.t("正在调用 \(state.scannerProgress.count) 个扫描器…",
+                                "Running \(state.scannerProgress.count) scanners…"))
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .padding(.bottom, 2)
+
+                VStack(spacing: 6) {
+                    ForEach(state.scannerProgress) { prog in
+                        ScannerRunRow(prog: prog)
+                    }
+                }
+                .frame(maxWidth: 560)
+
+                Spacer(minLength: 16)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var summaryCard: some View {
@@ -321,7 +400,7 @@ struct AppsView: View {
     private var aiBar: some View {
         let (title, detail) = aiBarText
         return AIReviewBar(
-            phase: state.aiReviewPhaseApps,
+            phase: effectiveReviewPhase,
             title: title,
             detail: detail,
             actionTitle: L10n.t("让 AI 分析", "Ask AI"),
@@ -342,8 +421,8 @@ struct AppsView: View {
                     ?? (state.searchText.isEmpty ? L10n.t("当前应用", "the current app") : state.searchText)
                 let list = AgentFormat.promptList(state.artifacts)
                 state.runAIReviewInBackground(prompt: L10n.t(
-                    "我打算卸载已安装应用 \(appName)。下面是扫描器找出的全部相关文件/目录清单：\n\(list)\n\n请帮我完成三件事：\n1. 逐项确认清单中的文件/目录是否确实属于 \(appName)（主程序、用户数据、缓存），还是被扫描器误识别——例如其实是系统级文件、或属于其他已装应用、或别的 App 正在引用/共享它。\n2. 评估删除每一项的风险。重点不是「会不会让 \(appName) 无法使用」（卸载本身就是目的），而是：它是否属于系统级文件/目录、删除会否破坏系统稳定性；是否被其他应用引用或共享、删除会否导致别的 App 瘫痪；是否属于重要用户数据（凭据、登录态、项目文件等）、删了是否不可逆或需要人工确认。\n3. 给出最终建议：每一项是「可安全删除」还是「建议保留 / 需人工确认」，并说明原因。对「建议保留」的项，务必点明它为什么不能删（系统文件 / 其他应用共享 / 重要数据）。\n\n清单已经给出，不要重新扫描，请直接调用 review_plan(scope: apps) 把结论标记出来。",
-                    "I plan to uninstall the installed app \(appName). Below is the full list of related files/directories the scanner found:\n\(list)\n\nPlease do three things:\n1. For each item, confirm whether it truly belongs to \(appName) (main bundle, user data, cache), or is a false positive — e.g. actually a system-level file, belongs to another installed app, or is referenced/shared by another app.\n2. Assess the risk of deleting each item. The point is NOT whether it breaks \(appName) (uninstalling is the goal) — instead: is it a system-level file whose deletion destabilizes the OS; is it referenced/shared by other apps whose deletion would break them; is it important user data (credentials, login state, project files) that is irreversible or needs a human decision.\n3. Give a final recommendation per item: \"safe to delete\" or \"keep / needs human confirmation\", with the reason. For \"keep\" items, state explicitly why it must not be deleted (system file / shared by other apps / important data).\n\nThe list is already provided — do not scan again. Call review_plan(scope: apps) directly to mark the verdicts."),
+                    "我打算卸载已安装应用 \(appName)。内置扫描器已经扫过一轮，清单在下面（这部分不用你再看一遍）：\n\(list)\n\n请按下面这套办法把这件事做完——重点是**找出内置扫描器漏掉的东西**，而不是复述清单。\n\n第1 步 扫一遍：清单里没有的东西，往往是因为目录名和 app 名对不上。\n- 先 scan_app 锁定 \(appName)（拿到 bundle id 和全部关键词）。\n- 从它的名字里取**一段更短的词**（例如 StoryFab → 搜 story；CC Switch → 搜 ccswitch / switch），调 search_paths。\n- 搜索引擎会自动忽略 - _ . 空格，所以搜 story 能同时命中 story-fab / StoryFab / story_fab —— 内置扫描器正是在这种「形状对不上」上漏项的。\n\n第 2 步 验归属：搜出来的绝大多数是无关的（com.apple.*、别的软件的功能目录）。\n- 对每个**清单里没有**的候选项调 inspect_path，看内容类型和子项名。\n- inspect_path 会告诉你它是否被某个已装应用认领；被认领的一律排除。\n- 归属要以内容为证据，不要凭名字猜。例如 StoryFab 的 Application Support/story-fab 里是 Tauri 崩溃报告，技术栈对得上才算证据。\n\n第 3 步 交候选：确认属于 \(appName) 的，调 propose_paths 提交（逗号分隔多个路径）。\n- 每条都会过本地校验网（系统路径黑名单 / 白名单 / 保护根 / 活 app 反查 / 我的 /remember 豁免 / 必须真实存在），不过就丢弃，所以不用担心被误收。\n- 提交后入库的项**一律不勾选**，删不删由我决定。\n\n第 4 步 下结论：对**完整的清单**（内置扫描结果 + 你新提交的）调用 review_plan(scope: apps)，逐项标「可安全删除」或「建议保留 / 需人工确认」并说明原因。\n\n判定该不该删只看一件事：核实归属，不要删错。\(appName) 自身的主程序、数据、缓存删掉是预期内且安全的；系统文件、被别的应用共享的、以及只存在本机的独有数据才需要标出来。\n\n深度思考从简：只在归属拿不准时才展开推理，每条候选的思考不超过 2 句；不要复述上面的流程步骤，也不要重复清单里已有的已知信息。\n\n不要重新扫描我给你的这份清单——它已经在会话里了。",
+                    "I'm about to uninstall the installed app \(appName). The built-in scanners already ran; their list is below (you don't need to review it again):\n\(list)\n\nDo the whole job with this procedure — the point is to FIND WHAT THE SCANNERS MISSED, not to restate the list.\n\nStep 1 — search. What's missing from the list is usually there because the directory name doesn't match the app name.\n- Call scan_app on \(appName) to get its bundle id and keywords.\n- Take a SHORTER fragment of the name (e.g. StoryFab → search \"story\"; CC Switch → search \"ccswitch\" / \"switch\") and call search_paths.\n- search_paths ignores - _ . and spaces on both sides, so \"story\" matches story-fab / StoryFab / story_fab alike — exactly the shape where the built-in scanners miss things.\n\nStep 2 — verify ownership. Most hits are irrelevant (com.apple.*, other apps' feature dirs).\n- For each candidate NOT already in the list, call inspect_path and read its content kind and child names.\n- inspect_path tells you whether an installed app claims it; drop anything that is claimed.\n- Base ownership on content evidence, not names. E.g. StoryFab's Application Support/story-fab holds Tauri crash reports — the stack trace matching is the evidence.\n\nStep 3 — submit. For each path you confirmed belongs to \(appName), call propose_paths (comma-separated).\n- Every path passes local validation (system block-list, allow-list, protected roots, live-app reverse lookup, my /remember exemptions, must exist), so wrong ones are dropped automatically.\n- Accepted entries are NEVER checked by default — I decide what to delete.\n\nStep 4 — conclude. Call review_plan(scope: apps) on the FULL list (scanner results + what you just submitted), marking each item \"safe to delete\" or \"keep / needs human confirmation\" with a reason.\n\nThe only thing that matters is ownership. \(appName)'s own bundle, data and caches are safe — and expected — to delete; only system files, data shared with other apps, and data that exists only on this machine deserve a flag.\n\nKeep your deep-thinking terse: reason at length only when ownership is genuinely uncertain, no more than 2 sentences per candidate; don't restate the procedure steps and don't repeat facts already in the list.\n\nDo not re-scan the list I gave you — it's already in the session."),
                     reviewScope: .apps)
             },
             onViewConclusion: {
@@ -353,13 +432,42 @@ struct AppsView: View {
         )
     }
 
+    /// AI 条上实际呈现的阶段。
+    ///
+    /// 不直接照搬 `aiReviewPhaseApps`：那个值靠 `review_plan` / `plan_uninstall`
+    /// 这两个 skill 落章，而「让 AI 分析」完全可能没走到那一步（步数用完，
+    /// 或只提交了候选就收尾）。那种情况下 phase 会停在 `.idle` / `.failed`，
+    /// 但对话里**确实已经有一份结论**——于是界面自相矛盾：下面结果条写着
+    /// 「额外找到 1 条」，上面却还在邀请你点「让 AI 分析」，像什么都没发生，
+    /// 用户要么重复花一次模型调用，要么根本不知道结论在哪。
+    ///
+    /// 判定依据用「模型这一轮到底跑通没有」：`.found` / `.none` 都证明跑通了。
+    /// `.running` 要原样保留（分析还在进行中，按钮不该半路变脸），
+    /// `.needsConfig` 也保留（那是真没配置，跟跑没跑成无关）。
+    private var effectiveReviewPhase: AIReviewPhase {
+        let phase = state.aiReviewPhaseApps
+        if phase == .running || phase == .needsConfig { return phase }
+        switch state.aiProposeOutcome {
+        case .found, .none: return .done
+        case .idle, .timedOut, .failed, .disabled: return phase
+        }
+    }
+
     /// 按当前阶段给出提示文案。
     private var aiBarText: (String, String) {
-        switch state.aiReviewPhaseApps {
+        switch effectiveReviewPhase {
         case .done:
-            return (L10n.t("AI 已分析完毕。", "AI analysis complete."),
-                    L10n.t("结论已发到「问 AI」并回写了勾选状态，点右侧按钮查看完整分析。",
-                           "The conclusion was sent to Ask AI and the checkboxes were updated. Tap the button to view the full analysis."))
+            // 区分「真的走完了 review_plan」和「只是跑通了、没落章」。
+            // 后者不能声称「已回写勾选状态」——那是假话，用户会以为勾选框
+            // 已经被 AI 调过，从而信任一个其实没被调整过的清单。
+            if state.aiReviewPhaseApps == .done {
+                return (L10n.t("AI 已分析完毕。", "AI analysis complete."),
+                        L10n.t("结论已发到「问 AI」并回写了勾选状态，点右侧按钮查看完整分析。",
+                               "The conclusion was sent to Ask AI and the checkboxes were updated. Tap the button to view the full analysis."))
+            }
+            return (L10n.t("AI 分析已完成。", "AI analysis finished."),
+                    L10n.t("结论在「问 AI」里，点右侧按钮查看。注意：这次没有回写勾选状态，请对照结论自行核对清单。",
+                           "The conclusion is in Ask AI — tap the button to view it. Note: the checkboxes were NOT updated this time; review the list against the conclusion yourself."))
         case .needsConfig:
             return (L10n.t("还没配置模型", "Model not configured"),
                     L10n.t("「让 AI 分析」需要先在 ⚙ 里填好 API Key（OpenAI / Anthropic 兼容都行）。",
@@ -370,8 +478,8 @@ struct AppsView: View {
                            "The model call failed — check the API key / network, or tap Retry."))
         default:
             return (L10n.t("默认已全选，包含用户数据。", "Everything is selected by default, including user data."),
-                    L10n.t("删除前可以让 AI 分析一遍——它会结合路径、文件特征和其它已装应用，把不该删的自动取消勾选并写明理由。",
-                           "Let AI review first — it weighs the path, file traits and your other installed apps, then unchecks what shouldn’t go and says why."))
+                    L10n.t("点「让 AI 分析」：它会先用更宽的关键词去翻痕迹目录、把内置扫描器漏掉的路径找出来逐个确认归属，再对完整清单给出取舍理由。",
+                           "Tap “Ask AI”: it first searches the trace dirs with broader keywords to recover what the built-in scanners missed, verifies ownership, then gives a verdict on the full list."))
         }
     }
 
@@ -430,6 +538,231 @@ struct AppsView: View {
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.warning.opacity(0.35), lineWidth: 1))
     }
 
+    /// 瘦身模式顶部横幅：讲清这一档会动什么、不会动什么。
+    ///
+    /// 最重要的一句话是「app 不会被卸载」——用户从右键菜单点进来的心理预期是
+    /// 「清理」而不是「卸载」，必须显式打消「会不会连 app 一起删掉」的顾虑。
+    private func slimBanner(mode: SlimMode, appName: String) -> some View {
+        let tint = mode == .fullReset ? Theme.warning : Theme.accent
+        return HStack(alignment: .top, spacing: 7) {
+            Image(systemName: mode == .fullReset ? "arrow.counterclockwise" : "leaf")
+                .font(.system(size: 12))
+                .foregroundStyle(tint)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(mode.title)
+                    .font(.system(size: 12.5, weight: .semibold))
+                Text(mode.bannerText(appName: appName))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint.opacity(0.35), lineWidth: 1))
+    }
+
+    /// 「有用户数据被取消勾选」的提示：讲清保留下来会发生什么。
+    ///
+    /// 为什么要常驻横幅而不是每次取消勾选都弹窗：取消勾选最常发生在「按组取消」，
+    /// 一次操作会触发 N 条 item 的取消 → 逐条弹窗等于把用户打断十几次。横幅不打断
+    /// 操作、一直挂在清单上方，且只要还有未勾项就在，取消全部后自动消失。
+    private var userDataKeptNotice: some View {
+        let kept = state.artifacts.filter { $0.risk == .userData && !$0.selected }
+        return Group {
+            if let mode = state.slimMode, mode.includesUserData, !kept.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.warning)
+                        Text(L10n.t("有 \(kept.count) 项用户数据未勾选，将被保留",
+                                    "\(kept.count) user-data item(s) unchecked — they will be kept"))
+                            .font(.system(size: 12.5, weight: .semibold))
+                        Spacer()
+                    }
+                    Text(keptConsequence(kept))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .stroke(Theme.warning.opacity(0.35), lineWidth: 1))
+            }
+        }
+    }
+
+    /// 逐条说明「保留这些用户数据」的后果，要具体到能判断，而不是泛泛说
+    /// 「可能无法完全重置」。保留 Cookie 类和保留配置类的后果并不一样。
+    private func keptConsequence(_ kept: [Artifact]) -> String {
+        let appName = state.matchedApp?.displayName ?? L10n.t("该应用", "the app")
+        let byCategory = Dictionary(grouping: kept, by: \.category)
+            .sorted { $0.key.displayName < $1.key.displayName }
+            .map { "\($0.key.displayName)（\($0.value.count) 项）" }
+        var lines = [L10n.t("未勾选：\(byCategory.joined(separator: "、"))",
+                           "Unchecked: \(byCategory.joined(separator: ", "))")]
+
+        // 会不会「清完了还是登着的」，取决于 Cookie / 会话数据有没有被保留。
+        let keepsSession = kept.contains { a in
+            let p = a.path.lowercased()
+            return p.contains("/cookies/") || p.contains("/httpstorages/")
+        }
+        if keepsSession {
+            lines.append(L10n.t("• 保留了 Cookie / 会话数据：\(appName) 可能仍保持登录，这次重置不会把你退出登录。",
+                                "• Cookie / session data is kept: \(appName) may stay signed in — this reset will not sign you out."))
+        }
+        lines.append(L10n.t("• 保留了应用配置：设置不会回到默认，偏好（窗口大小、上次选择等）会原样保留。",
+                            "• App config is kept: settings won't return to defaults; preferences (window size, last selection…) stay as they are."))
+        lines.append(L10n.t("• 保留了本地数据：只存在本机、没同步的内容（笔记、记录、离线文件）不会被清除。",
+                            "• Local data is kept: content that exists only on this machine and was never synced (notes, records, offline files) is not removed."))
+        lines.append(L10n.t("想完成「等同新装」的重置，就把它们重新勾上。",
+                            "Re-check them to complete a fresh-install reset."))
+        return lines.joined(separator: "\n")
+    }
+
+    /// 确认弹窗标题。瘦身档刻意不说「卸载」——app 本体并不会被删。
+    private func confirmTitle(mode: SlimMode) -> String {
+        switch mode {
+        case .cacheOnly:
+            return L10n.t("确认瘦身（只清缓存）", "Confirm slim (caches only)")
+        case .fullReset:
+            return L10n.t("确认彻底重置", "Confirm full reset")
+        }
+    }
+
+    /// 结果里是否含有 AI 提议项。
+    private var hasAIProposed: Bool {
+        state.artifacts.contains { $0.category == .aiProposed }
+    }
+
+    /// AI 调查的结果条（agent 跑完之后才出现）。
+    ///
+    /// **只在跑过之后才显示**：「AI 补充发现」已经并入「让 AI 分析」，
+    /// 不再是扫描时自动发生的一步。所以未运行时**什么都不显示** ——
+    /// 之前这里常驻一句「未启用（需要在 ⚙ 配置模型，或在设置里打开该开关）」，
+    /// 会让人以为还有另一个功能没打开、还得去设置里折腾一遍。
+    ///
+    /// 跑过之后必须写清楚「跑没跑 / 找到没有」：这一步没产出时结果里不会多出
+    /// 任何东西，用户分不清是「它翻了一遍目录确实没找到」还是「它压根没跑成」。
+    private var aiProposeStatusBar: some View {
+        let icon: String
+        let text: String
+        let tint: Color
+        switch state.aiProposeOutcome {
+        case .found(let n):
+            icon = "sparkles"
+            text = L10n.t("AI 调查：额外找到 \(n) 条内置扫描器漏掉的路径，已加入清单并默认不勾选，请逐条核对后再决定。",
+                          "AI investigation: found \(n) path(s) the built-in scanners missed — added to the list, unchecked by default. Review each one before deciding.")
+            tint = Theme.accent
+        case .none:
+            icon = "checkmark.circle"
+            text = L10n.t("AI 调查：已翻过全部痕迹目录，本轮没有发现内置扫描器漏掉的路径。",
+                          "AI investigation: went through every trace root and found nothing the built-in scanners missed.")
+            tint = Theme.success
+        case .timedOut:
+            icon = "clock.badge.exclamationmark"
+            text = L10n.t("AI 调查：模型 30 秒无响应，本轮已跳过（不影响内置扫描结果）。",
+                          "AI investigation: the model didn't respond within 30s — skipped this round (built-in results unaffected).")
+            tint = Theme.warning
+        case .idle:
+            // 不会渲染到这里：调用处已按 `.idle` 整体隐藏这条提示。
+            // 保留一个中性兜底文案，避免将来有人改了条件后露出「未启用」这种误导说法。
+            icon = "sparkles"
+            text = ""
+            tint = .secondary
+        case .failed(let kind):
+            icon = "exclamationmark.triangle"
+            if kind == .permanent {
+                text = L10n.t("AI 调查：模型调用失败（key 失效 / 没额度 / 配置错误），本次会话已停止调用。在设置里修改配置或「测试连接」成功即可恢复。",
+                              "AI investigation: the model call failed (bad key / no quota / bad config) — disabled for this session. Fix the config in Settings or pass 'Test connection' to resume.")
+            } else {
+                text = L10n.t("AI 调查：网络错误（可重试），本轮未获得 AI 补充；下次会再试。",
+                              "AI investigation: a network error (retryable) — no AI suggestions this round; it will try again.")
+            }
+            tint = Theme.warning
+        case .disabled:
+            icon = "sparkles.slash"
+            text = L10n.t("AI 调查：已因 key 失效 / 没额度停用，本轮会话不再调用（不影响内置扫描结果）。修改模型配置或「测试连接」成功后会恢复。",
+                          "AI investigation: disabled after a permanent failure (bad key / no quota); not called this session (built-in results unaffected). Resumes after you change the config or pass 'Test connection'.")
+            tint = .secondary
+        }
+        return HStack(alignment: .top, spacing: 7) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundStyle(tint)
+                .padding(.top, 1)
+            Text(text)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            // 分析跑完后给出「去看结果」的出口。
+            //
+            // 这一条结果只写了「找到了几条」，而**为什么**是这些、每一条的取舍理由
+            // 全在「问 AI」的对话里。没有这个按钮，用户看到一行字之后不知道该去哪，
+            // 只能自己想起左边还有个「问 AI」页——那条完整的分析就等于白跑了。
+            if hasAIConclusion {
+                Button {
+                    state.selectedTab = .askAI
+                } label: {
+                    Text(L10n.t("看结果 →", "View result →"))
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(Theme.aiPrimary)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 1)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 1))
+    }
+
+    /// 本轮 AI 调查是否产出了一份**可看的分析**（对话里有它的结论）。
+    ///
+    /// 只认「真的跑过」的两种结局：`.found`（找到并补了几条）与 `.none`（翻过目录没找到）。
+    /// 失败 / 超时 / 停用不在此列——那些情况下对话里只有一句错误说明，
+    /// 引导用户跳过去不如把「去改配置 / 重试」留在这一屏上。
+    private var hasAIConclusion: Bool {
+        switch state.aiProposeOutcome {
+        case .found, .none: return true
+        case .idle, .timedOut, .failed, .disabled: return false
+        }
+    }
+
+    /// AI 提议项说明横幅：讲清这些项从哪来、过了哪几道闸、以及为什么默认不勾。
+    ///
+    /// 不写清楚就会出现最坏的情况：用户以为「AI 都说是这个 app 的了」而全选，
+    /// 结果删掉的是共享数据。横幅把「模型可能认错归属」这件事摆在勾选之前。
+    private var aiProposedBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 7) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(Theme.accent)
+                    .font(.system(size: 13))
+                Text(L10n.t("AI 补充发现的路径", "Extra paths suggested by AI"))
+                    .font(.system(size: 12.5, weight: .semibold))
+                Spacer()
+            }
+            Text(L10n.t("这些是内置扫描器没找到、由模型补充提议的路径。每条都已过本地校验：白名单 / 系统路径黑名单 / 活 app 反查（被别的已装 app 认领的直接丢弃）/ 你的 /remember 豁免，且必须真实存在。但模型仍可能认错归属，所以它们一律默认不勾选，删掉后也进废纸篓可找回。",
+                           "These are paths the built-in scanners missed and the model suggested. Each one passed local validation: allow-list, system-path block-list, live-app reverse lookup (anything claimed by another installed app is dropped), and your /remember exemptions — and it must actually exist. The model can still misattribute ownership, so none of them are checked by default, and deleting them goes to the Trash so they can be recovered."))
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.accentSubtle, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.accent.opacity(0.3), lineWidth: 1))
+    }
+
     private var bottomBar: some View {
         BottomActionBar(
             selectedCount: state.selectedCount,
@@ -448,13 +781,20 @@ struct AppsView: View {
             .foregroundStyle(.secondary)
 
             // 卸载包含「直接删除」的不可逆部分，主按钮用红色强调。
+            // 瘦身模式下换成对应档位的说法与配色：app 本体不会被删，
+            // 用红色的「卸载」按钮会让人以为这会把 app 也带走。
             Button {
                 showConfirm = true
             } label: {
-                Label(L10n.t("卸载…", "Uninstall…"), systemImage: "trash")
+                if let mode = state.slimMode {
+                    Label(mode.actionTitle + L10n.t("…", "…"),
+                          systemImage: mode == .fullReset ? "arrow.counterclockwise" : "leaf")
+                } else {
+                    Label(L10n.t("卸载…", "Uninstall…"), systemImage: "trash")
+                }
             }
             .buttonStyle(.borderedProminent)
-            .tint(Theme.destructive)
+            .tint(state.slimMode == nil ? Theme.destructive : Theme.accent)
             .keyboardShortcut(.delete, modifiers: [.command])
             .disabled(state.selectedCount == 0)
             .help(state.selectedCount == 0

@@ -131,6 +131,13 @@ enum SkillEffect {
     /// 对当前残留清单做 AI 分析。关联字典携带模型对每一项的判定（UUID -> AIVerdict）：
     /// `.safe` 表示可安全删除并勾选，`.keep` 表示建议保留并保持不勾选。
     case reviewLeftovers([UUID: AIVerdict])
+    /// Agent **调查后**补充提议的残留路径（`propose_paths` 的产物）。
+    ///
+    /// 与 `reviewApps` 分开是刻意的：这一项不是「对已有清单下结论」，
+    /// 而是「清单本来没有、模型自己找到的」。它已经过 `AIScanProposer.judge`
+    /// 校验网，但**一律 `selected = false`** —— 归属判断仍可能出错，
+    /// 勾选权必须在用户手上。
+    case proposedArtifacts(target: String, artifacts: [Artifact])
 }
 
 /// skill 的执行结果。
@@ -224,6 +231,9 @@ enum ReviewScope: String, CaseIterable, Identifiable, Hashable {
 final class AgentSession: @unchecked Sendable {
     /// 上一次 `scan_app` 锁定的目标名。
     var lastTarget: String?
+    /// 上一次 `scan_app` 锁定的 app 身份。`propose_paths` 需要它来构建
+    /// 校验网上下文（活 app 反查需要「除目标 app 外的其他活 app」）。
+    var lastApp: AppIdentity?
     /// 上一次 `scan_app` 的痕迹清单。
     var lastArtifacts: [Artifact] = []
     /// 上一次残留扫描结果。
@@ -241,6 +251,9 @@ final class AgentSession: @unchecked Sendable {
     /// 深链注入的分析范围。非 nil 时，`review_plan` 强制按此范围执行，
     /// 不再让模型自行选择 apps / leftovers，避免应用页被误判为残留。
     var reviewScope: ReviewScope? = nil
+    /// 本次会话里 `propose_paths` 已采纳的候选（跨轮次累加）。
+    /// 供宿主在运行结束后统一并入清单，也便于模型自己回顾「我已经提过什么」。
+    var proposedArtifacts: [Artifact] = []
 
     init() {}
 

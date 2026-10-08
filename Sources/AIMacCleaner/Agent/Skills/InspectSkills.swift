@@ -85,6 +85,9 @@ struct ScanAppSkill: AgentSkill {
 
         session.lastTarget = query.displayTarget
         session.lastArtifacts = artifacts
+        // propose_paths 的校验网需要知道「除目标 app 外的其它活 app」，
+        // 所以这里要把身份一起存下来。
+        session.lastApp = query.app
 
         guard !artifacts.isEmpty else {
             let msg = L10n.t("没有找到 \(query.displayTarget) 的任何痕迹。",

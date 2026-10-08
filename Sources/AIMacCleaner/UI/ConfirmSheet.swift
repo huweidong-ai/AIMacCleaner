@@ -25,7 +25,30 @@ struct ConfirmSheet: View {
 
     let title: String
     let artifacts: [Artifact]
+    /// 额外的强警告（如「重置会让你退出登录」）。nil = 不显示。
+    let warning: String?
+    /// 确认按钮文案。默认沿用「卸载」。
+    let confirmTitle: String
     let onConfirm: (UserDataDisposition) -> Void
+
+    /// 是否连用户数据也直接彻底删除。**卸载时默认 true**；「瘦身 / 重置」传
+    /// `trashByDefault: true`，让用户数据默认进废纸篓 —— 重置的本质是「弄丢状态」，
+    /// 既然已经要退出登录，就再留一条可找回的退路。
+    @State private var hardDeleteUserData: Bool
+
+    /// - Parameters:
+    ///   - trashByDefault: true 时初始不勾「硬删用户数据」，即默认全部进废纸篓。
+    init(title: String, artifacts: [Artifact], warning: String? = nil,
+         confirmTitle: String = L10n.t("卸载", "Uninstall"),
+         trashByDefault: Bool = false,
+         onConfirm: @escaping (UserDataDisposition) -> Void) {
+        self.title = title
+        self.artifacts = artifacts
+        self.warning = warning
+        self.confirmTitle = confirmTitle
+        self._hardDeleteUserData = State(initialValue: !trashByDefault)
+        self.onConfirm = onConfirm
+    }
 
     private var totalSize: Int64 { artifacts.reduce(0) { $0 + $1.size } }
     private var userDataItems: [Artifact] { artifacts.filter { $0.risk == .userData } }
@@ -42,10 +65,6 @@ struct ConfirmSheet: View {
     private var effectiveTrashCount: Int {
         hardDeleteUserData ? 0 : userDataItems.count
     }
-
-    /// 是否连用户数据也直接彻底删除。**默认勾选**（true）——用户数据默认就一起硬删除，
-    /// 想保留到废纸篓可找回，就**取消**这个勾选。
-    @State private var hardDeleteUserData = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -85,6 +104,19 @@ struct ConfirmSheet: View {
                     .font(.caption)
                     .foregroundStyle(Theme.warning)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // 档位特有的强警告（如「重置会让你退出登录」）。放在这里而不是只写在
+            // 结果页横幅上：这是用户点下主按钮后的最后一道确认屏。
+            if let warning {
+                Label(warning, systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(Theme.destructive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.destructive.opacity(0.10),
+                                in: RoundedRectangle(cornerRadius: 6))
             }
 
             // 路径必须能选中复制：想在删之前把清单贴到别处核对是很自然的需求。
@@ -136,7 +168,7 @@ struct ConfirmSheet: View {
                     dismiss()
                     onConfirm(hardDeleteUserData ? .hardDelete : .toTrash)
                 } label: {
-                    Text(L10n.t("卸载", "Uninstall"))
+                    Text(confirmTitle)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.destructive)

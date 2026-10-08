@@ -31,6 +31,10 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
     /// 同源厂商残留：卸载某厂商 app 时，额外发现的同厂商其他入口（如 OpenAI 的
     /// `~/.codex/`、常驻菜单栏进程、launch agent）。让用户勾选是否一并清理。
     case vendorLeftover = "Vendor leftover"
+    /// AI 提议项：内置扫描器没找到、由模型补充提议的路径（见 `AIScanProposer`）。
+    /// 已过本地校验网（白名单 / 黑名单 / 活 app 反查 / 记忆豁免），
+    /// 但归属判断仍可能出错 —— **永不默认勾选**。
+    case aiProposed = "AI proposed"
 
     /// 界面显示名（双语）。
     var displayName: String {
@@ -54,6 +58,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .toolCache:      return L10n.t("工具缓存", "Tool cache")
         case .pkgReceipt:     return L10n.t("pkg 安装收据", "Pkg receipt")
         case .vendorLeftover: return L10n.t("同厂商残留", "Vendor leftover")
+        case .aiProposed:     return L10n.t("AI 建议项", "AI-suggested")
         }
     }
 
@@ -78,6 +83,7 @@ enum ArtifactCategory: String, CaseIterable, Codable, Hashable {
         case .toolCache:      return "internaldrive"
         case .pkgReceipt:     return "doc.badge.ellipsis"
         case .vendorLeftover: return "building.2.crop.circle"
+        case .aiProposed:     return "sparkles"
         }
     }
 }
@@ -130,6 +136,18 @@ enum AIVerdict: Hashable {
     case safe(reason: String)
 }
 
+/// 非扫描器来源的稳定标识，与内置扫描器的 `Scanner.name` 同域，都写进 `Artifact.source`。
+///
+/// 集中在这里是为了避免 "AIScanProposer" 这类字面量散落到 AppState / UI 各处——
+/// 改一处漏一处就会出现「有的地方认得出是 AI 项、有的地方认不出」。
+enum ArtifactSource {
+    static let aiProposer = "AIScanProposer"
+    static let vendorRegistry = "VendorRegistry"
+
+    /// 这条是不是「AI 补充发现」提议出来的（而非内置扫描器按规则找到的）。
+    static func isAI(_ source: String?) -> Bool { source == aiProposer }
+}
+
 struct Artifact: Identifiable, Hashable {
     let id = UUID()
     let category: ArtifactCategory
@@ -144,10 +162,20 @@ struct Artifact: Identifiable, Hashable {
     /// 行内辅助说明（仅 UI 展示，不参与删除 / 历史）。
     /// 目前用于 PWA：给「随应用一起卸载」的 Library 配置项标注一句跟随提示。
     var note: String?
+    /// 产出这条痕迹的扫描器名（仅 UI 可追溯，不参与删除 / 历史）。
+    ///
+    /// 为什么不直接显示成行内一列：扫描器是内部规则模块（`LibraryDataScanner` 这种
+    /// 名字对用户没有决策价值），且「哪个扫描器」与「哪类痕迹」正交——平铺只会变成噪音。
+    /// 它的用途是回答「这条为什么会被扫出来」，所以放在悬浮/右键里按需查看。
+    ///
+    /// 由 `AppState.runScanners` 集中打标，扫描器自身不需要感知自己的展示名。
+    /// AI 提议项记为 `AIScanProposer`、同厂商残留记为 `VendorRegistry`，
+    /// 因此每条来源都非空，能明确区分「内置规则找到的」和「模型提议的」。
+    var source: String?
 
     init(category: ArtifactCategory, path: String, size: Int64, risk: Risk,
          meta: String? = nil, selected: Bool? = nil, aiVerdict: AIVerdict? = nil,
-         note: String? = nil) {
+         note: String? = nil, source: String? = nil) {
         self.category = category
         self.path = path
         self.size = size
@@ -158,5 +186,10 @@ struct Artifact: Identifiable, Hashable {
         self.selected = selected ?? (risk == .safe)
         self.aiVerdict = aiVerdict
         self.note = note
+        self.source = source
     }
+
+    /// 这条是模型补充提议的吗？用于 UI 上单独标注——AI 项的归属判断不如规则可靠，
+    /// 必须让用户一眼看出「这条是猜的」，才能自己去核对。
+    var isAISuggested: Bool { ArtifactSource.isAI(source) }
 }

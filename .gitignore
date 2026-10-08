@@ -26,6 +26,10 @@ Packages/
 *.log
 *.out
 
+# Python artifacts & temp dirs
+__pycache__/
+._*tmpdir/
+
 # Icon generation temp files
 icon_*.png
 

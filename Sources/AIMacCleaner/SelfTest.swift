@@ -7,6 +7,22 @@ enum SelfTest {
         let block: () async -> Bool
     }
 
+    /// AIScanProposer 自检用的固定判定上下文。
+    ///
+    /// 手工构造而不是 `Context.build(app:)`：后者要读全机 app 清单（耗时且随机器变），
+    /// 而校验网的用例必须**离线且确定性** —— 判定的对错不该取决于这台机器装了什么。
+    private static func aiProposeContext(otherLiveIds: Set<String> = [],
+                                         otherLiveNames: Set<String> = [],
+                                         keepPaths: Set<String> = [],
+                                         bundlePath: String = "/Applications/WeChat.app",
+                                         ownedTokens: Set<String> = ["wechat", "微信", "xinwechat"]) -> AIScanProposer.Context {
+        AIScanProposer.Context(otherLiveIds: otherLiveIds,
+                               otherLiveNames: otherLiveNames,
+                               keepPaths: keepPaths,
+                               bundlePath: bundlePath,
+                               ownedTokens: ownedTokens)
+    }
+
     static func run() -> Int32 {
         let checks: [Check] = [
             Check(name: "BrewScanner 在未知 target 上返回空") {
@@ -911,6 +927,124 @@ enum SelfTest {
                 return hasKeystone && hasCLI && hasCrash
             },
 
+            // ── AIScanProposer（AI 补充发现 · 校验网）──
+            //
+            // 这一组是「让 AI 参与发现」的安全底线：**模型说可删不构成授权**。
+            // 全部用例都不发网络请求（判定是纯函数），因此可离线、确定性复现。
+            Check(name: "AIScanProposer：未配置模型时整步跳过（不调网络）") {
+                let app = AppIdentity(bundlePath: "/Applications/WeChat.app", fileName: "WeChat",
+                                      displayName: "微信", bundleId: "com.tencent.xinWeChat",
+                                      version: nil, aliases: ["wechat"])
+                // apiKey 为空 → isConfigured == false → 直接返回空，绝不尝试调用。
+                let out = await AIScanProposer.propose(app: app, knownPaths: [], config: AIModelConfig())
+                return out.artifacts.isEmpty
+            },
+            Check(name: "AIScanProposer：拒绝系统路径（/System、/usr）") {
+                let ctx = SelfTest.aiProposeContext()
+                let a = AIScanProposer.rejectionReason("/System/Library/Foo", known: [], context: ctx)
+                let b = AIScanProposer.rejectionReason("/usr/local/bin/foo", known: [], context: ctx)
+                return a == .forbidden && b == .forbidden
+            },
+            Check(name: "AIScanProposer：拒绝白名单外路径（/opt）") {
+                let ctx = SelfTest.aiProposeContext()
+                return AIScanProposer.rejectionReason("/opt/homebrew/foo", known: [], context: ctx) == .notAllowed
+            },
+            Check(name: "AIScanProposer：拒绝保护根（家目录 / ~/Library）") {
+                let ctx = SelfTest.aiProposeContext()
+                let home = NSHomeDirectory()
+                return AIScanProposer.rejectionReason(home, known: [], context: ctx) == .protectedRoot
+                    && AIScanProposer.rejectionReason(home + "/Library/Application Support",
+                                                      known: [], context: ctx) == .protectedRoot
+            },
+            Check(name: "AIScanProposer：拒绝 app 包内路径") {
+                let ctx = SelfTest.aiProposeContext(bundlePath: "/Applications/WeChat.app")
+                return AIScanProposer.rejectionReason("/Applications/WeChat.app/Contents/MacOS/WeChat",
+                                                      known: [], context: ctx) == .insideAppBundle
+            },
+            Check(name: "AIScanProposer：拒绝系统自有目录名（com.apple.*）") {
+                let ctx = SelfTest.aiProposeContext()
+                let p = NSHomeDirectory() + "/Library/Application Support/com.apple.sharedstuff"
+                return AIScanProposer.rejectionReason(p, known: [], context: ctx) == .systemOwned
+            },
+            Check(name: "AIScanProposer：活 app 反查拦下别家数据（Google/Chrome）") {
+                // 目标是微信，别家活 app 里有 Google Chrome —— 模型若提议删
+                // ~/Library/Application Support/Google/Chrome，必须被这一步拦住。
+                let ctx = SelfTest.aiProposeContext(otherLiveNames: ["google chrome", "chrome"])
+                let p = NSHomeDirectory() + "/Library/Application Support/Google/Chrome"
+                return AIScanProposer.rejectionReason(p, known: [], context: ctx) == .claimedByOtherApp
+            },
+            Check(name: "AIScanProposer：自家厂商目录不被活 app 反查误伤（卸载 Chrome 时）") {
+                // 反向用例：目标是 Chrome 自己，`Google/Chrome` 是它的数据，
+                // 不能因为父目录叫 Google（同厂商还有别的产品）就被拒。
+                let ctx = AIScanProposer.Context(
+                    otherLiveIds: [], otherLiveNames: ["google drive", "drive"],
+                    keepPaths: [], bundlePath: "/Applications/Google Chrome.app",
+                    ownedTokens: ["google chrome", "chrome", "com.google.chrome"])
+                let p = NSHomeDirectory() + "/Library/Application Support/Google/Chrome"
+                return AIScanProposer.rejectionReason(p, known: [], context: ctx) != .claimedByOtherApp
+            },
+            Check(name: "AIScanProposer：拒绝通配符与相对路径") {
+                let ctx = SelfTest.aiProposeContext()
+                let wild = AIScanProposer.rejectionReason(NSHomeDirectory() + "/Library/Caches/*",
+                                                          known: [], context: ctx)
+                let rel = AIScanProposer.rejectionReason("Library/Caches/foo", known: [], context: ctx)
+                return wild == .wildcard && rel == .relative
+            },
+            Check(name: "AIScanProposer：拒绝已扫到的重复项与不存在的路径") {
+                let ctx = SelfTest.aiProposeContext()
+                let p = NSHomeDirectory() + "/Library/Caches/expunge-ai-known"
+                let dup = AIScanProposer.rejectionReason(p, known: [p], context: ctx)
+                let gone = AIScanProposer.rejectionReason(
+                    NSHomeDirectory() + "/Library/Caches/expunge-ai-nope-\(UUID().uuidString)",
+                    known: [], context: ctx)
+                return dup == .alreadyKnown && gone == .missing
+            },
+            Check(name: "AIScanProposer：尊重 /remember 豁免路径") {
+                let p = NSHomeDirectory() + "/Library/Caches/expunge-ai-exempt"
+                let ctx = SelfTest.aiProposeContext(keepPaths: [p])
+                return AIScanProposer.rejectionReason(p, known: [], context: ctx) == .userExempt
+            },
+            Check(name: "AIScanProposer：真实存在的自家路径被接受，且默认不勾选") {
+                let dir = URL(fileURLWithPath: NSHomeDirectory())
+                    .appendingPathComponent("Library/Caches/expunge-ai-\(UUID().uuidString)/wechatdata")
+                defer { try? FileManager.default.removeItem(at: dir) }
+                do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+                catch { return false }
+
+                let ctx = SelfTest.aiProposeContext()
+                guard let accepted = AIScanProposer.validate(dir.path, known: [], context: ctx) else {
+                    return false
+                }
+                guard accepted == dir.path else { return false }
+                // 端到端再走一次组装：默认必须是未勾选，且归类为 AI 提议项。
+                let made = AIScanProposer.makeArtifact(path: dir.path, reason: "测试理由")
+                return made.category == .aiProposed && made.selected == false
+            },
+            Check(name: "AIScanProposer：解析兼容代码块 / 裸数组 / 垃圾回复") {
+                let fenced = "```json\n{\"items\":[{\"path\":\"/tmp/a\",\"reason\":\"r1\"},{\"path\":\"/tmp/b\",\"reason\":\"r2\"}]}\n```"
+                let bare = "[{\"path\":\"/tmp/c\",\"reason\":\"r3\"}]"
+                let junk = "我觉得这个 app 挺干净的，没什么残留。"
+                return AIScanProposer.parse(fenced).count == 2
+                    && AIScanProposer.parse(bare).count == 1
+                    && AIScanProposer.parse(junk).isEmpty
+            },
+            Check(name: "AIScanProposer：撤销 AI 分析不会自动勾选 AI 提议项") {
+                // 项目踩过一次的坑：undoAIReview 把应用页恢复成「默认全选」，
+                // 那套约定只适用于内置扫描器结果 —— AI 提议项若跟着被全勾，
+                // 撤销一次分析就成了误删入口。
+                let proposed = Artifact(category: .aiProposed, path: "/tmp/x", size: 1, risk: .safe,
+                                        selected: false)
+                let normal = Artifact(category: .libraryData, path: "/tmp/y", size: 1, risk: .userData,
+                                      selected: false)
+                return AIScanProposer.selectionAfterUndo(proposed, defaultSelected: true) == false
+                    && AIScanProposer.selectionAfterUndo(normal, defaultSelected: true) == true
+            },
+            Check(name: "AIScanProposer：aiProposed 类目 raw value 稳定且有展示名") {
+                ArtifactCategory.aiProposed.rawValue == "AI proposed"
+                    && !ArtifactCategory.aiProposed.displayName.isEmpty
+                    && !ArtifactCategory.aiProposed.symbolName.isEmpty
+            },
+
             // ── InventoryCache ──
             Check(name: "InventoryCache 缓存 app 列表") {
                 let first = InventoryCache.shared.allApps()
@@ -1099,18 +1233,65 @@ enum SelfTest {
             // 2) 未知指令一律被白名单拒掉（Agent 只有项目自己的 CLI 这一种外部能力）
             // 3) 高危 skill 只出计划不出手，Agent 永远拿不到「真删」
 
-            Check(name: "SkillRegistry 注册了 7 个 skill") {
+            Check(name: "SkillRegistry 注册了 11 个 skill") {
                 // 和 SkillRegistry.cliListing 文案、AskAIView 的计数必须一致。
-                SkillRegistry.all.count == 7
+                SkillRegistry.all.count == 11
             },
             Check(name: "每个 skill 的 cli 都对应真实 CLI flag（防假成功）") {
                 // Skill.swift 的硬约束之一：每个 skill 必须对应一条真实存在的
                 // AI Mac Cleaner CLI 命令。这里拿注册表里的 cli 和 --help 对表。
                 let usage = AIMacCleanerApp.usage
                 let expectedFlags = ["--list", "--scan", "--orphans", "--ps",
-                                     "--review", "--history", "--uninstall"]
+                                     "--review", "--history", "--uninstall",
+                                     "--trace-roots", "--search", "--inspect", "--propose"]
                 return expectedFlags.allSatisfy { usage.contains($0) }
                     && SkillRegistry.all.count == expectedFlags.count
+            },
+
+            // ── 调查能力（v1.7：给 Agent 补上「翻目录 / 读内容」的手）──
+            //
+            // 这批断言锁的是**安全边界**，不是「能不能搜到东西」——
+            // 搜得到与否依赖用户机器上有什么，不适合当断言。
+
+            Check(name: "PathProbe 归一化能让 story 命中 story-fab（StoryFab 漏项的回归防线）") {
+                // 这就是那个真实漏项：bundle id com.story-fab.desktop、关键词 storyfab，
+                // 而数据目录叫 story-fab。归一化去掉 - _ . 空格后三者等价。
+                PathProbe.normalize("story-fab") == PathProbe.normalize("StoryFab")
+                    && PathProbe.normalize("story_fab") == PathProbe.normalize("story.fab")
+            },
+            Check(name: "inspect_path 拒绝白名单外的路径（安全边界）") {
+                // /System、/usr 这类路径连「看一眼」的入口都不给。
+                let skill = SkillRegistry.resolve("inspect_path")
+                guard let skill else { return false }
+                return skill.spec.risk == .readOnly
+            },
+            Check(name: "三个调查 skill 都是只读，只有 propose_paths 会改状态") {
+                let readOnly = ["list_trace_roots", "search_paths", "inspect_path"]
+                guard readOnly.allSatisfy({ SkillRegistry.resolve($0)?.spec.risk == .readOnly })
+                else { return false }
+                // propose_paths 只往清单加候选（mutating），绝不能是 destructive——
+                // 它一旦带上删除语义，模型就能自己「提名并执行」，安全网就没了。
+                return SkillRegistry.resolve("propose_paths")?.spec.risk == .mutating
+            },
+            Check(name: "调查类 skill 全部登记在白名单里，且不提供任意 shell") {
+                // 白名单是安全边界：不在表里的名字连执行入口都找不到。
+                for n in ["list_trace_roots", "search_paths", "inspect_path", "propose_paths"] {
+                    guard SkillRegistry.resolve(n) != nil else { return false }
+                }
+                return SkillRegistry.resolve("rm") == nil
+                    && SkillRegistry.resolve("shell") == nil
+            },
+            Check(name: "propose_paths 产出的项永不默认勾选（硬约束）") {
+                // 模型能「提名」，不能「勾选」。这条一旦破了，误删入口就打开了。
+                let a = AIScanProposer.makeArtifact(path: "/tmp/does-not-matter",
+                                                   reason: "test")
+                return a.selected == false && a.category == .aiProposed
+            },
+            Check(name: "inspect_path 在真实路径上不越界：非白名单目录直接判定为不可查") {
+                // 用一个真实存在的系统路径验证「白名单判定」本身有效，
+                // 而不依赖具体机器上有没有用户数据。
+                !FileDeleter.isAllowed("/System/Library/CoreServices")
+                    && !FileDeleter.isAllowed("/usr/bin")
             },
             Check(name: "SkillRegistry 白名单拒绝未注册指令") {
                 // `rm -rf` 这种东西连承接入口都找不到 —— 这是安全边界。
@@ -1146,6 +1327,35 @@ enum SelfTest {
             Check(name: "AgentProtocol 无代码块时只返回正文、不误判调用") {
                 let (text, calls) = AgentProtocol.parse("帮我卸载 Cursor")
                 return calls.isEmpty && text == "帮我卸载 Cursor"
+            },
+            Check(name: "AgentProtocol 认 ```json 等其它语言标记的围栏（按内容认，不按标记认）") {
+                // 模型经常把标记写成 json / 空标记。只认 expunge 的话，这一整块调用
+                // 既不执行也不摘除，最后原样糊进气泡 —— 正是「看着像坏了」的根因。
+                let (text, calls) = AgentProtocol.parse(
+                    "继续\n```json\n{\"skill\":\"propose_paths\",\"args\":{\"path\":\"/tmp/a\"}}\n```")
+                return calls.count == 1
+                    && calls[0].name == "propose_paths"
+                    && calls[0].args["path"] == "/tmp/a"
+                    && !text.contains("skill")
+            },
+            Check(name: "AgentProtocol 认被截断的未闭合围栏（max_tokens 砍掉了收尾的 ```）") {
+                let (_, calls) = AgentProtocol.parse(
+                    "```expunge\n{\"skill\":\"review_plan\",\"args\":{\"scope\":\"apps\"}}")
+                return calls.count == 1 && calls[0].args["scope"] == "apps"
+            },
+            Check(name: "AgentProtocol 容忍 `=` 写法的伪 JSON 参数（值里的空格不被截断）") {
+                let (text, calls) = AgentProtocol.parse(
+                    "```json\n{\"skill\": \"propose_paths\", \"args\": {\"path=/Users/me/Application Support/story-fab\"}}\n```")
+                return calls.count == 1
+                    && calls[0].name == "propose_paths"
+                    && calls[0].args["path"] == "/Users/me/Application Support/story-fab"
+                    && !text.contains("propose_paths")
+            },
+            Check(name: "流式上屏正文先摘掉工具调用块（半截 JSON 不该给用户看）") {
+                let mid = "先扫一遍\n```expunge\n{\"skill\":\"scan_app\""
+                let bare = "结论如下\n{\"skill\":\"review_plan\",\"args\":{\"scope\":\"apps\"}}"
+                return AgentProtocol.visibleStreamingText(mid) == "先扫一遍"
+                    && AgentProtocol.visibleStreamingText(bare) == "结论如下"
             },
             Check(name: "destructive skill 必须标记 destructive（Agent 不自己删除的底线）") {
                 PlanUninstallSkill().spec.risk == .destructive
@@ -1452,12 +1662,18 @@ enum SelfTest {
                                                    AIMessage(role: .system, text: "提示")]) == true
             },
             Check(name: "ChatPolicy 限额常量与 AgentRuntime.maxTurns 不是一回事") {
-                // K3：maxTurns=4 是单次 agent loop 的决策轮数，
+                // K3：maxTurns 是单次 agent loop 的决策轮数，
                 // maxContextTurns=15 是跨提问保留的对话轮数。改一个别顺手改另一个。
+                //
+                // maxTurns 的期望值跟着「调查一个 app」的真实链路走：
+                // scan_app → search_paths → inspect_path（可多次）→ propose_paths → 汇总。
+                // 曾经是 4，常见「工具跑完却没结论」；改成 6 后自检要跟着更新，
+                // 否则这条断言会变成一个「防回归」的外壳、掩盖真正的意图。
                 ChatPolicy.maxContextTurns == 15
                     && ChatPolicy.maxInputChars == 9999
                     && ChatPolicy.inputWarnThreshold == 900
-                    && AgentRuntime(config: nil).maxTurns == 4
+                    // 至少要能容纳完整调查链路（5 步），否则又会退化成「没有结论」。
+                    && AgentRuntime(config: nil).maxTurns >= 5
             },
             Check(name: "输入计数按字素簇算（汉字 1 个、emoji 1 个）") {
                 "清理一下这个应用".count == 8
@@ -1466,6 +1682,113 @@ enum SelfTest {
                     && String(repeating: "字", count: ChatPolicy.maxInputChars + 1).count > ChatPolicy.maxInputChars
             },
 
+            Check(name: "永久性失败不重试（余额不足 / Key 无效重试无意义）") {
+                // 真机教训：余额不足时每次点击都重试 3 次 + 退避，用户只看到
+                // 「等了很久还是失败」，却拿不到「去充值」这句准话。
+                // 余额不足还常被网关吞成 200 + choices:null，误判成 Key 错误。
+                return LLMError.insufficientBalance.isPermanent
+                    && LLMError.missingKey.isPermanent
+                    && LLMError.badURL.isPermanent
+                    && LLMError.http(status: 401, body: "").isPermanent
+                    && LLMError.http(status: 403, body: "").isPermanent
+                    // 反例：限流 / 上游抽风 / 解析类问题都该继续重试。
+                    && !LLMError.http(status: 429, body: "rate limited").isPermanent
+                    && !LLMError.upstreamFailed("ZhipuAI/GLM-5.2").isPermanent
+                    && !LLMError.noContent.isPermanent
+                    && !LLMError.underlying(URLError(.timedOut)).isPermanent
+            },
+
+            Check(name: "AIMessage 的 reasoning 字段：往返保留、缺键不炸（老历史兼容）") {
+                // 加字段最怕的事：老历史没有这个键 → 解码失败 → ChatStore 整份清空。
+                let m = AIMessage(role: .ai, text: "结论", steps: [],
+                                  redirect: nil, awaitingApproval: false, isAnchor: false,
+                                  reasoning: "先看扫描器漏了什么")
+                guard let data = try? JSONEncoder().encode(m),
+                      let back = try? JSONDecoder().decode(AIMessage.self, from: data)
+                else { return false }
+                // 老格式（没有 reasoning 键）必须仍能解出来，且 reasoning 为 nil。
+                let legacy = #"{"role":"ai","text":"旧消息","createdAt":0}"#
+                guard let legacyData = legacy.data(using: .utf8),
+                      let old = try? JSONDecoder().decode(AIMessage.self, from: legacyData)
+                else { return false }
+                return back.reasoning == "先看扫描器漏了什么" && old.reasoning == nil
+            },
+
+            // ── 流式（深度思考 / token 级输出）──
+
+            Check(name: "LLMStream 一次性响应兜底：正文与思考分开取") {
+                // 端点忽略 stream 时会直接回一个完整 JSON，这时不能把
+                // reasoning_content 混进正文（否则用户会看到模型的自言自语）。
+                let body = #"{"choices":[{"message":{"content":"结论","reasoning_content":"推理过程"}}]}"#
+                let (t, r) = LLMStream.parseOneShot(body, anthropic: false)
+                return t == "结论" && r == "推理过程"
+            },
+            Check(name: "LLMStream 兼容 reasoning 别名与 thinking 块") {
+                // 部分网关用 reasoning 而非 reasoning_content；Anthropic 走 content 数组。
+                let alias = #"{"choices":[{"message":{"content":"A","reasoning":"B"}}]}"#
+                let (t1, r1) = LLMStream.parseOneShot(alias, anthropic: false)
+                let anth = #"{"content":[{"type":"thinking","thinking":"T"},{"type":"text","text":"A"}]}"#
+                let (t2, r2) = LLMStream.parseOneShot(anth, anthropic: true)
+                return t1 == "A" && r1 == "B" && t2 == "A" && r2 == "T"
+            },
+            Check(name: "流式降级兜底：OpenAI 老式 choice.text 也能取到正文") {
+                // 有的 OpenAI 兼容网关（老接口）把正文放在 choice.text 而不是 message.content。
+                let leg = #"{"choices":[{"text":"老接口正文"}]}"#
+                let (t, r) = LLMStream.parseOneShot(leg, anthropic: false)
+                return t == "老接口正文" && r.isEmpty
+            },
+            Check(name: "流式降级兜底：平铺 content 的极简网关（无 choices 包裹）") {
+                // 某些极简 OpenAI 兼容端点直接返回顶层 content 字符串。
+                let flat = #"{"content":"极简正文","reasoning_content":"极简推理"}"#
+                let (t, r) = LLMStream.parseOneShot(flat, anthropic: false)
+                return t == "极简正文" && r == "极简推理"
+            },
+            Check(name: "流式降级兜底：Anthropic 两种块（text/thinking）各自归位") {
+                // 只给 text、只给 thinking、两者都有 —— 三种都要取对。
+                let textOnly = #"{"content":[{"type":"text","text":"只看正文"}]}"#
+                let thinkOnly = #"{"content":[{"type":"thinking","thinking":"只看推理"}]}"#
+                let (t1, r1) = LLMStream.parseOneShot(textOnly, anthropic: true)
+                let (t2, r2) = LLMStream.parseOneShot(thinkOnly, anthropic: true)
+                return t1 == "只看正文" && r1.isEmpty
+                    && t2.isEmpty && r2 == "只看推理"
+            },
+            Check(name: "流式：OpenAI 协议的帧能逐字出（content + reasoning_content 分开）") {
+                // 把真实 SSE 的几帧喂进 parseStreamFrame，模拟逐字流式。
+                let textFrame = #"data: {"choices":[{"delta":{"content":"你好"}}]}"#
+                let thinkFrame = #"data: {"choices":[{"delta":{"reasoning_content":"让我想想"}}]}"#
+                let roleFrame = #"data: {"choices":[{"delta":{"role":"assistant"}}]}"#
+                let (ct, cr) = LLMStream.parseStreamFrame(textFrame, anthropic: false)
+                let (rt, rr) = LLMStream.parseStreamFrame(thinkFrame, anthropic: false)
+                let (ot, or) = LLMStream.parseStreamFrame(roleFrame, anthropic: false)
+                _ = LLMStream.parseStreamFrame("data: [DONE]", anthropic: false)
+                return ct == "你好" && cr.isEmpty
+                    && rt.isEmpty && rr == "让我想想"
+                    && ot.isEmpty && or.isEmpty   // role-only 帧被忽略，不产出空内容
+            },
+            Check(name: "流式：Anthropic 协议的帧能逐字出（thinking_delta + text_delta 分开）") {
+                let thinkFrame = #"data: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"T"}}"#
+                let textFrame = #"data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"A"}}"#
+                let (tt, tr) = LLMStream.parseStreamFrame(thinkFrame, anthropic: true)
+                let (at, ar) = LLMStream.parseStreamFrame(textFrame, anthropic: true)
+                _ = LLMStream.parseStreamFrame("data: [DONE]", anthropic: true)
+                return tt.isEmpty && tr == "T"
+                    && at == "A" && ar.isEmpty
+            },
+            Check(name: "流式容错：Content-Type 没标 event-stream 也要能按 SSE 拆出内容") {
+                // 不少网关把 SSE 当成 text/plain 发（Content-Type 不带 event-stream）。
+                // 这种帧逐帧喂进去必须能拿到正文，不能整段丢。
+                let frames = [
+                    #"data: {"choices":[{"delta":{"content":"逐"}}]}"#,
+                    #"data: {"choices":[{"delta":{"content":"字"}}]}"#,
+                    "data: [DONE]"
+                ]
+                var text = ""
+                for f in frames {
+                    let (c, _) = LLMStream.parseStreamFrame(f, anthropic: false)
+                    text += c
+                }
+                return text == "逐字"
+            },
             Check(name: "AIMessage Codable 往返（除 id 外全等）") {
                 let step = AgentStep(skill: "scan_app", command: "ai-mac-cleaner --scan Cursor",
                                      summary: "扫到 12 项", ok: true, risk: .readOnly)

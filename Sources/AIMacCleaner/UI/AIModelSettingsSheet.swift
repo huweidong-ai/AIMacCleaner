@@ -204,6 +204,38 @@ struct AIModelSettingsSheet: View {
             }
 
             Divider()
+
+            // AI 补充发现开关：独立于具体配置档，属于「扫描策略」而非「模型连接」。
+            // 放在页脚而不是档编辑区 —— 切档时不该把它带走。
+            HStack(alignment: .top, spacing: 10) {
+                Toggle(L10n.t("扫描时用 AI 补充发现残留",
+                              "Let AI suggest extra leftovers when scanning"),
+                       isOn: Binding(
+                        get: { Prefs.aiProposeEnabled },
+                        set: { Prefs.aiProposeEnabled = $0 }
+                       ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .labelsHidden()
+                .fixedSize()
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(L10n.t("允许 AI 调查并补充新路径",
+                                "Let AI investigate and suggest extra paths"))
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(L10n.t("点「让 AI 分析」时，agent 会用更宽的关键词去翻痕迹目录、逐个确认归属，把内置扫描器漏掉的路径补进清单（每条都过本地校验网、默认不勾选）。关掉它，agent 就只分析当前清单、不再自己找新路径。",
+                                "When you tap “Ask AI”, the agent searches the trace dirs with broader keywords, verifies ownership one by one, and adds what the built-in scanners missed (every path validated locally, unchecked by default). Turn this off and the agent will only review the current list."))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(Theme.bgSurface)
+
+            Divider()
             HStack {
                 Text(L10n.t("密钥仅保存在本机 UserDefaults，不会上传。",
                             "The key is stored only in this Mac’s UserDefaults and never uploaded."))
@@ -219,7 +251,7 @@ struct AIModelSettingsSheet: View {
             .padding(.vertical, 10)
             .background(Theme.bgSurface)
         }
-        .frame(width: 640, height: 520)
+        .frame(width: 640, height: 580)
         .onChange(of: store) { _, _ in touched = true }
         .interactiveDismissDisabled(true)
         .alert(L10n.t("放弃未保存的模型配置？", "Discard model settings?"), isPresented: $showDiscard) {
@@ -326,6 +358,7 @@ struct AIModelSettingsSheet: View {
             _ = try await LLMClient.complete(config: cfg,
                                              messages: [("user", "ping")],
                                              system: L10n.t("只回复 OK。", "Reply with OK only."))
+            state.resetAISuppression()
             status = L10n.t("✓ 连接成功", "✓ Connected")
         } catch {
             let msg = (error as? LLMError)?.errorDescription ?? error.localizedDescription

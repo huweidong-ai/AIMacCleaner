@@ -1,7 +1,6 @@
 import SwiftUI
 import Foundation
 import AppKit
-import MarkdownUI
 
 /// 「问 AI」tab：用自然语言指挥本地 Agent 调用 AI Mac Cleaner 的 skill 完成清理。
 ///
@@ -146,7 +145,7 @@ struct AskAIView: View {
                 }
             }
             Divider()
-            if !state.chatHasConversation && !state.chatIsThinking { emptyState } else { chatLog }
+            if !state.chatHasConversation && !state.chatIsThinking { emptyState } else { ChatLogView(bridge: bridge) }
             composer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -421,9 +420,17 @@ struct AskAIView: View {
 
     // MARK: - 对话记录
 
-    private var chatLog: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
+    /// 对话记录独立成 `View`：它只依赖 `state` / `bridge`，**不碰** `input`。
+    /// 这样在输入框打字 / 粘贴时，SwiftUI 用 `==` 比对发现 `ChatLogView` 的值没变
+    /// （`bridge` 是同一实例、`state` 经由 environment 注入），直接跳过整段重绘，
+    /// 历史气泡不会因为输入一个字符就全部重建 —— 这是输入卡顿的根因与修复点。
+    private struct ChatLogView: View {
+        @EnvironmentObject var state: AppState
+        @ObservedObject var bridge: AgentBridge
+
+        var body: some View {
+            ScrollViewReader { proxy in
+                ScrollView {
                 // 与下方输入框保持相同的左右边距，让对话记录宽度和输入框一致。
                 HStack(spacing: 0) {
                     Spacer(minLength: 40)
@@ -448,22 +455,18 @@ struct AskAIView: View {
                                         message: m,
                                         initialExpanded: bubbleInitialExpanded(at: idx),
                                         collapsible: bubbleCollapsible(at: idx)
-                                    ) {
-                                        if let tab = m.redirect {
-                                            switch tab {
-                                            case .apps:      state.selectedTab = .apps
-                                            case .leftovers: state.selectedTab = .leftovers
-                                            case .processes: state.selectedTab = .processes
-                                            case .macTools:  state.showMacTools = true
-                                            }
-                                        }
-                                    }
+                                    )
                                     .id(m.id)
                                 }
                             }
                         }
                         if state.chatIsThinking {
-                            ThinkingBubble(steps: bridge.steps, running: bridge.runningCommand)
+                            ThinkingBubble(steps: bridge.steps,
+                                           running: bridge.runningCommand,
+                                           reasoning: state.streamingReasoning,
+                                           // 上屏前先摘掉工具调用块：流到一半的 `{"skill": …`
+                                           // 直接铺出来只是噪音，用户要看的「过程」是推理与结论。
+                                           text: AgentProtocol.visibleStreamingText(state.streamingText))
                                 .id("thinking")
                         }
                     }
@@ -504,11 +507,8 @@ struct AskAIView: View {
         }
     }
 
-    // MARK: - 气泡默认折叠策略
+    // MARK: - 气泡默认折叠策略（随 ChatLogView，只依赖 state）
 
-    /// 气泡初始是否展开：长消息一律默认折叠（用户问题、AI 回复都如此），
-    /// 短消息没有折叠按钮、直接完整展示。
-    /// 最后一条 AI 回复的索引；最新 AI 消息默认展开，方便直接看到结论。
     private var lastAIMessageIndex: Int? {
         let msgs = state.chatMessages
         for i in (0..<msgs.count).reversed() {
@@ -537,8 +537,6 @@ struct AskAIView: View {
         }
     }
 
-    // MARK: - 日期 / 时间分隔
-
     /// 只有当跨天才单独显示日期分隔（如 2026.8.11）；系统提示（锚点）不带头。
     /// 真实对话的第一条也显示当天日期（往前跳过 system 消息找相邻真实消息）。
     private func shouldShowDateHeader(at idx: Int) -> Bool {
@@ -557,6 +555,7 @@ struct AskAIView: View {
         f.locale = Locale(identifier: "zh_CN")
         return f.string(from: d)
     }
+}
 
     // MARK: - 输入区
 
@@ -916,6 +915,8 @@ struct AskAIView: View {
         let history = state.chatModelHistory
         state.appendChat(AIMessage(role: .me, text: trimmed))
         state.chatIsThinking = true
+        // 清掉上一轮的流式残留，否则中途放弃的一轮会把半截文字带进这一次。
+        state.endStreaming()
         bridge.reset()
 
         // 记忆块在发请求前从 AppState 现取：用户可能刚在面板里删掉一条，
@@ -924,16 +925,49 @@ struct AskAIView: View {
 
         Task {
             let runtime = AgentRuntime(config: state.activeConfig, bridge: bridge, memory: memory)
-            let run = await runtime.run(goal: trimmed, history: history, session: bridge.makeSession(leftoverScope: scope, reviewScope: reviewScope))
+            let session = bridge.makeSession(leftoverScope: scope, reviewScope: reviewScope)
+            // 走流式：思考与正文逐帧到达，工具调用实时上屏。
+            // 与旧的阻塞调用共用同一套决策/白名单逻辑，结论不会因为流式而变。
+            let run = await runtime.runStream(
+                goal: trimmed, history: history, session: session,
+                onEvent: { ev in
+                    await MainActor.run {
+                        switch ev {
+                        case .reasoningDelta(let s):
+                            state.pushReasoningDelta(s)
+                        case .textDelta(let s):
+                            state.pushTextDelta(s)
+                        case .toolStarted(_, let command):
+                            state.streamingToolCommand = command
+                        case .toolFinished, .turnStarted:
+                            break
+                        case .finished(let r):
+                            var body = r.answer
+                            if let note = r.note { body += "\n\n" + note }
+                            state.appendChat(AIMessage(role: .ai, text: body,
+                                                       steps: r.steps,
+                                                       redirect: r.redirect,
+                                                       awaitingApproval: r.awaitingApproval,
+                                                       reasoning: r.reasoning.isEmpty ? nil : r.reasoning))
+                            state.chatIsThinking = false
+                            bridge.reset()
+                        }
+                    }
+                })
 
-            var body = run.answer
-            if let note = run.note { body += "\n\n" + note }
-            state.appendChat(AIMessage(role: .ai, text: body,
-                                       steps: run.steps,
-                                       redirect: run.redirect,
-                                       awaitingApproval: run.awaitingApproval))
-            state.chatIsThinking = false
-            bridge.reset()
+            // 兜底：模型不可用（.unavailable）时 runStream 不一定走到 .finished。
+            if state.chatIsThinking {
+                var body = run.answer
+                if let note = run.note { body += "\n\n" + note }
+                state.appendChat(AIMessage(role: .ai, text: body,
+                                           steps: run.steps,
+                                           redirect: run.redirect,
+                                           awaitingApproval: run.awaitingApproval,
+                                           reasoning: run.reasoning.isEmpty ? nil : run.reasoning))
+                state.chatIsThinking = false
+                bridge.reset()
+            }
+            state.endStreaming()
         }
     }
 
@@ -1346,18 +1380,17 @@ private extension Array {
 
 private struct MessageBubble: View {
     let message: AIMessage
-    let onGo: () -> Void
     /// 初始是否展开：用户问题一律折叠；AI 回复仅在「被 reset 上下文」之前才折叠。
     let initialExpanded: Bool
     /// 是否允许折叠／展开：用户长问题、以及被 reset 前的 AI 长回复均可折叠。
     let collapsible: Bool
+    @EnvironmentObject var state: AppState
     @State private var isExpanded: Bool
 
-    init(message: AIMessage, initialExpanded: Bool, collapsible: Bool, onGo: @escaping () -> Void) {
+    init(message: AIMessage, initialExpanded: Bool, collapsible: Bool) {
         self.message = message
         self.initialExpanded = initialExpanded
         self.collapsible = collapsible
-        self.onGo = onGo
         _isExpanded = State(initialValue: initialExpanded)
     }
 
@@ -1380,11 +1413,18 @@ private struct MessageBubble: View {
             if !isMine { avatar(ai: true) }
 
             VStack(alignment: isMine ? .trailing : .leading, spacing: 6) {
-                // 气泡本体：执行步骤 + 正文 + 底部栏
+                // 气泡本体：执行步骤 + 深度思考 + 正文 + 底部栏
                 VStack(alignment: .leading, spacing: 0) {
                     // 执行步骤（只有 AI 气泡且有步骤时显示），收进气泡顶部
                     if !message.steps.isEmpty {
                         stepsSection
+                            .padding(.bottom, 8)
+                    }
+                    // 深度思考：收在正文**上方**且默认折叠。位置与折叠默认值都是刻意的 ——
+                    // 推理过程通常很长，铺开会把结论挤出屏幕；但它必须可点开，
+                    // 用户要能验证 AI 凭什么这么判（尤其它要替我们决定删什么）。
+                    if let r = message.reasoning, !r.isEmpty {
+                        ReasoningBlock(text: r)
                             .padding(.bottom, 8)
                     }
 
@@ -1399,9 +1439,9 @@ private struct MessageBubble: View {
                 .shadow(color: bubbleShadow, radius: 3, y: 1)
                 .contextMenu {
                     Button {
-                        copyMessage(message.text)
+                        copyFullMessage()
                     } label: {
-                        Text(L10n.t("复制", "Copy"))
+                        Text(L10n.t("复制全文", "Copy all"))
                         Image(systemName: "doc.on.doc")
                     }
                 }
@@ -1417,7 +1457,14 @@ private struct MessageBubble: View {
                 }
 
                 if let tab = message.redirect {
-                    Button { onGo() } label: {
+                    Button {
+                        switch tab {
+                        case .apps:      state.selectedTab = .apps
+                        case .leftovers: state.selectedTab = .leftovers
+                        case .processes: state.selectedTab = .processes
+                        case .macTools:  state.showMacTools = true
+                        }
+                    } label: {
                         Label(L10n.t("前往 \(tab.displayName)", "Go to \(tab.displayName)"),
                               systemImage: "arrow.forward")
                             .font(.system(size: 12, weight: .medium))
@@ -1487,14 +1534,14 @@ private struct MessageBubble: View {
                 .foregroundStyle(bubbleFooterFg)
 
             Button {
-                copyMessage(message.text)
+                copyFullMessage()
             } label: {
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(bubbleFooterFg.opacity(0.8))
             }
             .buttonStyle(.plain)
-            .help(L10n.t("复制", "Copy"))
+            .help(L10n.t("复制全文（含执行步骤与深度思考）", "Copy all (steps + thinking)"))
         }
     }
 
@@ -1554,9 +1601,23 @@ private struct MessageBubble: View {
         }
     }
 
-    private func copyMessage(_ text: String) {
+    /// 复制**整条**消息：执行步骤 + 深度思考 + 正文，一次性给全。
+    ///
+    /// 为什么需要它：步骤行、思考块、正文在界面里是**各自独立的 `Text`**，SwiftUI
+    /// 无法跨视图拖选，所以手动拖动一次只能选中一段。要整条带走只能靠这个按钮
+    /// （右下角 ⧉ 与右键菜单都走它）。
+    private func copyFullMessage() {
+        var parts: [String] = []
+        if !message.steps.isEmpty {
+            parts.append(message.steps.map { "\($0.command)\n\($0.summary)" }
+                .joined(separator: "\n\n"))
+        }
+        if let r = message.reasoning, !r.isEmpty {
+            parts.append(L10n.t("【深度思考】", "[Thinking]") + "\n" + r)
+        }
+        if !message.text.isEmpty { parts.append(message.text) }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+        NSPasteboard.general.setString(parts.joined(separator: "\n\n"), forType: .string)
     }
 
     private var bubbleBg: Color {
@@ -1576,13 +1637,15 @@ private struct MessageBubble: View {
             .shadow(color: Color.black.opacity(0.08), radius: 1, y: 1)
     }
 
-    /// 用 MarkdownUI 渲染对话文本。
-    /// 用户气泡文字为白色，AI 气泡为默认深色。
+    /// 正文用系统原生 `Text(AttributedString(markdown:))` 渲染。
+    ///
+    /// 关键：整段是**一个** `Text`，拖动选词/选段时高亮是连续的——能跨段落、跨列表一次
+    /// 选中。而 MarkdownUI 会把每个块（段落/列表项/标题）拆成独立 `Text`，于是「只能高亮
+    /// 一段」。加粗、行内代码、列表、标题仍由系统 markdown 支持。
     private func markdownText(_ raw: String) -> some View {
-        Markdown(raw)
-            .markdownTextStyle {
-                ForegroundColor(isMine ? .white : .primary)
-            }
+        let attr = (try? AttributedString(markdown: raw)) ?? AttributedString(raw)
+        return Text(attr)
+            .foregroundStyle(isMine ? Color.white : Color.primary)
     }
 
     /// 智能时间：今天只显示 HH:mm；昨天显示「昨天 HH:mm」；
@@ -1652,12 +1715,26 @@ private struct StepRow: View {
     }
 }
 
-/// 思考中：把已经跑完的步骤和正在跑的命令都摆出来，不让用户对着转圈猜。
-/// 视觉风格与 AI 气泡对齐：大圆角 + 轻阴影 + 小尾巴。
+/// 思考中：把已经跑完的步骤、正在跑的命令、**正在流出来的思考与正文**都摆出来，
+/// 不让用户对着转圈猜。
+///
+/// 「深度思考」刻意做成**可折叠**且默认折叠：推理过程往往很长，逐字铺开会把
+/// 真正的结论挤到屏幕外；而它又必须可点开——用户要能验证 AI 到底怎么想的，
+/// 这在「AI 替你决定删什么」的场景里不是装饰。
 private struct ThinkingBubble: View {
     let steps: [AgentStep]
     let running: String?
+    /// 深度思考的实时累积文本。
+    let reasoning: String
+    /// 正文的实时累积文本。
+    let text: String
+    /// 思考块是否展开。默认折叠。
+    @State private var reasoningExpanded = false
     private static let cornerRadius: CGFloat = 16
+
+    private func toggleReasoning() {
+        withAnimation(.easeInOut(duration: 0.15)) { reasoningExpanded.toggle() }
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -1668,22 +1745,84 @@ private struct ThinkingBubble: View {
                         ForEach(steps) { StepRow(step: $0, inBubble: false) }
                     }
                 }
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                        .scaleEffect(0.8)
-                    if let running {
-                        Text(running)
-                            .font(.system(size: 11.5, design: .monospaced))
+                // 深度思考块：折叠时只占一行标题，不抢正文的位置。
+                if !reasoning.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        // 整行（含内边距）做成 Button：折叠态点框任意处展开；正文在 Button 之
+                        // 外，这样展开态拖动选中不会被父级点击手势吞掉。
+                        Button { toggleReasoning() } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .rotationEffect(.degrees(reasoningExpanded ? 90 : 0))
+                                Image(systemName: "brain")
+                                    .font(.system(size: 11))
+                                Text(L10n.t("深度思考", "Thinking"))
+                                    .font(.system(size: 11.5, weight: .medium))
+                                Text(L10n.t("（\(reasoning.count) 字）", "(\(reasoning.count) chars)"))
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
                             .foregroundStyle(Theme.aiText)
-                    } else {
-                        Text(L10n.t("Agent 思考中…", "The agent is thinking…"))
-                            .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if reasoningExpanded {
+                            Text(reasoning)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .padding(.bottom, 10)
+                        }
                     }
-                    Spacer(minLength: 0)
+                    .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10)
+                        .stroke(Theme.divider, lineWidth: 1))
                 }
-                .padding(12)
-                .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
-                .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
+
+                // 正文流：已经出的字立刻上屏，边角转圈表示这一轮还没结束。
+                if text.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small).scaleEffect(0.8)
+                        if let running {
+                            Text(running)
+                                .font(.system(size: 11.5, design: .monospaced))
+                                .foregroundStyle(Theme.aiText)
+                        } else {
+                            Text(L10n.t("Agent 思考中…", "The agent is thinking…"))
+                                .font(.system(size: 12.5)).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+                    .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(text)
+                            .font(.system(size: 12.5))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if let running {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small).scaleEffect(0.7)
+                                Text(running)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(Theme.aiText)
+                            }
+                        }
+                    }
+                    .padding(12)
+                    .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: Self.cornerRadius))
+                    .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
+                }
             }
             Spacer(minLength: 40)
         }
@@ -1697,6 +1836,57 @@ private struct ThinkingBubble: View {
             .overlay(Image(systemName: "sparkles")
                 .font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
             .shadow(color: Color.black.opacity(0.08), radius: 1, y: 1)
+    }
+}
+
+/// 「深度思考」折叠块。默认折叠，一行标题 + 字数，点开才展开全文。
+///
+/// 复用于进行中的思考气泡与已完成的消息气泡，所以逻辑只写一份。
+struct ReasoningBlock: View {
+    let text: String
+    @State private var expanded = false
+
+    private func toggle() {
+        withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // 整行（含内边距）做成 Button：折叠态点框任意处展开；正文在 Button 之外，
+            // 这样展开态拖动选中不会被父级点击手势吞掉。
+            Button { toggle() } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                    Image(systemName: "brain")
+                        .font(.system(size: 11))
+                    Text(L10n.t("深度思考", "Thinking"))
+                        .font(.system(size: 11.5, weight: .medium))
+                    Text(L10n.t("（\(text.count) 字）", "(\(text.count) chars)"))
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+                .foregroundStyle(Theme.aiText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                Text(text)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 10)
+            }
+        }
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.divider, lineWidth: 1))
     }
 }
 

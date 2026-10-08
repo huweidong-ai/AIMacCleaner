@@ -14,9 +14,18 @@ import Foundation
 enum SkillRegistry {
 
     /// 注册顺序 = 清单展示顺序，按「先看后想再做」排。
+    ///
+    /// 调查三件套（`list_trace_roots` → `search_paths` → `inspect_path`）
+    /// 紧跟在 `scan_app` 之后：内置扫描器「命中即报、漏了就是漏了」，
+    /// 模型想真正**发现**漏项，就得先扫一遍、再自己翻目录核对。
+    /// `propose_paths` 紧随其后——它是唯一能把路径带进清单的入口。
     static let all: [AgentSkill] = [
         ListAppsSkill(),
         ScanAppSkill(),
+        ListTraceRootsSkill(),
+        SearchPathsSkill(),
+        InspectPathSkill(),
+        ProposePathsSkill(),
         ScanLeftoversSkill(),
         ListProcessesSkill(),
         ReviewPlanSkill(),

@@ -7,6 +7,49 @@ enum AIReviewPhase: String, CaseIterable {
     case idle, running, done, needsConfig, failed
 }
 
+/// 单个扫描器在「逐个显示过程」时的状态。
+///
+/// 与 `ScannerCatalog.entry(for:)` 通过 `name` 关联，用于在扫描过程中把
+/// 「正在调用 14 个扫描器」细化成「一个一个跑、每个显示找到了几项」。
+struct ScannerProgress: Identifiable, Equatable {
+    enum Phase: Equatable { case pending, running, done }
+    let name: String
+    var phase: Phase = .pending
+    /// 该扫描器本轮找到的痕迹数（仅 phase == .done 时有效）。
+    var foundCount: Int = 0
+    var id: String { name }
+}
+
+/// 扫描当前所处的阶段。
+///
+/// 「AI 补充发现」并入 agent 之后，扫描阶段只剩本地扫描器这一段 ——
+/// 不再在扫描过程中偷偷调模型，所以这个枚举暂时只有一种状态。
+/// 保留它而不是删掉：扫描进度 UI 已经按阶段组织，留着这个概念将来
+/// 要加「先本地、后联网查」的阶段时不必再重构。
+enum ScanStage: Equatable {
+    case scanners
+}
+
+/// AI 调查这一步的结果，供结果页明确告知用户。
+///
+/// 必须显式暴露：这一步没产出时结果里不会多出任何东西，用户根本分不清
+/// 是「它翻了一遍目录确实没找到漏的」还是「它压根没跑成」——
+/// 前者可以放心，后者得去改配置，两者的后续动作完全不同。
+enum AIProposeOutcome: Equatable {
+    /// 没跑过 / 没进入 AI 调查阶段
+    case idle
+    /// agent 调查后采纳了 n 条（累计）
+    case found(Int)
+    /// agent 跑完了，但没提出任何新路径
+    case none
+    /// 超过 30s 无响应（视作网络瞬时问题，下次会再试）
+    case timedOut
+    /// 本次确实调用了模型但失败；关联值区分「永久（key 失效/没额度，停用）」与「瞬时（网络，可重试）」
+    case failed(AIProposeFailureKind)
+    /// 先前已判定为永久失效，本轮会话直接跳过、不再调用（改配置或测试连接成功可恢复）
+    case disabled
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var searchText: String = ""
@@ -15,6 +58,25 @@ final class AppState: ObservableObject {
     @Published var appsCollapsed: Set<ArtifactCategory> = Set(ArtifactCategory.allCases)
     @Published private(set) var plan: RemovalPlan?
     @Published private(set) var isScanning: Bool = false
+    /// 扫描过程中逐个显示的扫描器进度（顺序与 `scanners` 一致）。
+    /// 主扫描在后台线程执行、主 actor 在 await 期间让出，UI 才能逐个刷新。
+    @Published private(set) var scannerProgress: [ScannerProgress] = []
+    /// 本次扫描所处阶段。「AI 补充发现」已并入 agent，扫描期间只有本地扫描器。
+    @Published private(set) var scanStage: ScanStage = .scanners
+    /// AI 调查这一步的结果。
+    ///
+    /// 必须显式暴露：这一步「没找到」时界面上什么都不会多出来，
+    /// 用户分不清是「模型确实没找到」还是「根本没启用 / 超时跳过了」。
+    @Published private(set) var aiProposeOutcome: AIProposeOutcome = .idle
+    /// AI 调查是否因「永久失效」（key 失效 / 没额度 / 配置错误）而在本轮会话内停用。
+    ///
+    /// 「AI 补充发现」并入 agent 之后，这个熔断守护的**就是「让 AI 分析」这个入口**：
+    /// key 失效时用户每点一次都是白等一次网络往返，所以第一次判为永久失效后，
+    /// 本轮会话内直接不再调用。改模型配置或在设置里「测试连接」成功会清零
+    /// （见 `resetAISuppression`）。瞬时（网络）错误**不**置此位——用户明确要可重试。
+    private var aiPermanentlyDisabled: Bool = false
+    /// 给 UI 用的只读镜像：当前是否因永久失效而停用。
+    var aiDiscoveryDisabled: Bool { aiPermanentlyDisabled }
     @Published var artifacts: [Artifact] = []  // 可勾选编辑
     @Published var selectedTab: Tab = .askAI
     /// 从应用 / 残留 / 进程页深链进入「问 AI」页时预填的问句；AskAIView 消费后置 nil。
@@ -30,12 +92,94 @@ final class AppState: ObservableObject {
     @Published var aiReviewPhaseApps: AIReviewPhase = .idle
     @Published var aiReviewPhaseLeftovers: AIReviewPhase = .idle
 
+    // ── 流式输出（进行中的那一轮）──
+    //
+    // 为什么不直接往 `messages` 里追加半截文本：`messages` 是**已落盘**的聊天记录，
+    // 半截内容写进去会让「历史」在用户中途关窗时留下残句。流式内容另有暂存处，
+    // 收完再一次性转成正式 AIMessage。
+    /// 深度思考的实时累积文本（空 = 当前没有思考内容在流）。
+    @Published var streamingReasoning: String = ""
+    /// 正文的实时累积文本。
+    @Published var streamingText: String = ""
+    /// 本轮正在执行的工具命令（nil = 当前不在跑工具）。
+    @Published var streamingToolCommand: String? = nil
+
+    /// 本轮流式内容是否已经开始（有内容才显示「深度思考」块）。
+    var isStreaming: Bool { !streamingText.isEmpty || !streamingReasoning.isEmpty }
+
+    // MARK: - 流式合帧
+    //
+    // 模型每吐一个 token 就改一次 `@Published`，会让整个聊天视图（连同几千字的
+    // 历史气泡）每帧重排一次；一秒钟上百次 → 掉帧，肉眼就是「流式卡顿」。
+    // 这里把增量先攒进非 `@Published` 的缓冲，最多每 50ms（约 20fps）刷一次界面：
+    // 对齐屏幕刷新、几乎不可能掉帧，CPU 也降一个量级。攒的内容不会丢——收尾前
+    // 一定会 flush，且最终正文另有 `run.reasoning` / `run.answer` 落盘。
+
+    private var pendingReasoning = ""
+    private var pendingText = ""
+    private var flushScheduled = false
+    /// 合并刷新的「代次」。`endStreaming()` 会 +1，让已排队的 flush 失效，
+    /// 避免上一轮的残留帧在清空后又把半截文字刷回界面。
+    private var streamGeneration = 0
+
+    /// 追加深度思考增量（合帧，不逐帧刷新）。
+    func pushReasoningDelta(_ s: String) {
+        guard !s.isEmpty else { return }
+        pendingReasoning += s
+        scheduleStreamFlush()
+    }
+
+    /// 追加正文增量（合帧，不逐帧刷新）。
+    func pushTextDelta(_ s: String) {
+        guard !s.isEmpty else { return }
+        pendingText += s
+        scheduleStreamFlush()
+    }
+
+    private func scheduleStreamFlush() {
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        let gen = streamGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self else { return }
+            self.flushScheduled = false
+            guard gen == self.streamGeneration else { return }
+            self.flushStreamBuffers()
+        }
+    }
+
+    /// 立即把攒下的增量刷到 `@Published`。
+    func flushStreamBuffers() {
+        if !pendingReasoning.isEmpty {
+            streamingReasoning += pendingReasoning
+            pendingReasoning = ""
+        }
+        if !pendingText.isEmpty {
+            streamingText += pendingText
+            pendingText = ""
+        }
+    }
+
+    /// 收尾：把暂存的流式内容清空。必须在 appendChat 之后调用。
+    func endStreaming() {
+        streamGeneration += 1        // 作废已排队的 flush，防残留帧刷回
+        pendingReasoning = ""
+        pendingText = ""
+        streamingText = ""
+        streamingReasoning = ""
+        streamingToolCommand = nil
+    }
+
     @Published var lastError: String?
     @Published var lastResult: RemovalExecutor.Outcome?
     /// 本次扫描锁定到的 app（关键词模式下为 nil）
     @Published var matchedApp: AppIdentity?
     /// 同名候选，供用户改选
     @Published var ambiguousMatches: [AppIdentity] = []
+    /// 当前是否处于「瘦身 / 重置」模式。`nil` = 普通卸载模式。
+    /// 非 nil 时结果区顶部展示瘦身横幅，主按钮与确认弹窗文案都换成对应档位的说法，
+    /// 避免用户以为点下去会把 app 本身也删掉。
+    @Published var slimMode: SlimMode?
 
     /// PWA（Chrome / Edge 安装的网页应用）的「应用本体」↔「Library 配置」配对。
     /// key 是 `.app` 的 artifact id，value 是对应 plist 的 artifact id。
@@ -68,7 +212,11 @@ final class AppState: ObservableObject {
     /// 「问 AI」页用的模型仓库：可配置多个档，支持默认 + 对话内下拉切换。
     /// 写入即持久化到 UserDefaults（key `expunge.aimodels`）。
     @Published var modelStore: ModelConfigStore = ModelConfigStore.current {
-        didSet { ModelConfigStore.current = modelStore }
+        didSet {
+            ModelConfigStore.current = modelStore
+            // 模型配置变了，之前判定的「永久失效」作废，下次扫描重新尝试。
+            aiPermanentlyDisabled = false
+        }
     }
 
     /// 当前用于回答的模型档（选中的 / 默认可用的）。未配置时返回 nil。
@@ -76,6 +224,10 @@ final class AppState: ObservableObject {
 
     /// 是否已配置至少一个模型——「问 AI」能跑的前提。
     var modelReady: Bool { modelStore.isConfigured }
+
+    /// 本次扫描是否会进入「AI 补充发现」阶段（开关打开且模型已配置）。
+    /// scanningView 用它决定要不要显示那一行，避免未启用 AI 时闪一下。
+    var willAskAI: Bool { Prefs.aiProposeEnabled && (activeConfig?.isConfigured ?? false) }
 
     // ── 「问 AI」对话（Sprint A）──
     //
@@ -288,6 +440,40 @@ final class AppState: ObservableObject {
         artifacts.filter(\.selected).count
     }
 
+    // MARK: - 逐个扫描
+
+    /// 顺序调用全部扫描器，并把每个扫描器的进度逐个回传主线程。
+    ///
+    /// 扫描器内部大多是同步阻塞调用（递归读盘、起 `du` / `brew` 子进程）。
+    /// 若直接在主 actor 上跑，主线程会被整段占满，中间进度压根渲染不出来——
+    /// 表现就是转圈卡到结束、一次性跳变。所以每次都跳到后台线程执行单个扫描器，
+    /// 主 actor 在 `await` 期间让出，UI 便能逐个刷新出「这一个跑完了、找到了几项」。
+    ///
+    /// 注意：这里只负责「逐个调用 + 收集结果」，去重、默认全选等收尾逻辑仍在调用方。
+    private func runScanners(with query: ScanQuery) async -> [Artifact] {
+        let list = scanners
+        // 每轮重新计：不清的话上一条 app 的结果（如「未发现」）会残留到这一轮。
+        aiProposeOutcome = .idle
+        scannerProgress = list.map { ScannerProgress(name: $0.name) }
+        var all: [Artifact] = []
+        for (idx, scanner) in list.enumerated() {
+            scannerProgress[idx].phase = .running
+            let results = await runOne(scanner, query: query)
+            scannerProgress[idx].foundCount = results.count
+            scannerProgress[idx].phase = .done
+            // 集中打「这条是谁扫出来的」标记：扫描器本身不需要知道自己在 UI 上叫什么，
+            // 也就不用改 14 个扫描器。仅用于悬浮提示按需查看，不占版面。
+            all.append(contentsOf: results.map { var a = $0; a.source = scanner.name; return a })
+        }
+        return all
+    }
+
+    /// 在后台执行单个扫描器：`nonisolated async` 会跳到通用执行器，
+    /// 不阻塞主 actor（SE-0338）。
+    nonisolated private func runOne(_ scanner: any Scanner, query: ScanQuery) async -> [Artifact] {
+        await scanner.scan(query: query)
+    }
+
     func scan() async {
         let target = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !target.isEmpty else { return }
@@ -298,6 +484,9 @@ final class AppState: ObservableObject {
         isScanning = true
         lastError = nil
         plan = nil
+        // 关键词扫描是「卸载」语义，进来就退出瘦身模式 —— 否则瘦身执行完
+        // runUninstall 末尾重扫一次，横幅会配着卸载结果继续显示。
+        slimMode = nil
         defer { isScanning = false }
 
         // 先把用户输入解析成具体 app：搜「微信」要能定位到 WeChat.app。
@@ -312,10 +501,7 @@ final class AppState: ObservableObject {
         }
 
         var allArtifacts: [Artifact] = []
-        for scanner in scanners {
-            let results = await scanner.scan(query: query)
-            allArtifacts.append(contentsOf: results)
-        }
+        allArtifacts = await runScanners(with: query)
         // 去重（按 path）
         var seen = Set<String>()
         allArtifacts = allArtifacts.filter { seen.insert($0.path).inserted }
@@ -328,8 +514,12 @@ final class AppState: ObservableObject {
         if let app = query.app {
             let vendorLeftovers = VendorRegistry.vendorLeftovers(for: app)
             for lo in vendorLeftovers where seen.insert(lo.path).inserted {
-                allArtifacts.append(lo)
+                var a = lo
+                a.source = ArtifactSource.vendorRegistry
+                allArtifacts.append(a)
             }
+            // 同源厂商残留（见上）。AI 调查不在这里跑 —— 它已并入 agent 入口，
+            // 由用户主动触发，而不是每扫一次就花一次模型调用去猜路径。
         }
 
         artifacts = allArtifacts
@@ -407,6 +597,47 @@ final class AppState: ObservableObject {
         .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
+    // MARK: - AI 调查（agent 内置发现）
+
+    /// 把 agent 用 `propose_paths` 调查出来的候选并入当前清单。
+    ///
+    /// 三条约束（与 `AIScanProposer` 一脉相承，**不得**因为「让 AI 更聪明」而放松）：
+    /// 1. 每一条都已经在 `propose_paths` 里过了 `AIScanProposer.judge` 校验网，
+    ///    这里只做展示，不再重复校验，但**也不再放宽**；
+    /// 2. **一律不勾选** —— 模型对「归属」的判断仍然可能错，勾选权在用户手上；
+    /// 3. 与 `plan.artifacts` 同步，让底部统计和确认弹窗看得到同一份清单。
+    func applyAIProposals(_ proposals: [Artifact]) {
+        guard !proposals.isEmpty else { return }
+        var known = Set(artifacts.map(\.path))
+        let fresh = proposals.filter { known.insert($0.path).inserted }
+        guard !fresh.isEmpty else { return }
+        artifacts.append(contentsOf: fresh)
+        setPlanWithSelections()
+        aiProposeOutcome = .found(artifacts.filter { $0.category == .aiProposed }.count)
+        // 新发现的路径默认展开，否则用户看不到 agent 到底加了什么。
+        appsCollapsed = appsCollapsed.subtracting(
+            Set(fresh.map(\.category)))
+    }
+
+    /// agent 跑完但**没有**提出任何新路径时调用。
+    ///
+    /// 必须和「调用失败」区分开：前者是「它翻了一遍目录，确实没找到漏的」，
+    /// 后者是「它压根没跑成」。两者的后续动作完全不同，所以这里不覆盖失败态。
+    func noteAgentFoundNoExtras() {
+        if case .failed = aiProposeOutcome { return }
+        if aiPermanentlyDisabled { return }
+        aiProposeOutcome = .none
+    }
+
+    /// 解除「模型因永久失效（key 失效 / 没额度 / 配置错）而停用」的状态。
+    ///
+    /// 在两种「用户确认模型没问题」的场景调用：① 设置页保存了新模型配置
+    /// （`modelStore` 的 `didSet` 已自动调）；② 设置页「测试连接」成功。
+    /// 这样改完 key / 充完值后下一次调用就会重新尝试。
+    func resetAISuppression() {
+        aiPermanentlyDisabled = false
+    }
+
     /// 用户从候选列表里改选了另一个 app，按它重扫。
     func scan(app: AppIdentity) async {
         guard fullDiskAccessGranted else { showFDAGuidance = true; return }
@@ -418,19 +649,70 @@ final class AppState: ObservableObject {
         matchedApp = app
         searchText = app.displayName
         let query = ScanQuery(raw: app.displayName, app: app, others: InventoryCache.shared.allApps())
+        // 走的是普通卸载流程，把上一次瘦身模式的状态清掉。
+        slimMode = nil
 
         var allArtifacts: [Artifact] = []
-        for scanner in scanners {
-            allArtifacts.append(contentsOf: await scanner.scan(query: query))
-        }
+        allArtifacts = await runScanners(with: query)
         var seen = Set<String>()
         allArtifacts = allArtifacts.filter { seen.insert($0.path).inserted }
         // 应用页默认全选（含用户数据）。
         for i in allArtifacts.indices { allArtifacts[i].selected = true }
+        // 注意：这里**不再**自动调用模型做「AI 补充发现」。
+        // 它已经和「让 AI 分析」合并成同一个 agent 入口 —— 由用户点一次，
+        // agent 用 search_paths / inspect_path 自己去翻目录找漏项，
+        // 而不是每扫一次就白花一次模型调用去「猜」路径。
         artifacts = allArtifacts
         plan = RemovalPlan(targetName: app.displayName, artifacts: allArtifacts)
         linkPWACompanions()
         aiReviewPhaseApps = .idle
+    }
+
+    // MARK: - 应用瘦身 / 重置
+
+    /// 扫描某个**已安装** app 的数据并按档位给出可清理项。
+    ///
+    /// 与 `scan(app:)` 的区别只有一处，但那一处是全部意义所在：**结果里不含 app 本体**。
+    /// 复用同一套扫描器（数据在哪还是那些地方），差别在筛选项：
+    /// 1. 只保留 `mode.eligibleCategories`（数据类），把安装物 / 自启动 /
+    ///    同厂商其它产品统统排除 —— 瘦身不是卸载；
+    /// 2. `cacheOnly` 档进一步只留 `.safe`（可再生）项；
+    /// 3. 默认勾选一律只给 `.safe`，`.userData`（登录态 / 本地数据）留给用户逐条确认。
+    ///
+    /// 不调用 AI 补充发现：它是为「卸载残留」设计的，对重置一个已装 app 没有意义，
+    /// 且模型对「归属」的判断不可靠，不该混进这种会影响登录态的操作里。
+    func slim(app: AppIdentity, mode: SlimMode) async {
+        guard fullDiskAccessGranted else { showFDAGuidance = true; return }
+        isScanning = true
+        lastError = nil
+        plan = nil
+        defer { isScanning = false }
+
+        matchedApp = app
+        searchText = app.displayName
+        let query = ScanQuery(raw: app.displayName, app: app, others: InventoryCache.shared.allApps())
+
+        var found: [Artifact] = await runScanners(with: query)
+        var seen = Set<String>()
+        found = found.filter { seen.insert($0.path).inserted }
+
+        // 只保留该档位允许清理的「数据类」痕迹。
+        found = found.filter { mode.eligibleCategories.contains($0.category) }
+        // 轻量档进一步只要可再生的 .safe 项，用户数据完全不进入清单。
+        if !mode.includesUserData {
+            found = found.filter { $0.risk != .userData }
+        }
+        for i in found.indices {
+            found[i].selected = mode.defaultSelected(risk: found[i].risk)
+        }
+
+        slimMode = mode
+        artifacts = found
+        // targetName 只用于展示（含历史记录），加上档位后用户能在历史里分清
+        // 「这条是卸载」还是「这条只是重置」——两者留下的结果完全不同。
+        plan = RemovalPlan(targetName: "\(app.displayName) · \(mode.title)", artifacts: found)
+        aiReviewPhaseApps = .idle
+        aiProposeOutcome = .idle
     }
 
     // MARK: - v1.2 app 列表
@@ -614,6 +896,16 @@ final class AppState: ObservableObject {
             else { aiReviewPhaseApps = .needsConfig }
             return
         }
+        // 熔断：key 失效 / 没额度时，用户每点一次都是白等一次网络往返。
+        // 本轮会话内已判永久失效就直接拒绝，并说清怎么恢复。
+        if aiPermanentlyDisabled {
+            aiProposeOutcome = .disabled
+            appendChat(AIMessage(role: .ai,
+                                 text: L10n.t(
+                                     "模型调用此前已被判定为永久失效（API Key 无效 / 额度耗尽 / 配置错误），本轮会话不再重试。请到 ⚙ 设置里修正配置，或点「测试连接」验证成功后即可恢复。",
+                                     "The model was previously found permanently unusable (invalid key / no quota / bad config), so it won't be retried this session. Fix it in Settings (⚙), or pass 'Test connection' to resume.")))
+            return
+        }
 
         // 独立上下文：旧对话对这次分析无意义，打锚点截断。
         resetChatContext()
@@ -629,17 +921,37 @@ final class AppState: ObservableObject {
             let bridge = AgentBridge()
             bridge.attach(self)
             let runtime = AgentRuntime(config: cfg, bridge: bridge, memory: memoryPromptBlock)
-            let run = await runtime.run(goal: prompt, history: history,
-                                        session: bridge.makeSession(leftoverScope: leftoverScope,
-                                                                     reviewScope: reviewScope))
+            let session = bridge.makeSession(leftoverScope: leftoverScope, reviewScope: reviewScope)
+            // 走流式，并把增量**转发到**「问 AI」的进行中气泡：用户点「去看 AI 怎么说」
+            // 切过去时，看到的是正在跑的过程（深度思考逐字出、工具一条条上屏），
+            // 而不是一个停在空屏上等结论的转圈。
+            // 暂存内容只活在运行期，收尾时 endStreaming() 清掉；落盘的只有最终那条 AIMessage。
+            let run = await runtime.runStream(goal: prompt, history: history, session: session,
+                                              onEvent: { event in
+                await MainActor.run {
+                    switch event {
+                    case .reasoningDelta(let s): self.pushReasoningDelta(s)
+                    case .textDelta(let s):      self.pushTextDelta(s)
+                    case .toolStarted(_, let command): self.streamingToolCommand = command
+                    case .toolFinished, .turnStarted, .finished: break
+                    }
+                }
+            })
 
             var body = run.answer
             if let note = run.note { body += "\n\n" + note }
             appendChat(AIMessage(role: .ai, text: body,
                                  steps: run.steps,
                                  redirect: run.redirect,
-                                 awaitingApproval: run.awaitingApproval))
+                                 awaitingApproval: run.awaitingApproval,
+                                 reasoning: run.reasoning.isEmpty ? nil : run.reasoning))
             chatIsThinking = false
+            endStreaming()
+            // 模型真的跑通了（哪怕没提出任何东西）→ 解除永久禁用态。
+            if run.usedModel { aiPermanentlyDisabled = false }
+            if run.usedModel && session.proposedArtifacts.isEmpty {
+                noteAgentFoundNoExtras()
+            }
             // skill 的 effect 已通过 bridge.apply 设置对应 phase = .done；
             // 这里兜底：若模型调用失败没走到 skill，把 still-running 标记为失败。
             if reviewScope == .leftovers {
@@ -662,7 +974,10 @@ final class AppState: ObservableObject {
             case .keep:
                 artifacts[i].selected = false
             case .safe:
-                artifacts[i].selected = true
+                // AI 提议项例外：它们从没被默认勾过，复核说「可删」也只写理由、不代勾。
+                // 提议来源是模型自己，不能让模型既提议又批准。
+                artifacts[i].selected = AIScanProposer.selectionAfterUndo(artifacts[i],
+                                                                         defaultSelected: true)
             }
         }
         aiReviewPhaseApps = .done
@@ -714,7 +1029,11 @@ final class AppState: ObservableObject {
             }
         }
         // 应用页恢复默认全选；残留页恢复默认全不选。
-        for i in artifacts.indices { artifacts[i].selected = true }
+        // AI 提议项例外：撤销一次分析就把它们全勾上，等于给误删开了一道后门。
+        for i in artifacts.indices {
+            artifacts[i].selected = AIScanProposer.selectionAfterUndo(artifacts[i],
+                                                                     defaultSelected: true)
+        }
         for gi in leftoverGroups.indices {
             for ai in leftoverGroups[gi].artifacts.indices {
                 leftoverGroups[gi].artifacts[ai].selected = false
@@ -829,6 +1148,7 @@ final class AppState: ObservableObject {
         ambiguousMatches = []
         pwaAppToCompanion = [:]
         aiReviewPhaseApps = .idle
+        slimMode = nil
     }
 
     func selectAll() {

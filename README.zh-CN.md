@@ -1,73 +1,93 @@
+[🇨🇳 中文](README.zh-CN.md) · [🇺🇸 English](README.md)
+
 # AI Mac Cleaner
 
-**macOS 深度卸载工具**——不只是删 `.app`，连依赖和痕迹一起拔干净。
+**会思考的 macOS 卸载助手**——不止删 `.app`，还能用 AI 读懂你的清理清单：说一句「把 Cursor 彻底卸掉」，它自己调起扫描、列出该删的痕迹；删之前，再让 AI 帮你看一眼哪些登录态、凭据不能动。
 
-[English](README.md) | **简体中文**
+免费、开源、纯本地。AI 用你自己的 Key 调用，清单上下文发往你配置的模型服务商；AI Mac Cleaner 自己不上传、更不替你做删除决定。
 
-免费、开源、彻底。卸载任何 Mac 应用的同时，扫清它留下的所有痕迹：Homebrew 公式、npm/pipx 包、沙箱容器、launch agent、shell 配置污染、点文件、缓存……16 类扫描器，一次覆盖。
+> 系统要求：macOS 14 (Sonoma) 及以上；支持 Intel 与 Apple Silicon。
 
-**用户数据进废纸篓**（聊天记录、配置、账号等，可找回），缓存和系统文件直接删除。
-
-> **系统要求：** macOS 14 (Sonoma) 及以上。支持 Intel 和 Apple Silicon。[为什么需要 macOS 14？](#系统要求)
-
-![AI Mac Cleaner 主界面](screenshots/mainCN.png)
+![主界面](screenshots/mainCN.png)
 
 ---
 
-## 功能
+## 它解决什么
 
-### 🧹 深度卸载
-选中一个应用，AI Mac Cleaner 找出和它有关的一切。不只是 `.app` 包体——依赖、偏好设置、缓存、日志、容器、包管理器安装的 CLI 工具，全部列出。确认一次，全部清掉。
+普通「拖进废纸篓」只删了应用壳，Homebrew 公式、npm 包、沙箱容器、启动项、Shell 配置、AI 工具的缓存和模型全留着。更麻烦的是——**留下的东西该不该删，人往往拿不准**：微信的登录态删了要重新扫码，Ollama 的模型一个就几十 GB、删了重下巨慢。
 
-![深度卸载](screenshots/uninstallCN.png)
+AI Mac Cleaner 把「找全」和「判断」两件事都做了：扫描 16 类残留，再用 AI 在删前帮你划清「该删 / 该留」。
 
-### 🔍 孤儿残留扫描
-几个月前删掉的应用，数据往往还留在 `~/Library` 里。孤儿扫描反向查找：哪些目录已经没有活着的 app 认领？找出你根本不知道还存在的残留。
+---
 
-![孤儿扫描](screenshots/orphansCN.png)
+## AI 能力（重点）
 
-### 🤖 AI Agent（问 AI）
-用自然语言描述目标——「把 Cursor 彻底卸干净」或「扫一遍所有残留」——内置 AI Agent 会自己调用相应 skill、查看结果、出计划。**任何删除操作都要你确认后才执行。**
+### 1. 对话式卸载：用一句话让 AI 动手
+
+打开「问 AI」，用自然语言描述目标，例如：
+
+- 「把 Cursor 彻底卸干净」
+- 「扫一遍所有残留，挑能安全删的」
+- 「Docker 占了好多空间，帮我看看」
+
+内置 AI Agent 会自己调用 7 个只读技能（列应用、扫应用、扫残留、列进程、复核、生成卸载计划、看历史），查看结果、给出计划。**任何删除操作都要你确认后才执行**——AI 只出主意，不动你的文件。
 
 ![AI Agent](screenshots/agentCN.png)
 
-#### 配置模型
-打开 ⚙ **设置 → 配置 AI 模型**，填入 API Key。支持 OpenAI、Anthropic 及兼容服务商。支持多个模型档，在问 AI 工具栏随时切换。
+### 2. 让 AI 替你判断：删什么、留什么
 
-![模型配置](screenshots/model-configCN.png)
+最实用的一块。三处都能调 AI：
 
-#### 斜杠命令
-在输入框输入 `/` 查看可用命令：
+- **应用页「让 AI 分析」**：AI 从待删除清单里挑出**不该删**的项（登录态 / 凭据 / 被其它应用共享的数据 / 订阅授权 / 活跃数据库），自动取消勾选并写明理由。
+- **残留页「让 AI 帮我判断」**：AI 从孤儿残留里挑出**能放心删**的项（缓存 / 日志 / 明确属于该应用且不含登录态的容器 / 临时文件），自动勾选并写明理由。
+- **进程页「AI 判断后果」**：勾选进程点一下，AI 判断结束它会怎样——会不会丢未保存的工作、会不会让某个 GUI 应用崩溃，给出高 / 中 / 低风险。
 
-| 命令 | 功能 |
-|------|------|
-| `/new` | 开始新会话（清空对话历史） |
-| `/reset` | 重置 Agent 上下文 |
-| `/remember` | 记下一件事，`/new` 和重启都不会丢 |
+> **纯 AI，不兜底。** 没配模型或调用失败就如实告诉你「这次没用上 AI」，绝不拿本地规则编一个结论糊弄你。
+
+![AI 复核](screenshots/ai-reviewCN.png)
+![AI 判断后果](screenshots/ai-consequenceCN.png)
+
+### 3. 它懂 AI 工具自己的残留
+
+专门为 AI 时代的工作站打造：内置 **15 款**主流 AI 编程助手、ML 框架与编辑器的残留知识——Claude Code、Cursor、Windsurf、Cody、Tabnine、Amazon Q、Ollama、LM Studio、Hugging Face、PyTorch、VS Code、JetBrains、Xcode 等。它不光认得这些工具的数据在哪，还知道 **Ollama 模型一个 2–50 GB、Hugging Face 模型动辄上百 GB**——删之前就给你标好风险，避免误删要重下半天的大文件。
+
+### 4. 长期记忆：你教过它的，下次还记得
+
+在「问 AI」里输入 `/remember <你的偏好>`，比如「JetBrains 的索引别动」。这条记忆跨 `/new`、跨重启都保留，之后 AI 做判断时会参考它。用 `/reset` 清空当前对话上下文（不影响记忆），用 `/new` 开新会话。
 
 ![斜杠命令](screenshots/slash-commandsCN.png)
 
-#### AI 判断后果（进程）
-勾选一个或多个进程，点 **AI 判断后果**——Agent 判断结束各个进程的后果。低风险的自动勾选，其余取消勾选并写明理由。
+### 5. 多模型、自带密钥、纯本地
 
-![AI 判断后果](screenshots/ai-consequenceCN.png)
+打开 ⚙ **设置 → 配置 AI 模型**，填你自己的 API Key：
 
-#### AI 复核（应用 / 残留）
-在应用或残留页点 **让 AI 复核** / **让 AI 帮我判断**。Agent 逐项检查你的清理清单，自动取消勾选建议保留的项（登录态、共享数据、凭证），并在对应行下写明理由。
+- 支持 **OpenAI 兼容** 与 **Anthropic 兼容** 两种协议（官方、本地代理、第三方中转都行，baseURL 可改）。
+- 可配置**多套模型**，在「问 AI」工具栏随时切换；可设默认档。
+- 密钥只存在本机 `UserDefaults`，AI Mac Cleaner 不碰你的 Key 之外的任何东西。
 
-![AI 复核](screenshots/ai-reviewCN.png)
+![模型配置](screenshots/model-configCN.png)
 
-### 🖥️ 进程管理
-列出 Mac 上所有后台服务类进程——node 服务、Python 脚本、Docker 容器、Brew service。显示内存占用、CPU%、**监听端口**（如 `:3000`、`:8080`）。按端口号搜索，精确找到占用端口的进程，一键结束。
+---
 
-![进程管理](screenshots/processesCN.png)
+## 基础清理能力
 
-### 🛡️ 安全设计
-- **用户数据走废纸篓。** 聊天记录、配置、账号等可恢复。缓存和系统文件确认后直接删除。
-- **没有通用 shell。** AI Agent 只能调用预定义的只读 skill，不能执行任意命令、不能读任意文件、不能联网。
-- **执行前必确认。** 每次删除操作都要确认，不做静默操作。
-- **系统保护。** 关键系统进程和路径在白名单里，永远不会被删。
-- **数据不出本机。** 所有处理本地完成，不做任何网络请求。
+AI 是亮点，但不联网也能用：
+
+- **深度卸载**：选一个应用，一次性找出依赖、偏好、缓存、日志、容器、包管理器装的 CLI 工具，确认一次全部清掉。![深度卸载](screenshots/uninstallCN.png)
+- **孤儿残留扫描**：反向查找 `~/Library` 里已经没有活应用认领的目录，找出几个月前卸载后偷偷留下的数据。![孤儿扫描](screenshots/orphansCN.png)
+- **进程管理**：列出后台进程（node、Python、Docker、Brew service），显示内存、CPU 和**监听端口**，按端口搜、一键结束。![进程管理](screenshots/processesCN.png)
+
+扫描覆盖 **16 类**残留：应用包、Homebrew、npm / pipx、沙箱容器、启动项、Shell 配置、点文件、缓存、偏好设置、日志、认证凭证、AI 工具数据、孤儿残留、XDG 目录、MAS 回执、Application Support。
+
+---
+
+## 安全设计
+
+- **用户数据走废纸篓**：聊天记录、配置、账号等可恢复；缓存和系统文件确认后直接删除。
+- **AI 没有通用权限**：Agent 只能调用 7 个预定义的只读技能，不能执行任意命令、不能读任意文件。
+- **执行前必确认**：每次删除都要确认，不做静默操作。
+- **系统保护**：关键系统进程和路径在白名单里，永远不会被删。
+- **数据不出本机（非 AI 部分）**：扫描与清理完全在本机完成；使用 AI 时，清理清单的上下文会发往你配置的模型服务商（用自己的 Key），AI Mac Cleaner 本身不做任何埋点、遥测或后台上传。
 
 ---
 
@@ -75,13 +95,13 @@
 
 ### 下载 DMG（推荐）
 
-从 [Releases](https://github.com/hwd8080-ai/AIMacCleaner/releases) 下载 `AI Mac Cleaner-<版本>.dmg` 和同名 `.sha256`。先校验：
+从 [Releases](https://github.com/hwd8080-ai/AIMacCleaner/releases) 下载 `AI Mac Cleaner-<版本>.dmg` 与同名 `.sha256`，先校验：
 
 ```bash
-shasum -a 256 -c AI Mac Cleaner-<版本>.dmg.sha256   # 应输出 OK
+shasum -a 256 -c AI\ Mac\ Cleaner-<版本>.dmg.sha256   # 应输出 OK
 ```
 
-打开 DMG，把 AI Mac Cleaner 拖到 Applications。首次启动：**右键 → 打开**。
+打开 DMG，把 AI Mac Cleaner 拖到「应用程序」。首次启动：**右键 → 打开**。
 
 ### 从源码构建
 
@@ -102,80 +122,24 @@ open /Applications/AIMacCleaner.app
 
 ```bash
 swift build -c release
-.build/release/ai-mac-cleaner --scan 微信       # 扫描某个应用
-.build/release/ai-mac-cleaner --self-test       # 跑自检
-.build/release/ai-mac-cleaner --skills          # 列出 Agent 能调用的 skill
+.build/release/ai-mac-cleaner --scan 微信              # 扫描某个应用
+.build/release/ai-mac-cleaner --self-test              # 跑自检
+.build/release/ai-mac-cleaner --skills                 # 列出 Agent 能调用的 skill
+.build/release/ai-mac-cleaner --agent "把 Cursor 卸干净"   # 让 AI 直接动手（仍要你确认）
 ```
 
 ---
 
-## 扫描范围
+## 使用
 
-AI Mac Cleaner 覆盖 16 类残留：
-
-| 类别 | 扫描内容 |
-|------|---------|
-| `.app` 包体 | 已安装的应用 |
-| Homebrew | formula、cask、tap |
-| npm / pipx | 全局安装的包 |
-| 沙箱容器 | `~/Library/Containers` 数据 |
-| Launch Agent | `~/Library/LaunchAgents` plist |
-| Shell 配置 | `.zshrc`、`.bashrc`、`.fish` 写入 |
-| 点文件/配置 | `.cursor`、`.claude` 等隐藏目录 |
-| 缓存 | `~/Library/Caches` |
-| 偏好设置 | `~/Library/Preferences` plist |
-| 日志 | `~/Library/Logs` |
-| 认证令牌 | Keychain 相关的凭证文件 |
-| AI 工具数据 | Claude Code、Cursor、Windsurf、Copilot 等 20+ 工具 |
-| 孤儿残留 | 无主 `~/Library` 子目录 |
-| XDG 目录 | `~/.config`、`~/.local/share` |
-| MAS 回执 | Mac App Store 安装记录 |
-| Application Support | `~/Library/Application Support` |
+1. 下载安装后打开，首次建议先在 **设置 → 配置 AI 模型** 填入 API Key（不填也能手动清理，只是用不了 AI 判断）。
+2. 想省事就点 **「问 AI」**，用一句话说要干嘛，比如「把 Cursor 彻底卸干净」；AI 会扫描并给出计划，确认后执行。
+3. 想自己把控就点 **「应用」**：勾选要删的项，点 **「让 AI 分析」** 让它帮你标出不该删的（登录态、凭据）。
+4. 卸载很久的应用，点 **「残留」** 扫孤儿目录，点 **「让 AI 帮我判断」** 让它勾出能放心删的。
+5. 卡顿或端口被占，点 **「进程」** 查看，必要时用 **「AI 判断后果」** 确认再结束。
 
 ---
 
-## AI Agent 可调用的 Skill
-
-内置 7 个 skill：
-
-| Skill | 功能 |
-|-------|------|
-| `list_apps` | 列出所有已安装应用 |
-| `scan_app` | 深度扫描指定应用 |
-| `scan_leftovers` | 扫描孤儿残留和 AI 工具数据 |
-| `list_processes` | 列出运行中的后台进程 |
-| `review_plan` | 复核待执行的卸载计划 |
-| `plan_uninstall` | 生成卸载计划待确认 |
-| `show_history` | 查看历史卸载记录 |
-
-所有 skill 默认只读。Agent 出计划，你确认后才执行。
-
----
-
-## 常见问题
-
-**安全吗？** 安全。用户数据（聊天记录、配置、账号）进废纸篓可找回；缓存和系统文件确认后直接删除。系统路径受保护，每次删除都要确认。
-
-**会上传数据吗？** 不会。无埋点、无遥测、无网络请求。全部本地处理。
-
-**和 AppCleaner / CleanMyMac 比呢？** 那些是闭源的，有的是付费软件。AI Mac Cleaner 开源免费，且集成了包管理器清理、孤儿扫描、AI 辅助、进程管理于一体。
-
-**可以再分发吗？** 可以。MIT 协议，见 [LICENSE](LICENSE)。
-
----
-
-## 系统要求
-
-| 要求 | 最低配置 |
-|------|---------|
-| macOS | **14.0 (Sonoma)** 及以上 |
-| 架构 | Intel (x86-64) 或 Apple Silicon (arm64) |
-| 磁盘 | 约 25 MB 安装空间 |
-
-> **为什么需要 macOS 14？** AI Mac Cleaner 使用了 Sonoma 引入的 SwiftUI API——`.onKeyPress` 处理键盘输入（回车发送/方向键导航/Tab 补全），以及新版 `.onChange(of:)` 闭包语法。降级到 macOS 13 需要替换这些 API，对小型项目维护成本过高。Sonoma 于 2023 年发布，覆盖了 2018 年及以后的所有 Mac。
-
----
-
-## 协议
+## 许可
 
 MIT © AI Mac Cleaner 贡献者

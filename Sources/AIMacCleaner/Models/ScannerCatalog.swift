@@ -101,4 +101,25 @@ struct ScannerCatalog {
                      icon: "questionmark.circle.fill",
                      tint: .blue)
     }
+
+    /// 把一条痕迹的「来源标识」翻成用户看得懂的名字 + 一句话说明。
+    ///
+    /// UI 里存的是代码里的稳定标识（`Artifact.source`），但直接显示
+    /// `AppBundleScanner` 用户根本看不懂，所以展示一律走这里。
+    /// 除内置扫描器外，还有两个非扫描器来源：AI 提议与同厂商残留探测。
+    static func sourceLabel(for source: String) -> (name: String, detail: String) {
+        switch source {
+        case ArtifactSource.aiProposer:
+            return (L10n.t("AI 补充发现", "AI extra findings"),
+                    L10n.t("内置扫描器没找到、由模型补充提议的路径，已过本地校验",
+                           "Paths the built-in scanners missed and the model suggested — locally validated"))
+        case ArtifactSource.vendorRegistry:
+            return (L10n.t("同厂商残留探测", "Same-vendor detection"),
+                    L10n.t("卸载本 app 时额外探测到的同厂商其他入口",
+                           "Other entries from the same vendor, probed when uninstalling this app"))
+        default:
+            let e = entry(for: source)
+            return (e.displayName, e.description)
+        }
+    }
 }

@@ -84,7 +84,10 @@ struct AIReviewBar: View {
                 .disabled(disabled)
                 .opacity(disabled ? 0.5 : 1.0)
             case .running:
-                EmptyView()
+                // 分析进行中也要能「去看过程」：点进去是「问 AI」里正在跑的那个气泡
+                //（深度思考逐字出、工具一条条上屏），而不是在这儿干等转圈。
+                Button(L10n.t("去看分析过程", "View progress")) { onViewConclusion() }
+                    .controlSize(.small)
             case .done:
                 Button(L10n.t("去看 AI 怎么说", "View AI conclusion")) { onViewConclusion() }
                     .controlSize(.small)
@@ -276,6 +279,22 @@ struct ArtifactGroupCard: View {
     private var selectedCount: Int { entries.filter(\.selected).count }
     private var allSelected: Bool { !entries.isEmpty && selectedCount == entries.count }
 
+    /// 本组条目的来源扫描器。唯一才显示名字，混合则显示「多个来源」。
+    ///
+    /// 为什么不逐行标：卸载页的分组与扫描器基本一一对应
+    /// （AppBundleScanner → App bundle、LibraryDataScanner → Library 用户数据 ……），
+    /// 逐行重复同一个名字只是噪音；在组头写一次，用户一眼就知道「这批是谁扫的」。
+    /// 显示用的人话名（`应用包` 而不是 `AppBundleScanner`），以及悬浮里的一句话说明。
+    private var groupSource: (name: String, detail: String)? {
+        let sources = Set(entries.compactMap(\.source))
+        guard sources.count == 1, let only = sources.first else {
+            return sources.count > 1
+                ? (L10n.t("多个来源", "multiple sources"), "")
+                : nil
+        }
+        return ScannerCatalog.sourceLabel(for: only)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -314,6 +333,18 @@ struct ArtifactGroupCard: View {
             Text(L10n.t("\(entries.count) 项", "\(entries.count) items"))
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
+
+            if let groupSource {
+                Text(groupSource.name)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(groupSource.detail.isEmpty
+                          ? L10n.t("本组来自 \(groupSource.name)", "Found by \(groupSource.name)")
+                          : L10n.t("本组来自 \(groupSource.name)：\(groupSource.detail)",
+                                   "Found by \(groupSource.name): \(groupSource.detail)"))
+            }
 
             Spacer(minLength: 8)
 
@@ -380,7 +411,12 @@ struct ArtifactRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                if artifact.aiVerdict != nil {
+                // 「这条是模型猜出来的」必须显式标出来：AI 项归属判断不如规则可靠，
+                // 用户得先知道它是猜的，才会自己去核对。
+                if artifact.isAISuggested {
+                    TagPill.aiProposed
+                }
+                if artifact.aiVerdict != nil && !artifact.isAISuggested {
                     aiKeep ? TagPill.keep : TagPill.aiSafe
                 }
                 RiskPill(risk: artifact.risk)
@@ -425,10 +461,34 @@ struct ArtifactRow: View {
                 Rectangle().fill(Theme.aiPrimary).frame(width: 3)
             }
         }
+        // contentShape 让整行都成为悬浮命中区：不加的话只有鼠标压在文字上才弹提示，
+        // 行内留白 / 图标区域都点不到，等于这个功能形同没有。
+        .contentShape(Rectangle())
+        .help(rowHelp)
         .contextMenu {
+            // 悬浮提示容易被忽略，右键菜单里再放一条文本，让「这条哪来的」可被主动查到。
+            if let src = artifact.source {
+                Text(L10n.t("来源：\(ScannerCatalog.sourceLabel(for: src).name)",
+                           "Source: \(ScannerCatalog.sourceLabel(for: src).name)"))
+            }
             Button(L10n.t("在访达中显示", "Reveal in Finder")) { RevealService.revealInFinder(path: artifact.path) }
             Button(L10n.t("复制路径", "Copy path")) { RevealService.copyPath(artifact.path) }
         }
+    }
+
+    /// 悬浮提示：回答「这条为什么会被扫出来」——是内置扫描器的规则命中的，
+    /// 还是 AI 补充提议的。
+    ///
+    /// 只放 tooltip 不放行内文字，是因为 `LibraryDataScanner` 这类内部模块名
+    /// 对用户没有决策价值，平铺在每行只会变成噪音；但「这条是不是 AI 猜的」
+    /// 又确实该能查到，所以放在按需查看的位置。
+    /// 没有来源时退回完整路径（行内路径是截断的，悬浮看全路径本身就有用）。
+    private var rowHelp: String {
+        guard let src = artifact.source else { return artifact.path }
+        let (name, detail) = ScannerCatalog.sourceLabel(for: src)
+        let tail = detail.isEmpty ? name : "\(name)：\(detail)"
+        return L10n.t("\(artifact.path)\n\n来源：\(tail)",
+                      "\(artifact.path)\n\nSource: \(tail)")
     }
 }
 
@@ -508,6 +568,84 @@ struct ScannerCard: View {
     }
 
     private var tintColor: Color {
+        switch entry.tint {
+        case .blue:   return .blue
+        case .green:  return .green
+        case .orange: return .orange
+        case .purple: return .purple
+        case .teal:   return .teal
+        case .coral:  return Color(hex: 0xD85A30)
+        }
+    }
+}
+
+/// 扫描过程中「一个个跑」时，单个扫描器的一行状态。
+///
+/// 通过 `ScannerCatalog.entry(for:)` 拿到展示信息（图标、中文名、简介），
+/// 再按 `ScannerProgress.phase` 显示 等待 / 进行中 / 完成（命中数）。
+struct ScannerRunRow: View {
+    let prog: ScannerProgress
+
+    private var entry: ScannerCatalog.Entry { ScannerCatalog.entry(for: prog.name) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(tint.opacity(prog.phase == .pending ? 0.06 : 0.14))
+                    .frame(width: 30, height: 30)
+                Image(systemName: entry.icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(prog.phase == .pending ? tint.opacity(0.5) : tint)
+            }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.displayName)
+                    .font(.system(size: 12.5, weight: prog.phase == .running ? .semibold : .regular))
+                    .foregroundStyle(prog.phase == .pending ? .secondary : .primary)
+                Text(entry.description)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+
+            statusView
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(prog.phase == .running ? tint.opacity(0.5) : Theme.divider, lineWidth: 1))
+        .opacity(prog.phase == .pending ? 0.6 : 1.0)
+        .animation(.easeInOut(duration: 0.2), value: prog.phase)
+    }
+
+    @ViewBuilder
+    private var statusView: some View {
+        switch prog.phase {
+        case .pending:
+            Text(L10n.t("等待", "Queued"))
+                .font(.system(size: 10.5))
+                .foregroundStyle(.tertiary)
+        case .running:
+            ProgressView()
+                .controlSize(.small)
+                .frame(width: 16)
+        case .done:
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.success)
+                Text(L10n.t("\(prog.foundCount) 项", "\(prog.foundCount)"))
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var tint: Color {
         switch entry.tint {
         case .blue:   return .blue
         case .green:  return .green

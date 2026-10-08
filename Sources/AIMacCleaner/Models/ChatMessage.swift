@@ -27,6 +27,11 @@ struct AIMessage: Identifiable, Codable, Equatable {
     /// 上下文锚点标记。true = 这是一条 `/reset` 打下的分割线，
     /// 发往模型的 history 只取它之后的消息（见 `ChatPolicy.afterAnchor`）。
     var isAnchor: Bool = false
+    /// 模型的**深度思考**内容（推理过程）。nil = 该模型/该轮没有推理内容。
+    ///
+    /// 与 `text` 分开存，而不是拼进正文：思考过程要能折叠起来单独看，
+    /// 而且它**不该进下一轮的 history** —— 那是给用户看的推理轨迹，不是对话。
+    var reasoning: String? = nil
 
     /// 消息角色。
     ///
@@ -45,6 +50,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
          redirect: AgentTab? = nil,
          awaitingApproval: Bool = false,
          isAnchor: Bool = false,
+         reasoning: String? = nil,
          createdAt: Date = Date()) {
         self.role = role
         self.text = text
@@ -53,6 +59,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
         self.redirect = redirect
         self.awaitingApproval = awaitingApproval
         self.isAnchor = isAnchor
+        self.reasoning = reasoning
     }
 
     /// 造一条上下文锚点消息。
@@ -70,7 +77,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
     /// （`let id = UUID()` 的默认值生效，重新生成）。这样既不会触发
     /// "immutable property will not be decoded" 警告，也不用为 id 写任何代码。
     private enum CodingKeys: String, CodingKey {
-        case role, text, steps, redirect, awaitingApproval, isAnchor, createdAt
+        case role, text, steps, redirect, awaitingApproval, isAnchor, createdAt, reasoning
     }
 
     /// 手写解码：**全字段 `decodeIfPresent` + 默认值**。
@@ -88,5 +95,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
         awaitingApproval = (try? c.decodeIfPresent(Bool.self, forKey: .awaitingApproval)) ?? false
         isAnchor = (try? c.decodeIfPresent(Bool.self, forKey: .isAnchor)) ?? false
         createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
+        // 老历史没有这个键 → nil，不能因此让整条消息解码失败。
+        reasoning = try? c.decodeIfPresent(String.self, forKey: .reasoning)
     }
 }

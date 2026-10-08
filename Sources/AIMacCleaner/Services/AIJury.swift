@@ -98,22 +98,24 @@ enum AIJury {
         return out
     }
 
+    // MARK: - 解析辅助（internal：AIScanProposer 复用同一套去围栏/抠 JSON 逻辑）
+
     /// 从模型回复里尽量抠出第一个 JSON 对象（兼容 ```json 代码块 / 前后多余文字）。
-    private static func extractObject(_ raw: String) -> [String: Any]? {
+    static func extractObject(_ raw: String) -> [String: Any]? {
         let s = stripFences(raw)
         guard let start = s.firstIndex(of: "{"), let end = s.lastIndex(of: "}") else { return nil }
         let sub = String(s[start...end])
         return (try? JSONSerialization.jsonObject(with: Data(sub.utf8))) as? [String: Any]
     }
 
-    private static func extractArray(_ raw: String) -> [[String: Any]]? {
+    static func extractArray(_ raw: String) -> [[String: Any]]? {
         let s = stripFences(raw)
         guard let start = s.firstIndex(of: "["), let end = s.lastIndex(of: "]") else { return nil }
         let sub = String(s[start...end])
         return (try? JSONSerialization.jsonObject(with: Data(sub.utf8))) as? [[String: Any]]
     }
 
-    private static func stripFences(_ raw: String) -> String {
+    static func stripFences(_ raw: String) -> String {
         var s = raw
         if let fence = s.range(of: "```") { s = String(s[fence.upperBound...]) }
         if let fence2 = s.range(of: "```") { s = String(s[..<fence2.lowerBound]) }
