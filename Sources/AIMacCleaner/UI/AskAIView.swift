@@ -1639,13 +1639,29 @@ private struct MessageBubble: View {
 
     /// 正文用系统原生 `Text(AttributedString(markdown:))` 渲染。
     ///
-    /// 关键：整段是**一个** `Text`，拖动选词/选段时高亮是连续的——能跨段落、跨列表一次
+    /// 关键：整段是**一个** `Text`，拖动选词/选段时高亮是连续的——能跨行、跨段落一次
     /// 选中。而 MarkdownUI 会把每个块（段落/列表项/标题）拆成独立 `Text`，于是「只能高亮
-    /// 一段」。加粗、行内代码、列表、标题仍由系统 markdown 支持。
+    /// 一段」。行内加粗、斜体、行内代码由系统 markdown 支持。
     private func markdownText(_ raw: String) -> some View {
-        let attr = (try? AttributedString(markdown: raw)) ?? AttributedString(raw)
+        // 用 `.inlineOnlyPreservingWhitespace` 解析，**保留原始换行**。
+        //
+        // 为什么不用默认的 `.full`：SwiftUI 的 `Text` 只渲染行内 markdown（加粗/斜体/
+        // 行内代码），对块级结构（段落、列表、表格）一概不渲染，而且会把换行当「软换行」
+        // 折成空格 —— 结果是整段多行文本被黏成一大段、读不出「哪条是哪条」。
+        // 保留空白后，每一行原样落行；加粗等行内强调仍然生效。
+        let opts = AttributedString.MarkdownParsingOptions(
+            allowsExtendedAttributes: true,
+            interpretedSyntax: .inlineOnlyPreservingWhitespace,
+            failurePolicy: .returnPartiallyParsedIfPossible
+        )
+        let attr = (try? AttributedString(markdown: raw, options: opts)) ?? AttributedString(raw)
         return Text(attr)
             .foregroundStyle(isMine ? Color.white : Color.primary)
+            // 关键：强制 Text 按「理想高度」参与布局。
+            // 解析出的 AttributedString 每个字符都带 font / presentationIntent 属性，
+            // 在 ScrollView + VStack 里会被低估高度 —— 正文溢出自己的框、压住底部栏与
+            // 「前往」按钮（表现为文字与按钮重叠）。fixedSize 让它报出真实高度。
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// 智能时间：今天只显示 HH:mm；昨天显示「昨天 HH:mm」；
