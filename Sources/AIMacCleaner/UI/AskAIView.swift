@@ -1581,9 +1581,11 @@ private struct MessageBubble: View {
                         .font(.system(size: 13))
                         .textSelection(.enabled)
                 } else {
+                    // 折叠态**不开**选中：这里被 `clip` + 渐隐 `mask` 裁到只剩前面几行，
+                    // 拖选高亮会被 mask 一并吃掉（选到看不出来），且裁剪态与选区几何一起
+                    // 计算更容易触发卡死。要选全文先点「显示更多」展开即可。
                     markdownText(message.text)
                         .font(.system(size: 13))
-                        .textSelection(.enabled)
                         .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight,
                                alignment: .top)
                         .clipped()
@@ -1657,11 +1659,21 @@ private struct MessageBubble: View {
         let attr = (try? AttributedString(markdown: raw, options: opts)) ?? AttributedString(raw)
         return Text(attr)
             .foregroundStyle(isMine ? Color.white : Color.primary)
-            // 关键：强制 Text 按「理想高度」参与布局。
-            // 解析出的 AttributedString 每个字符都带 font / presentationIntent 属性，
-            // 在 ScrollView + VStack 里会被低估高度 —— 正文溢出自己的框、压住底部栏与
-            // 「前往」按钮（表现为文字与按钮重叠）。fixedSize 让它报出真实高度。
-            .fixedSize(horizontal: false, vertical: true)
+            // 这里**不要**再加 `.fixedSize(horizontal: false, vertical: true)`。
+            //
+            // 保留换行后（`inlineOnlyPreservingWhitespace`），`Text` 自己就能报出正确的
+            // 多行高度 —— 实测在 160/240/360/620 四种宽度下，加不加 `fixedSize` 高度
+            // 完全一致（都是刚好的行数 × 行高）。当初为了压住「正文与底部栏重叠」而加的
+            // `fixedSize` 是误判：真正的病因是 `.full` 把段落折成了软换行。
+            //
+            // 更关键的是：`Text` 同时带 `.textSelection(.enabled)` 与
+            // `.fixedSize(vertical: true)` 放在 `ScrollView` 里，鼠标**点击开始选中**时
+            // AppKit 的选区布局会和 `fixedSize` 的「理想高度」互相反复请求，主线程陷入
+            // 死循环 —— 表现为转圈、鼠标卡死、文字层消失。所以必须去掉 `fixedSize`。
+            //
+            // 也**不加** `.frame(maxWidth: .infinity)`：气泡宽度按内容自适应（见 bf48a28），
+            // 撑满会回归「短消息也变超宽」的老问题。宽度协商交给外层 `MessageBubble` 的
+            // `HStack + Spacer(minLength:) + frame(maxWidth: 620)` 即可。
     }
 
     /// 智能时间：今天只显示 HH:mm；昨天显示「昨天 HH:mm」；
@@ -1791,7 +1803,6 @@ private struct ThinkingBubble: View {
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 10)
                                 .padding(.bottom, 10)
@@ -1824,7 +1835,6 @@ private struct ThinkingBubble: View {
                         Text(text)
                             .font(.system(size: 12.5))
                             .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         if let running {
                             HStack(spacing: 6) {
@@ -1891,11 +1901,13 @@ struct ReasoningBlock: View {
             .buttonStyle(.plain)
 
             if expanded {
+                // 同 `markdownText`：`.textSelection(.enabled)` 与 `.fixedSize(vertical:)`
+                // 不能共存，否则一按鼠标开始选词就把主线程打转（转圈 + 文字消失）。
+                // 这里靠 `Text` 自身多行排版 + `frame(maxWidth:)` 定宽即可正确报高。
                 Text(text)
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 10)
