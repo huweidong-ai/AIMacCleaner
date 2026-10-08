@@ -1666,14 +1666,26 @@ enum SelfTest {
                 // maxContextTurns=15 是跨提问保留的对话轮数。改一个别顺手改另一个。
                 //
                 // maxTurns 的期望值跟着「调查一个 app」的真实链路走：
-                // scan_app → search_paths → inspect_path（可多次）→ propose_paths → 汇总。
-                // 曾经是 4，常见「工具跑完却没结论」；改成 6 后自检要跟着更新，
-                // 否则这条断言会变成一个「防回归」的外壳、掩盖真正的意图。
+                // scan_app → search_paths（可能多次）→ inspect_path（可能多次）→ propose_paths → 汇总。
+                // 曾经是 4，常见「工具跑完却没结论」；后提到 6、再到 8。
+                // 无论如何，最后一轮必须留给「只出结论」（见 budgetNote）。
                 ChatPolicy.maxContextTurns == 15
                     && ChatPolicy.maxInputChars == 9999
                     && ChatPolicy.inputWarnThreshold == 900
                     // 至少要能容纳完整调查链路（5 步），否则又会退化成「没有结论」。
                     && AgentRuntime(config: nil).maxTurns >= 5
+            },
+            Check(name: "AgentRuntime 预算提示：最后一轮明确禁止再调工具") {
+                // 这是「扫描后只提示达到最大执行步数、却不给结论」的根因修复点：
+                // 正常轮提示剩余额度、催模型尽早收敛；最后一轮从提示词层面禁止调用工具。
+                // 文案随语言变，断言要跟着 `L10n.isChinese` 走（照抄复数那条的做法）。
+                let last = LLMBrain.budgetNote(turnsRemaining: 0)
+                let mid  = LLMBrain.budgetNote(turnsRemaining: 3)
+                let finalWord = L10n.isChinese ? "最后一轮" : "LAST turn"
+                return last.contains(finalWord)
+                    && last.contains("expunge")
+                    && !mid.contains(finalWord)
+                    && mid.contains("3")
             },
             Check(name: "输入计数按字素簇算（汉字 1 个、emoji 1 个）") {
                 "清理一下这个应用".count == 8

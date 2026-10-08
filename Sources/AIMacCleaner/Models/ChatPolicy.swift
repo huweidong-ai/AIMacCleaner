@@ -126,7 +126,7 @@ extension ChatCommand {
 enum ChatPolicy {
     /// 上下文保留轮数。1 轮 = 1 条 `.me` + 1 条 `.ai`，即最多 30 条。
     ///
-    /// ⚠️ 与 `AgentRuntime.maxTurns`（= 4，**单次提问内** agent loop 的决策轮数）
+    /// ⚠️ 与 `AgentRuntime.maxTurns`（**单次提问内** agent loop 的决策轮数）
     /// 完全无关，两者命名刻意不同，改动任一处时不要顺手改另一处。
     static let maxContextTurns = 15
     /// 单条输入的硬上限（按 `Character` 计：一个汉字 = 1，一个 emoji 字素簇 = 1）。

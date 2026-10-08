@@ -96,9 +96,12 @@ protocol AgentBrain {
     ///   - goal: 用户这次说的话
     ///   - history: 之前的对话轮次
     ///   - transcript: 本次运行中已经执行过的 skill 及其观测
+    ///   - turnsRemaining: 本轮**之后**还剩几次工具调用机会。0 表示这是最后一轮，
+    ///     大脑必须直接给出结论、不再安排调用 —— 否则用户只会拿到「一堆步骤 + 没有答案」的兜底。
     func decide(goal: String,
                 history: [(role: String, content: String)],
-                transcript: [(call: SkillCall, result: SkillResult)]) async -> BrainDecision
+                transcript: [(call: SkillCall, result: SkillResult)],
+                turnsRemaining: Int) async -> BrainDecision
 }
 
 // MARK: - 运行期事件（流式）
@@ -144,12 +147,14 @@ struct AgentRuntime {
     /// CLI 的进度回调。`@Sendable`：它会在跨 MainActor 的 async 调用链里被回传，
     /// 闭包体只能是纯输出（打印），不捕获任何非 Sendable 状态。
     var onStep: (@Sendable (AgentStep) -> Void)?
-    /// 最多几轮决策。**6** 是按「调查一个 app」的真实链路定的：
-/// scan_app → search_paths → inspect_path（可能多次）→ propose_paths → 汇总结论。
-/// 曾经设 4，于是经常在「工具全跑完、结论还没出口」时被迫收尾——
-/// 用户看到一堆步骤却没有答案，体验上比失败还差。
-    /// 再多也没意义：单次提问等太久不划算，而且步骤都在界面上可见。
-    var maxTurns: Int = 6
+    /// 最多几轮决策。**8** 是按「调查一个 app」的真实链路定的：
+    /// scan_app → search_paths（可能多次）→ inspect_path（可能多次）→ propose_paths → 汇总结论。
+    ///
+    /// 曾经设 4，于是经常在「工具全跑完、结论还没出口」时被迫收尾——用户看到一堆步骤
+    /// 却没有答案。改成 6 后仍会撞上限（搜索多个 token 各配一轮 inspect 就吃满）。
+    /// 现在除了放宽到 8，更关键的是**最后一轮锁定为「只出结论」**（见下方循环与 `budgetNote`）：
+    /// 即便步数用尽，也由模型自己写出结论，而不是退回干巴巴的执行记录。
+    var maxTurns: Int = 8
     /// 注入 system prompt 的长期记忆块（`MemoryPolicy.promptBlock` 的产物，可为空串）。
     ///
     /// 由调用方传入而不是在这里读 `MemoryStore`：GUI 侧 `AppState.memoryNotes`
@@ -172,11 +177,18 @@ struct AgentRuntime {
         var transcript: [(call: SkillCall, result: SkillResult)] = []
 
         for turn in 0..<maxTurns {
-            let decision = await brain.decide(goal: goal, history: history, transcript: transcript)
+            let decision = await brain.decide(goal: goal, history: history, transcript: transcript,
+                                              turnsRemaining: maxTurns - 1 - turn)
 
             switch decision {
             case .finish(let text):
-                run.answer = text
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    run.answer = Self.fallbackAnswer(transcript)
+                    if turn == maxTurns - 1 { run.note = Self.turnLimitNote }
+                } else {
+                    run.answer = trimmed
+                }
                 return run
 
             case .unavailable(let detail):
@@ -246,11 +258,18 @@ struct AgentRuntime {
 
         for turn in 0..<maxTurns {
             await onEvent(.turnStarted(turn + 1))
-            let decision = await brain.decide(goal: goal, history: history, transcript: transcript)
+            let decision = await brain.decide(goal: goal, history: history, transcript: transcript,
+                                              turnsRemaining: maxTurns - 1 - turn)
 
             switch decision {
             case .finish(let text):
-                run.answer = text
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    run.answer = Self.fallbackAnswer(transcript)
+                    if turn == maxTurns - 1 { run.note = Self.turnLimitNote }
+                } else {
+                    run.answer = trimmed
+                }
                 run.reasoning = await sink.text()
                 await onEvent(.finished(run))
                 return run
@@ -405,7 +424,8 @@ struct LLMBrain: AgentBrain {
 
     func decide(goal: String,
                 history: [(role: String, content: String)],
-                transcript: [(call: SkillCall, result: SkillResult)]) async -> BrainDecision {
+                transcript: [(call: SkillCall, result: SkillResult)],
+                turnsRemaining: Int) async -> BrainDecision {
         var messages = history
         messages.append((role: "user", content: goal))
         if !transcript.isEmpty {
@@ -413,11 +433,13 @@ struct LLMBrain: AgentBrain {
             messages.append((role: "user", content: Self.observationBlock(transcript)))
         }
 
+        let system = Self.systemPrompt(memory: memory) + "\n" + Self.budgetNote(turnsRemaining: turnsRemaining)
+
         let reply: String
         do {
             reply = try await LLMClient.completeResilient(config: config,
                                                  messages: messages,
-                                                 system: Self.systemPrompt(memory: memory))
+                                                 system: system)
         } catch {
             // 失败原因一律吞掉换成「模型不可用」，对用户是对的（他不需要看栈），
             // 但对排查是灾难——曾经因此分不清「Key 错了」和「端点地址拼错了」。
@@ -440,6 +462,11 @@ struct LLMBrain: AgentBrain {
         let (text, calls) = AgentProtocol.parse(reply)
         if calls.isEmpty {
             return .finish(text.isEmpty ? reply : text)
+        }
+        // 最后一轮不再执行工具：忽略模型硬塞的调用，把它写的正文当结论。
+        // 正文为空时交给上层走兜底（不会把一坨 JSON 当答案显示）。
+        if turnsRemaining <= 0 {
+            return .finish(text)
         }
         return .call(calls)
     }
@@ -520,6 +547,34 @@ struct LLMBrain: AgentBrain {
         return block.isEmpty ? base : base + "\n" + memory
     }
 
+    /// 每一轮追加给模型的预算提示（拼在 system 末尾，约束力最强）。
+    ///
+    /// 为什么必须有它：提示词原本从不说「还剩几轮」，模型不知道快超预算，于是一直
+    /// `search_paths` / `inspect_path`，把轮数吃满后才被强行收尾 —— 用户只拿到一堆步骤、
+    /// 没有结论。**提前告知剩余额度**，模型才会主动收敛、尽早给答案；
+    /// 最后一轮（`turnsRemaining == 0`）则直接**禁止**再调用工具，逼它把结论写出来。
+    static func budgetNote(turnsRemaining: Int) -> String {
+        if turnsRemaining <= 0 {
+            return L10n.t("""
+                【预算】这是本次任务的**最后一轮**。不要再输出任何 ```expunge``` 调用块，
+                请直接根据已获得的信息用一段话给出**最终结论**：做了什么、发现了什么、
+                关键数字，以及建议用户下一步做什么。若信息仍不足，也请说明「目前查到什么、还差什么」。
+                """, """
+                [Budget] This is the LAST turn. Do NOT emit any ```expunge``` block.
+                Answer now in prose with your FINAL conclusion based on what you've gathered:
+                what you did, what you found, the key numbers, and what the user should do next.
+                If info is still missing, say what you found and what's still unknown.
+                """)
+        }
+        return L10n.t("""
+            【预算】本轮之后还剩 \(turnsRemaining) 次调用机会。请规划好：信息足够就**尽早给出结论**，
+            不要重复调用同一个 skill、也不要做无谓的逐个探查；优先收敛到能给用户答案的程度。
+            """, """
+            [Budget] \(turnsRemaining) tool call(s) remain after this turn. Plan ahead: conclude as soon as
+            you have enough — don't repeat a skill or probe item-by-item needlessly.
+            """)
+    }
+
     /// 把已执行的调用回放成 assistant 消息，让模型知道「这是我上一步做的」。
     static func replayCalls(_ transcript: [(call: SkillCall, result: SkillResult)]) -> String {
         let lines = transcript.map { entry -> String in
@@ -555,7 +610,8 @@ struct StreamingLLMBrain: AgentBrain {
 
     func decide(goal: String,
                 history: [(role: String, content: String)],
-                transcript: [(call: SkillCall, result: SkillResult)]) async -> BrainDecision {
+                transcript: [(call: SkillCall, result: SkillResult)],
+                turnsRemaining: Int) async -> BrainDecision {
         var messages = history
         messages.append((role: "user", content: goal))
         if !transcript.isEmpty {
@@ -563,11 +619,14 @@ struct StreamingLLMBrain: AgentBrain {
             messages.append((role: "user", content: LLMBrain.observationBlock(transcript)))
         }
 
+        let system = LLMBrain.systemPrompt(memory: memory)
+            + "\n" + LLMBrain.budgetNote(turnsRemaining: turnsRemaining)
+
         let result: LLMStream.Result
         do {
             result = try await LLMStream.run(
                 config: config, messages: messages,
-                system: LLMBrain.systemPrompt(memory: memory),
+                system: system,
                 onEvent: { ev in
                     switch ev {
                     case .reasoning(let s): await onEvent(.reasoningDelta(s))
@@ -581,7 +640,7 @@ struct StreamingLLMBrain: AgentBrain {
             do {
                 let recovered = try await LLMClient.completeResilient(
                     config: config, messages: messages,
-                    system: LLMBrain.systemPrompt(memory: memory))
+                    system: system)
                 if !recovered.isEmpty {
                     await onEvent(.textDelta(recovered))
                     return .finish(recovered)
@@ -596,6 +655,10 @@ struct StreamingLLMBrain: AgentBrain {
         let (text, calls) = AgentProtocol.parse(result.text)
         if calls.isEmpty {
             return .finish(text.isEmpty ? result.text : text)
+        }
+        // 最后一轮不再执行工具：忽略模型硬塞的调用，把它写的正文当结论（空则走上层兜底）。
+        if turnsRemaining <= 0 {
+            return .finish(text)
         }
         return .call(calls)
     }
