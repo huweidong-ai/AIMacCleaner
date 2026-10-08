@@ -1578,14 +1578,8 @@ private struct MessageBubble: View {
             if isCollapsible {
                 if isExpanded {
                     markdownText(message.text)
-                        .font(.system(size: 13))
-                        .textSelection(.enabled)
                 } else {
-                    // 折叠态**不开**选中：这里被 `clip` + 渐隐 `mask` 裁到只剩前面几行，
-                    // 拖选高亮会被 mask 一并吃掉（选到看不出来），且裁剪态与选区几何一起
-                    // 计算更容易触发卡死。要选全文先点「显示更多」展开即可。
                     markdownText(message.text)
-                        .font(.system(size: 13))
                         .frame(maxHeight: CGFloat(Self.collapsedLines) * Self.lineHeight,
                                alignment: .top)
                         .clipped()
@@ -1597,8 +1591,6 @@ private struct MessageBubble: View {
                 }
             } else {
                 markdownText(message.text)
-                    .font(.system(size: 13))
-                    .textSelection(.enabled)
             }
         }
     }
@@ -1645,35 +1637,19 @@ private struct MessageBubble: View {
     /// 选中。而 MarkdownUI 会把每个块（段落/列表项/标题）拆成独立 `Text`，于是「只能高亮
     /// 一段」。行内加粗、斜体、行内代码由系统 markdown 支持。
     private func markdownText(_ raw: String) -> some View {
-        // 用 `.inlineOnlyPreservingWhitespace` 解析，**保留原始换行**。
+        // 用 `NSTextView`（`SelectableText`）渲染，而不是 `Text(...).textSelection(.enabled)`。
         //
-        // 为什么不用默认的 `.full`：SwiftUI 的 `Text` 只渲染行内 markdown（加粗/斜体/
-        // 行内代码），对块级结构（段落、列表、表格）一概不渲染，而且会把换行当「软换行」
-        // 折成空格 —— 结果是整段多行文本被黏成一大段、读不出「哪条是哪条」。
-        // 保留空白后，每一行原样落行；加粗等行内强调仍然生效。
-        let opts = AttributedString.MarkdownParsingOptions(
-            allowsExtendedAttributes: true,
-            interpretedSyntax: .inlineOnlyPreservingWhitespace,
-            failurePolicy: .returnPartiallyParsedIfPossible
-        )
-        let attr = (try? AttributedString(markdown: raw, options: opts)) ?? AttributedString(raw)
-        return Text(attr)
-            .foregroundStyle(isMine ? Color.white : Color.primary)
-            // 这里**不要**再加 `.fixedSize(horizontal: false, vertical: true)`。
-            //
-            // 保留换行后（`inlineOnlyPreservingWhitespace`），`Text` 自己就能报出正确的
-            // 多行高度 —— 实测在 160/240/360/620 四种宽度下，加不加 `fixedSize` 高度
-            // 完全一致（都是刚好的行数 × 行高）。当初为了压住「正文与底部栏重叠」而加的
-            // `fixedSize` 是误判：真正的病因是 `.full` 把段落折成了软换行。
-            //
-            // 更关键的是：`Text` 同时带 `.textSelection(.enabled)` 与
-            // `.fixedSize(vertical: true)` 放在 `ScrollView` 里，鼠标**点击开始选中**时
-            // AppKit 的选区布局会和 `fixedSize` 的「理想高度」互相反复请求，主线程陷入
-            // 死循环 —— 表现为转圈、鼠标卡死、文字层消失。所以必须去掉 `fixedSize`。
-            //
-            // 也**不加** `.frame(maxWidth: .infinity)`：气泡宽度按内容自适应（见 bf48a28），
-            // 撑满会回归「短消息也变超宽」的老问题。宽度协商交给外层 `MessageBubble` 的
-            // `HStack + Spacer(minLength:) + frame(maxWidth: 620)` 即可。
+        // 为什么不用 SwiftUI 的 `textSelection`：在 `ScrollView` 里它一按下选词就主线程死循环
+        // （转圈 / 未响应 / 文字消失），是 macOS SwiftUI 长期存在的坑。详见
+        // `SelectableTextView.swift` 的说明。`NSTextView` 是 AppKit 原生选中，永不卡死。
+        //
+        // 正文按 `.inlineOnlyPreservingWhitespace` 解析、**保留原始换行**，行内加粗 / 斜体 /
+        // 行内代码仍生效。气泡宽度按内容自适应（见 bf48a28），由外层 `HStack + Spacer +
+        // frame(maxWidth: 620)` 收敛，这里只用 `maxWidth: .infinity` 让文本在气泡内正确换行。
+        SelectableText(attributed: SelectableText.styled(
+            raw: raw, fontSize: 13, markdown: true,
+            color: isMine ? .white : .textColor))
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// 智能时间：今天只显示 HH:mm；昨天显示「昨天 HH:mm」；
@@ -1799,10 +1775,10 @@ private struct ThinkingBubble: View {
                         .buttonStyle(.plain)
 
                         if reasoningExpanded {
-                            Text(reasoning)
-                                .font(.system(size: 11.5))
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
+                            // 用 `NSTextView` 渲染，避免 SwiftUI `textSelection` 选词卡死。
+                            SelectableText(attributed: SelectableText.styled(
+                                raw: reasoning, fontSize: 11.5, markdown: false,
+                                color: .secondaryLabelColor))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 10)
                                 .padding(.bottom, 10)
@@ -1832,9 +1808,10 @@ private struct ThinkingBubble: View {
                     .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(text)
-                            .font(.system(size: 12.5))
-                            .textSelection(.enabled)
+                        // 流式正文也用 `NSTextView` 渲染，避免 SwiftUI `textSelection` 选词卡死。
+                        SelectableText(attributed: SelectableText.styled(
+                            raw: text, fontSize: 12.5, markdown: false,
+                            color: .textColor))
                             .frame(maxWidth: .infinity, alignment: .leading)
                         if let running {
                             HStack(spacing: 6) {
@@ -1901,13 +1878,10 @@ struct ReasoningBlock: View {
             .buttonStyle(.plain)
 
             if expanded {
-                // 同 `markdownText`：`.textSelection(.enabled)` 与 `.fixedSize(vertical:)`
-                // 不能共存，否则一按鼠标开始选词就把主线程打转（转圈 + 文字消失）。
-                // 这里靠 `Text` 自身多行排版 + `frame(maxWidth:)` 定宽即可正确报高。
-                Text(text)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
+                // 用 `NSTextView` 渲染，避免 SwiftUI `textSelection` 在滚动里选词卡死。
+                SelectableText(attributed: SelectableText.styled(
+                    raw: text, fontSize: 11.5, markdown: false,
+                    color: .secondaryLabelColor))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 10)
                     .padding(.bottom, 10)
