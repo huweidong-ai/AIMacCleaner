@@ -50,6 +50,25 @@ enum AIProposeOutcome: Equatable {
     case disabled
 }
 
+/// 单个应用「最近一次分析」的完整快照。
+///
+/// 为什么需要它：应用页的 `plan` / `artifacts` / `aiProposeOutcome` / `aiReviewPhaseApps`
+/// 都是**全局单份**状态 —— 选中另一个应用就会被整体覆盖。于是用户在某应用上做完分析
+/// （尤其「让 AI 分析」补进来的路径与勾选），一点别的应用再切回来，那份结果就没了。
+/// 用它在应用之间来回切换时按 bundle 路径缓存 / 恢复，避免重复花模型调用、也不丢结论。
+private struct AppAnalysisSnapshot {
+    var plan: RemovalPlan?
+    var artifacts: [Artifact]
+    var aiProposeOutcome: AIProposeOutcome
+    var aiReviewPhase: AIReviewPhase
+    var appsCollapsed: Set<ArtifactCategory>
+    var pwaAppToCompanion: [UUID: UUID]
+    var matchedApp: AppIdentity?
+    var ambiguousMatches: [AppIdentity]
+    var searchText: String
+    var slimMode: SlimMode?
+}
+
 @MainActor
 final class AppState: ObservableObject {
     @Published var searchText: String = ""
@@ -91,6 +110,12 @@ final class AppState: ObservableObject {
     // MARK: - AI 分析状态（跨 tab 持久，避免切回后丢失）
     @Published var aiReviewPhaseApps: AIReviewPhase = .idle
     @Published var aiReviewPhaseLeftovers: AIReviewPhase = .idle
+
+    /// 每个应用「最近一次分析」的快照，键为 bundle 路径（无 bundle 时退回 `name:` + 名称）。
+    ///
+    /// 只活在内存：它解决的是「在应用之间来回切」的场景，不跨重启。
+    /// 文件系统变化（卸载 / 重扫）后会清空，见 `invalidateInventory()`。
+    private var appAnalysisCache: [String: AppAnalysisSnapshot] = [:]
 
     // ── 流式输出（进行中的那一轮）──
     //
@@ -481,6 +506,8 @@ final class AppState: ObservableObject {
         // 没 FDA 不硬扫——改弹引导页，避免 macOS 每次都硬弹「想访问其他App的数据」。
         guard fullDiskAccessGranted else { showFDAGuidance = true; return }
 
+        // 覆盖当前页面之前，先把上一个应用的分析结果存进缓存。
+        snapshotCurrentAnalysis()
         isScanning = true
         lastError = nil
         plan = nil
@@ -526,6 +553,7 @@ final class AppState: ObservableObject {
         plan = RemovalPlan(targetName: query.displayTarget, artifacts: allArtifacts)
         linkPWACompanions()
         aiReviewPhaseApps = .idle
+        snapshotCurrentAnalysis()
     }
 
     /// 把用户输入解析成扫描条件。
@@ -617,6 +645,8 @@ final class AppState: ObservableObject {
         // 新发现的路径默认展开，否则用户看不到 agent 到底加了什么。
         appsCollapsed = appsCollapsed.subtracting(
             Set(fresh.map(\.category)))
+        // AI 结论也立即写进缓存：切走再切回来，能看到 agent 补进来的路径。
+        snapshotCurrentAnalysis()
     }
 
     /// agent 跑完但**没有**提出任何新路径时调用。
@@ -627,6 +657,7 @@ final class AppState: ObservableObject {
         if case .failed = aiProposeOutcome { return }
         if aiPermanentlyDisabled { return }
         aiProposeOutcome = .none
+        snapshotCurrentAnalysis()
     }
 
     /// 解除「模型因永久失效（key 失效 / 没额度 / 配置错）而停用」的状态。
@@ -639,7 +670,19 @@ final class AppState: ObservableObject {
     }
 
     /// 用户从候选列表里改选了另一个 app，按它重扫。
-    func scan(app: AppIdentity) async {
+    ///
+    /// - Parameter useCache: 选中应用时为 `true` —— 命中缓存就直接还原上次的分析结果
+    ///   （含 AI 补充进来的路径与勾选），不重扫、不重复花模型调用；
+    ///   右键「扫描以便卸载」这种**显式重扫**传 `false`，强制从头扫。
+    func scan(app: AppIdentity, useCache: Bool = true) async {
+        // 切到另一个应用之前，先把当前应用的（可能已含 AI 结论的）结果存进缓存，
+        // 这样再切回来能原样恢复，而不是从头重扫、把 AI 分析丢掉。
+        if matchedApp?.bundlePath != app.bundlePath {
+            snapshotCurrentAnalysis()
+        }
+        // 命中缓存：直接还原，不重新扫描（缓存的结果本身就来自一次完整扫描 + AI 分析）。
+        if useCache, restoreCachedAnalysis(for: app) { return }
+
         guard fullDiskAccessGranted else { showFDAGuidance = true; return }
         isScanning = true
         lastError = nil
@@ -666,6 +709,46 @@ final class AppState: ObservableObject {
         plan = RemovalPlan(targetName: app.displayName, artifacts: allArtifacts)
         linkPWACompanions()
         aiReviewPhaseApps = .idle
+        // 重扫后刷新缓存，保证下次切回来看到的是这份新结果。
+        snapshotCurrentAnalysis()
+    }
+
+    // MARK: - 单个应用分析结果的缓存（切应用不丢 AI 分析）
+
+    /// 当前页面对应的缓存键：优先用应用的 bundle 路径，无应用时退回按名称。
+    private var currentAnalysisKey: String? {
+        if let app = matchedApp { return app.bundlePath }
+        let t = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : "name:" + t.lowercased()
+    }
+
+    /// 把当前页面的分析结果存进缓存。离开 / 清空前调用，让切回来的那次能恢复。
+    private func snapshotCurrentAnalysis() {
+        guard plan != nil, let key = currentAnalysisKey else { return }
+        appAnalysisCache[key] = AppAnalysisSnapshot(
+            plan: plan, artifacts: artifacts, aiProposeOutcome: aiProposeOutcome,
+            aiReviewPhase: aiReviewPhaseApps, appsCollapsed: appsCollapsed,
+            pwaAppToCompanion: pwaAppToCompanion, matchedApp: matchedApp,
+            ambiguousMatches: ambiguousMatches, searchText: searchText, slimMode: slimMode)
+    }
+
+    /// 若该应用有过分析，恢复它并返回 `true`；否则返回 `false`（调用方回落到正常扫描）。
+    @discardableResult
+    private func restoreCachedAnalysis(for app: AppIdentity) -> Bool {
+        let snap = appAnalysisCache[app.bundlePath]
+            ?? appAnalysisCache["name:" + app.displayName.lowercased()]
+        guard let snap else { return false }
+        plan = snap.plan
+        artifacts = snap.artifacts
+        aiProposeOutcome = snap.aiProposeOutcome
+        aiReviewPhaseApps = snap.aiReviewPhase
+        appsCollapsed = snap.appsCollapsed
+        pwaAppToCompanion = snap.pwaAppToCompanion
+        matchedApp = snap.matchedApp ?? app
+        ambiguousMatches = snap.ambiguousMatches
+        searchText = snap.searchText
+        slimMode = snap.slimMode
+        return true
     }
 
     // MARK: - 应用瘦身 / 重置
@@ -682,6 +765,7 @@ final class AppState: ObservableObject {
     /// 不调用 AI 补充发现：它是为「卸载残留」设计的，对重置一个已装 app 没有意义，
     /// 且模型对「归属」的判断不可靠，不该混进这种会影响登录态的操作里。
     func slim(app: AppIdentity, mode: SlimMode) async {
+        if matchedApp?.bundlePath != app.bundlePath { snapshotCurrentAnalysis() }
         guard fullDiskAccessGranted else { showFDAGuidance = true; return }
         isScanning = true
         lastError = nil
@@ -713,6 +797,7 @@ final class AppState: ObservableObject {
         plan = RemovalPlan(targetName: "\(app.displayName) · \(mode.title)", artifacts: found)
         aiReviewPhaseApps = .idle
         aiProposeOutcome = .idle
+        snapshotCurrentAnalysis()
     }
 
     // MARK: - v1.2 app 列表
@@ -846,12 +931,16 @@ final class AppState: ObservableObject {
     /// `plan`、`hasScanned*` 这些 `private(set)` 的派生状态 ——
     /// 少设一个，界面就会停在「还没扫过」的空态上，而结果其实已经有了。
     func applyScanResult(target: String, app: AppIdentity?, artifacts: [Artifact]) {
+        // agent 从「问 AI」落地一份扫描结果时会走到这里 —— 先把上一个应用的缓存存好，
+        // 再把这一份也存进缓存，这样「问 AI 点过去」的结果在应用之间切换也不会丢。
+        snapshotCurrentAnalysis()
         searchText = target
         matchedApp = app
         ambiguousMatches = Self.candidates(for: target)
         self.artifacts = artifacts
         plan = RemovalPlan(targetName: target, artifacts: artifacts)
         lastError = nil
+        snapshotCurrentAnalysis()
     }
 
     func applyLeftovers(_ groups: [LeftoverGroup]) {
@@ -1131,6 +1220,8 @@ final class AppState: ObservableObject {
     func invalidateInventory() {
         InventoryCache.shared.invalidate()
         allApps = []
+        // 文件系统变了：按应用缓存的分析结果已经过期，清掉，别把旧清单当最新展示。
+        appAnalysisCache.removeAll()
         Task { await loadAppList() }
     }
 
@@ -1140,6 +1231,8 @@ final class AppState: ObservableObject {
     /// 侧栏「本次可回收」也还在报一个已经不在屏幕上的数字 ——
     /// 用户看到的和他刚做的动作对不上。
     func clear() {
+        // 清空前把当前应用的分析存好，用户再点回该应用时还能恢复。
+        snapshotCurrentAnalysis()
         searchText = ""
         plan = nil
         artifacts = []

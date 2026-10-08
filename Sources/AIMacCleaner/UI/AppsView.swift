@@ -39,12 +39,16 @@ struct AppsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .task { await state.loadAppList() }
-        // AI 分析结束后展开全部分组，方便用户查看每一类 AI 写下的评语。
-        .onChange(of: state.aiReviewPhaseApps) { _, phase in
-            if phase == .done { state.appsCollapsed = [] }
+        // AI 分析**刚刚跑完**（.running → .done）时展开全部分组，方便用户查看每一类 AI 写的评语。
+        //
+        // 必须限定「从 .running 转来」：切回一个已分析过的应用会从缓存恢复成 .done，
+        // 那不是「刚跑完」，不该把用户此前折叠好的分组又铺开（也才符合按应用缓存的本意）。
+        .onChange(of: state.aiReviewPhaseApps) { old, phase in
+            if phase == .done && old == .running { state.appsCollapsed = [] }
         }
-        // 换了扫描目标就把上一轮 AI 结论清掉，否则会显示上一个 app 的判断。
-        .onChange(of: state.matchedApp?.bundlePath) { _, _ in state.aiReviewPhaseApps = .idle }
+        // 注：切应用时会显示上一个 app 的 AI 判断 —— 已由 `AppState.scan(app:)` / `scan()`
+        // 在每次**重新扫描**时显式把 `aiReviewPhaseApps` 归位，并且按应用缓存了各自的分析结果，
+        // 所以这里不再需要（也不能）统一重置 —— 那会把刚恢复的 AI 结论又清掉。
         // 用退格键把搜索框删空，语义上等同于点 x：右侧回到首屏空态。
         // 守卫 artifacts 非空，既避免重复清、也断掉 clear() 再次触发本回调的递归。
         .onChange(of: state.searchText) { _, newValue in
@@ -187,7 +191,8 @@ struct AppsView: View {
                     }
                     Divider()
                     Button {
-                        Task { await state.scan(app: app) }
+                        // 显式重扫：绕过按应用缓存，强制从头扫一遍。
+                        Task { await state.scan(app: app, useCache: false) }
                     } label: {
                         Label(L10n.t("扫描以便卸载", "Scan for uninstall"),
                               systemImage: "magnifyingglass")
