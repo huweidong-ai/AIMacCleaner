@@ -44,3 +44,7 @@ Sources/IconGen/*.bak
 # 打包时由 build_app.sh 注入的版本号（日期制），以及同日构建计数器
 Sources/AIMacCleaner/AppVersion.generated.swift
 .build_version_state
+
+# 公众号草稿属于个人写作材料，不属于项目代码，不入库
+docs/wechat-article*.md
+docs/wechat-article*.html
