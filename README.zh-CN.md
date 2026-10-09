@@ -95,10 +95,10 @@ AI 是亮点，但不联网也能用：
 
 ### 下载 DMG（推荐）
 
-从 [Releases](https://github.com/hwd8080-ai/AIMacCleaner/releases) 下载 `AI Mac Cleaner-<版本>.dmg` 与同名 `.sha256`，先校验：
+从 [Releases](https://github.com/hwd8080-ai/AIMacCleaner/releases) 下载 `AIMacCleaner-<版本>.dmg` 与同名 `.sha256`，先校验：
 
 ```bash
-shasum -a 256 -c AI\ Mac\ Cleaner-<版本>.dmg.sha256   # 应输出 OK
+shasum -a 256 -c AIMacCleaner-<版本>.dmg.sha256   # 应输出 OK
 ```
 
 打开 DMG，把 AI Mac Cleaner 拖到「应用程序」。首次启动：**右键 → 打开**。
