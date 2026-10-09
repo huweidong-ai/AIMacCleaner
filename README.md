@@ -178,4 +178,12 @@ All skills are read-only by default. The agent drafts plans — you approve remo
 
 ## License
 
-MIT © AI Mac Cleaner contributors
+MIT © AI Mac Cleaner contributors — see [LICENSE](LICENSE).
+
+### Trademark
+
+The **AI Mac Cleaner** name, logo, and app icon are the project's trademarks and are **not** covered by the MIT license. You may use the source code and build your own version, but you must not ship a derivative under this project's name or with its logo/icon. Fork it, rename it, make it yours — that's exactly what the MIT license is for.
+
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).

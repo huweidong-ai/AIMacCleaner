@@ -33,6 +33,11 @@ __pycache__/
 # Icon generation temp files
 icon_*.png
 
+# 图标生成过程的中间产物与旧版备份（最终图标见 Sources/IconGen/AIMacCleaner.png）
+generated-icons/
+Sources/IconGen/*.bak_*
+Sources/IconGen/*.bak
+
 # Project assistant data
 .workbuddy/
 

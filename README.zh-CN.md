@@ -142,4 +142,12 @@ swift build -c release
 
 ## 许可
 
-MIT © AI Mac Cleaner 贡献者
+MIT © AI Mac Cleaner 贡献者——详见 [LICENSE](LICENSE)。
+
+### 商标声明
+
+「**AI Mac Cleaner**」这个名称、Logo 和应用图标是本项目的商标，**不在** MIT 许可范围内。你可以自由使用源码、编译自己的版本，但不能用本项目的名字或图标发布衍生版本。Fork、改名、做成你自己的东西——MIT 就是为这个准备的。
+
+## 参与贡献
+
+欢迎提Issue 和PR，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
