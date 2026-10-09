@@ -74,7 +74,7 @@ enum SkillRegistry {
             let sig = spec.args.map { $0.required ? "<\($0.name)>" : "[\($0.name)]" }.joined(separator: " ")
             out += "\n  \(spec.name) \(sig)\n"
             out += "    \(spec.summary)\n"
-            out += "    CLI: expunge \(spec.cli)   [\(spec.risk.label)]\n"
+            out += "    CLI: \(AgentRuntime.cliBinaryName) \(spec.cli)   [\(spec.risk.label)]\n"
             for a in spec.args {
                 let mark = a.required ? "*" : " "
                 var line = "      \(mark) \(a.name)"

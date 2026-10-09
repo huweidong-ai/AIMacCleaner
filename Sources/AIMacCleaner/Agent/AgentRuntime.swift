@@ -353,8 +353,13 @@ struct AgentRuntime {
                 trailing.append("--\(arg.name) \(v)")
             }
         }
-        return (["expunge", s] + trailing).joined(separator: " ")
+        return ([Self.cliBinaryName, s] + trailing).joined(separator: " ")
     }
+
+    /// 展示用 CLI 名，必须与 Package.swift 里 executable 的产物名一致。
+    /// 曾经硬编码成 `expunge`，而真正的二进制叫 `ai-mac-cleaner` ——
+    /// 用户照着界面上抄去终端跑，会得到 "command not found"。
+    static let cliBinaryName = "ai-mac-cleaner"
 
     /// 模型没给出收尾发言时，用真实执行结果拼一个 —— 宁可干巴巴，
     /// 也不要凭空编一段「我已经帮你清理好了」。

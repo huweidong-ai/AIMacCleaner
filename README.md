@@ -64,8 +64,7 @@ See every background process running on your Mac — node servers, Python script
 
 ### 🛡️ Safety by Design
 - **User data → Trash.** Chat logs, config files, and account data go to Trash — recoverable until you empty it. Caches and system files are removed permanently.
-- **No shell access.** The AI agent can only call predefined, read-only skills. It can't run arbitrary commands, read arbitrary files, or access the network.
-- **Confirmation required.** Every removal action asks for confirmation. No silent deletions.
+- **No shell access.** The AI agent can only call predefined, read-only skills. It can't run arbitrary commands, read arbitrary files, or access the network.- **Confirmation required.** Every removal action asks for confirmation. No silent deletions.
 - **System protection.** Critical system processes and paths are whitelisted and can never be removed.
 - **Offline-first.** All processing is local. No data leaves your machine.
 
@@ -136,19 +135,23 @@ AI Mac Cleaner scans across 16 categories:
 
 ## AI Agent Skills
 
-The built-in agent has 7 skills it can call:
+The built-in agent has 11 skills it can call:
 
-| Skill | Description |
-|-------|-------------|
-| `list_apps` | List all installed applications |
-| `scan_app` | Deep-scan a specific app |
-| `scan_leftovers` | Find orphaned and AI tool leftovers |
-| `list_processes` | List running background processes |
-| `review_plan` | Review a pending uninstall plan |
-| `plan_uninstall` | Draft an uninstall plan for review |
-| `show_history` | Show past uninstall history |
+| Skill | CLI | Description |
+|-------|-----|-------------|
+| `list_apps` | `--list` | List all installed applications |
+| `scan_app` | `--scan <target>` | Deep-scan a specific app |
+| `list_trace_roots` | `--trace-roots` | List the directories that get scanned, and what each usually holds |
+| `search_paths` | `--search <token>` | Enumerate candidate paths by a loose keyword across all trace roots |
+| `inspect_path` | `--inspect <path>` | Open a path to see what it really is and whether an installed app claims it |
+| `propose_paths` | `--propose <path>` | Submit investigated paths into the cleanup list (validated, unchecked by default) |
+| `scan_leftovers` | `--orphans` | Find orphaned and AI tool leftovers |
+| `list_processes` | `--ps` | List running background processes |
+| `review_plan` | `--review <target>` | Review a pending uninstall plan |
+| `plan_uninstall` | `--uninstall <target> --dry-run` | Draft an uninstall plan for review |
+| `show_history` | `--history` | Show past uninstall history |
 
-All skills are read-only by default. The agent drafts plans — you approve removals.
+Eight of the eleven are **read-only** — they inspect and report. The remaining three (`propose_paths`, `review_plan`, `plan_uninstall`) only change state *within a draft you then review*; nothing is removed from disk without your confirmation.
 
 ---
 

@@ -1924,7 +1924,7 @@ private struct SkillCatalogSheet: View {
                                     .font(.system(size: 12, weight: .semibold, design: .monospaced))
                                 riskTag(spec.risk)
                                 Spacer()
-                                Text("expunge \(spec.cli)")
+                                Text("\(AgentRuntime.cliBinaryName) \(spec.cli)")
                                     .font(.system(size: 10, design: .monospaced))
                                     .foregroundStyle(.tertiary)
                             }
