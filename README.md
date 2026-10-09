@@ -74,7 +74,7 @@ See every background process running on your Mac — node servers, Python script
 
 ### Download DMG (Recommended)
 
-Download `AIMacCleaner-<version>.dmg` and its `.sha256` from [Releases](https://github.com/hwd8080-ai/AIMacCleaner/releases). Verify first:
+Download `AIMacCleaner-<version>.dmg` and its `.sha256` from [Releases](https://github.com/huweidong-ai/AIMacCleaner/releases). Verify first:
 
 ```bash
 shasum -a 256 -c AIMacCleaner-<version>.dmg.sha256   # Should print OK
@@ -85,7 +85,7 @@ Open the DMG, drag AI Mac Cleaner to Applications. First launch: **right-click �
 ### Build from Source
 
 ```bash
-git clone https://github.com/hwd8080-ai/AIMacCleaner.git
+git clone https://github.com/huweidong-ai/AIMacCleaner.git
 cd AIMacCleaner
 ./build_app.sh                       # → /Applications/AIMacCleaner.app
 open /Applications/AIMacCleaner.app

@@ -242,8 +242,8 @@ struct AIMacCleanerApp: App {
         .defaultSize(width: 1040, height: 680)
         .commands {
             CommandGroup(replacing: .help) {
-                Link(L10n.t("AI Mac Cleaner 主页", "AI Mac Cleaner Homepage"), destination: URL(string: "https://github.com/hwd8080-ai/AIMacCleaner")!)
-                Link(L10n.t("提交 Bug 或建议", "Report a Bug or Suggestion"), destination: URL(string: "https://github.com/hwd8080-ai/AIMacCleaner/issues")!)
+                Link(L10n.t("AI Mac Cleaner 主页", "AI Mac Cleaner Homepage"), destination: URL(string: "https://github.com/huweidong-ai/AIMacCleaner")!)
+                Link(L10n.t("提交 Bug 或建议", "Report a Bug or Suggestion"), destination: URL(string: "https://github.com/huweidong-ai/AIMacCleaner/issues")!)
                 Divider()
                 Button(L10n.t("关于 AI Mac Cleaner", "About AI Mac Cleaner")) {
                     state.showAbout = true

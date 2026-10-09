@@ -314,7 +314,7 @@ struct FeedbackSheet: View {
     @State private var touched = false
     @State private var showDiscard = false
 
-    private static let repoIssueURL = "https://github.com/hwd8080-ai/AIMacCleaner/issues/new"
+    private static let repoIssueURL = "https://github.com/huweidong-ai/AIMacCleaner/issues/new"
     private static let feedbackMail = "aimaccleaner@duck.com"
 
     init(target: Artifact? = nil, editingEntry: FeedbackEntry? = nil) {

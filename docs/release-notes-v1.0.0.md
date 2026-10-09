@@ -64,7 +64,7 @@ shasum -a 256 -c AIMacCleaner-<版本>.dmg.sha256   # 应输出 OK
 从源码构建：
 
 ```bash
-git clone https://github.com/hwd8080-ai/AIMacCleaner.git
+git clone https://github.com/huweidong-ai/AIMacCleaner.git
 cd AIMacCleaner
 ./build_app.sh                       # → /Applications/AIMacCleaner.app
 ```
