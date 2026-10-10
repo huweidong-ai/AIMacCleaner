@@ -463,7 +463,9 @@ struct AskAIView: View {
                         if state.chatIsThinking {
                             ThinkingBubble(steps: bridge.steps,
                                            running: bridge.runningCommand,
-                                           reasoning: state.streamingReasoning,
+                                           // 去掉可能混进来的思考标签（think）：有的模型把思考
+                                           // 连标签一起塞进正文，上屏时不该露给用户。
+                                           reasoning: ThinkTag.strip(state.streamingReasoning),
                                            // 上屏前先摘掉工具调用块：流到一半的 `{"skill": …`
                                            // 直接铺出来只是噪音，用户要看的「过程」是推理与结论。
                                            text: AgentProtocol.visibleStreamingText(state.streamingText))
@@ -1503,9 +1505,13 @@ private struct MessageBubble: View {
     /// 更疏朗的间距 + 统一 11 号字，告别拥挤感。
     private var bubbleBottomBar: some View {
         HStack(spacing: 10) {
-            Text(isMine ? L10n.t("我", "Me") : L10n.t("AI", "AI"))
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(bubbleFooterFg)
+            // 用户自己的气泡不再显示角色名「我」：右对齐 + 头像已足够表明是谁，多一个
+            // 标签只是噪音。AI 气泡保留「AI」，方便一眼区分左右两侧。
+            if !isMine {
+                Text(L10n.t("AI", "AI"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(bubbleFooterFg)
+            }
 
             if isCollapsible {
                 Button {

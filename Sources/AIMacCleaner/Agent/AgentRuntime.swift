@@ -134,7 +134,8 @@ enum AgentEvent {
 actor ReasoningSink {
     private var buffer = ""
     func add(_ chunk: String) { buffer += chunk }
-    func text() -> String { buffer }
+    /// 去掉可能混进来的 `…` 标签：思考正文里不该出现这对标记。
+    func text() -> String { ThinkTag.strip(buffer) }
 }
 
 // MARK: - 运行时
@@ -669,6 +670,48 @@ struct StreamingLLMBrain: AgentBrain {
     }
 }
 
+// MARK: - 推理标签
+
+/// 把推理模型写在正文里的思考标签（think）摘出来。
+///
+/// 有些 OpenAI 兼容端点不单独给 `reasoning_content`，而是把思考直接塞进 `content`，
+/// 用 think 开合标签包起来（有的连 `reasoning_content` 也带着这对标签）。
+/// 原样上屏，用户看到的就是带着标签的内心独白被当成正文 —— 那是协议噪音。
+enum ThinkTag {
+    // 标签用拼接构造，不在源码里出现字面的尖括号标记（避免被工具/管道误当成标记处理）。
+    static let open = "<" + "think" + ">"
+    static let close = "<" + "/think" + ">"
+
+    /// 把 think 标签段从 `raw` 里摘走，返回 (去掉思考的正文, 思考内容)。
+    /// 允许思考段未闭合（流式途中）：未闭合时其后全部算思考。
+    static func split(_ raw: String) -> (text: String, reasoning: String) {
+        guard raw.contains(open) else { return (raw, "") }
+        var text = ""
+        var reasoning = ""
+        var rest = Substring(raw)
+        while let o = rest.range(of: open) {
+            text += rest[rest.startIndex..<o.lowerBound]
+            let after = rest[o.upperBound...]
+            if let c = after.range(of: close) {
+                reasoning += after[after.startIndex..<c.lowerBound]
+                rest = after[c.upperBound...]
+            } else {
+                reasoning += after
+                return (text, reasoning)
+            }
+        }
+        text += rest
+        return (text, reasoning)
+    }
+
+    /// 只去掉残留的孤立标签（例如思考来自 `reasoning_content`，标签却还带着）。
+    static func strip(_ s: String) -> String {
+        guard s.contains(open) || s.contains(close) else { return s }
+        return s.replacingOccurrences(of: open, with: "")
+                .replacingOccurrences(of: close, with: "")
+    }
+}
+
 // MARK: - 指令解析
 
 /// 模型回复 ↔ skill 调用之间的翻译层。
@@ -688,6 +731,8 @@ enum AgentProtocol {
     /// - 其余解析不出调用的块（例如真正的 ```` ```swift ```` 示例）→ 原样保留在正文；
     /// - 正文里裸写的 `{ "skill": … }` 对象（漏写围栏）也认。
     static func parse(_ raw: String) -> (text: String, calls: [SkillCall]) {
+        // 推理模型的思考段（think 标签）不进最终回答：它属于「深度思考」，由 reasoning 承载。
+        let raw = ThinkTag.split(raw).text
         var calls: [SkillCall] = []
         var kept: [String] = []
         var cursor = raw.startIndex
@@ -722,7 +767,8 @@ enum AgentProtocol {
     /// 原样上屏，用户会看到一坨 JSON 在眼前跳 —— 那不是「过程」，那是噪音。
     /// 处理办法：遇到围栏起始就截断（调用块总在末尾），行首是 `{` 的行一律丢掉。
     static func visibleStreamingText(_ raw: String) -> String {
-        var text = raw
+        // 先摘掉思考段（think 标签，含流式途中未闭合的）：思考属于「深度思考」，不该出现在正文区。
+        var text = ThinkTag.split(raw).text
         if let fence = text.range(of: "```") {
             text = String(text[text.startIndex..<fence.lowerBound])
         }

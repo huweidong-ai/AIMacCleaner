@@ -1357,6 +1357,27 @@ enum SelfTest {
                 return AgentProtocol.visibleStreamingText(mid) == "先扫一遍"
                     && AgentProtocol.visibleStreamingText(bare) == "结论如下"
             },
+            Check(name: "ThinkTag：把 think 标签从正文摘到思考里（含未闭合的流式途中）") {
+                // 有些推理模型把思考连标签写进正文，原样上屏就是带标签的内心独白。
+                // 标签一律用 ThinkTag.open/close 拼接，源码里不出现字面尖括号标记。
+                let o = ThinkTag.open, c = ThinkTag.close
+                let closed = ThinkTag.split("结论" + o + "思考内容" + c + "删 1 项")
+                let unclosed = ThinkTag.split(o + "推理途中")   // 还没闭合
+                let plain = ThinkTag.split("普通正文")
+                return closed.text == "结论删 1 项" && closed.reasoning == "思考内容"
+                    && unclosed.text == "" && unclosed.reasoning == "推理途中"
+                    && plain.text == "普通正文" && plain.reasoning == ""
+            },
+            Check(name: "ThinkTag.strip 去掉孤立的 think 标签") {
+                let o = ThinkTag.open, c = ThinkTag.close
+                return ThinkTag.strip(o + "思考内容" + c) == "思考内容"
+                    && ThinkTag.strip("正常文字") == "正常文字"
+            },
+            Check(name: "AgentProtocol.parse 丢掉正文里的 think 标签") {
+                let (text, calls) = AgentProtocol.parse(
+                    ThinkTag.open + "思考" + ThinkTag.close + "\n答案：1 项")
+                return text == "答案：1 项" && calls.isEmpty
+            },
             Check(name: "destructive skill 必须标记 destructive（Agent 不自己删除的底线）") {
                 PlanUninstallSkill().spec.risk == .destructive
             },

@@ -305,7 +305,11 @@ struct FeedbackSheet: View {
 
     enum Channel { case github, mail }
 
-    @State private var reason: Reason = .notThisApp
+    /// 问题类型：**必填且默认不选**。预选一项会让用户顺手提交一个没细想的分类，
+    /// 反而污染反馈记录；未选就提交会被拦下并提示。
+    @State private var reason: Reason? = nil
+    /// 用户点了提交却还没选问题类型 —— 用来显示一行「请先选择」的提示。
+    @State private var reasonMissing = false
     @State private var note: String = ""
     @State private var channel: Channel = .github
     @State private var includeDiagnostics = true
@@ -331,8 +335,14 @@ struct FeedbackSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if let target { targetCard(target) }
-                    fieldLabel(L10n.t("问题类型", "What went wrong"))
+                    fieldLabel(L10n.t("问题类型（必填）", "What went wrong (required)"))
                     reasonPicker
+                    if reasonMissing {
+                        Text(L10n.t("请先选择一个「问题类型」再提交。",
+                                    "Please pick a “What went wrong” value before sending."))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.riskUncertainText)
+                    }
                     fieldLabel(L10n.t("补充说明（可选）", "Details (optional)"))
                     TextEditor(text: $note)
                         .font(.system(size: 12))
@@ -446,6 +456,7 @@ struct FeedbackSheet: View {
             ForEach(Reason.allCases) { r in
                 Button {
                     reason = r
+                    reasonMissing = false
                     touched = true
                 } label: {
                     Text(r.displayName)
@@ -513,8 +524,8 @@ struct FeedbackSheet: View {
             Button(L10n.t("取消", "Cancel")) { attemptDismiss() }
                 .keyboardShortcut(.cancelAction)
             Button(L10n.t("提交反馈", "Send")) {
-                submit()
-                dismiss()
+                // 问题类型未选时 submit() 返回 false：弹窗保持打开，并显示「请先选择」提示。
+                if submit() { dismiss() }
             }
             .buttonStyle(.borderedProminent)
             .tint(Theme.accent)
@@ -546,15 +557,20 @@ struct FeedbackSheet: View {
         editingEntry?.targetName ?? target.map { ($0.path as NSString).lastPathComponent }
     }
 
+    /// 问题类型的展示文案；未选时给一个占位（预览会用到，提交前一定会先要求选择）。
+    private var reasonLabel: String {
+        reason?.displayName ?? L10n.t("（未选择问题类型）", "(no issue type selected)")
+    }
+
     private func titleText() -> String {
         let name = targetNameForTitle ?? L10n.t("扫描规则", "scan rules")
-        return "\(L10n.t("[误报]", "[False positive]")) \(reason.displayName)：\(name)"
+        return "\(L10n.t("[误报]", "[False positive]")) \(reasonLabel)：\(name)"
     }
 
     private func bodyText() -> String {
         var lines: [String] = []
         lines.append("## \(L10n.t("问题类型", "Issue type"))")
-        lines.append(reason.displayName)
+        lines.append(reasonLabel)
         if let target {
             lines.append("")
             lines.append("## \(L10n.t("命中路径", "Matched path"))")
@@ -581,7 +597,14 @@ struct FeedbackSheet: View {
         return lines.joined(separator: "\n")
     }
 
-    private func submit() {
+    /// 提交。返回 `false` 表示被拦下（问题类型没选），此时**不要**关闭弹窗。
+    @discardableResult
+    private func submit() -> Bool {
+        // 问题类型是必填：未选就提示并拦下，不打开浏览器/邮件、也不关闭弹窗。
+        guard let selected = reason else {
+            reasonMissing = true
+            return false
+        }
         let title = titleText()
         let body = bodyText()
 
@@ -591,13 +614,13 @@ struct FeedbackSheet: View {
                 id: existing.id,
                 date: existing.date,
                 targetName: existing.targetName,
-                reason: reason.displayName,
-                reasonRaw: reason.rawValue,
+                reason: selected.displayName,
+                reasonRaw: selected.rawValue,
                 note: note.trimmingCharacters(in: .whitespacesAndNewlines),
                 channel: channel == .github ? "github" : "mail",
                 title: title
             ))
-            return
+            return true
         }
 
         // 打不开（没装邮件客户端 / 没有默认浏览器 / 正文过长被系统拒绝）就退回剪贴板，
@@ -649,12 +672,13 @@ struct FeedbackSheet: View {
             id: UUID(),
             date: Date(),
             targetName: target.map { ($0.path as NSString).lastPathComponent },
-            reason: reason.displayName,
-            reasonRaw: reason.rawValue,
+            reason: selected.displayName,
+            reasonRaw: selected.rawValue,
             note: note.trimmingCharacters(in: .whitespacesAndNewlines),
             channel: channel == .github ? "github" : "mail",
             title: title
         ))
+        return true
     }
 }
 
