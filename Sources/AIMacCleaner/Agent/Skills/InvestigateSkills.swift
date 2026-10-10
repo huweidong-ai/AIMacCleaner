@@ -178,14 +178,6 @@ struct ProposePathsSkill: AgentSkill {
         guard let raw = args["path"] else {
             return .failure(L10n.t("propose_paths 需要 path 参数", "propose_paths requires a path argument"))
         }
-        // 用户在设置里关掉了「允许 AI 调查并补充新路径」：可以只读地翻目录
-        // （search_paths / inspect_path 不改任何状态），但**不许把路径写进清单**。
-        // 这个开关必须真的生效，否则它就是个装饰。
-        guard Prefs.aiProposeEnabled else {
-            return .failure(L10n.t(
-                "已在设置里关闭「允许 AI 调查并补充新路径」，propose_paths 不执行。",
-                "“Let AI investigate and suggest extra paths” is off in Settings, so propose_paths did nothing."))
-        }
         guard let app = session.lastApp else {
             return .failure(L10n.t(
                 "先调 scan_app 锁定目标应用，再提交候选路径（校验网需要知道「除目标外的其它活 app」）。",

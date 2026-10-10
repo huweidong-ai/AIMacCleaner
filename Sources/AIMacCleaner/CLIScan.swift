@@ -48,13 +48,12 @@ enum CLIScan {
         return query
     }
 
-    /// 「AI 补充发现」是否可用：开启开关 + 已配置模型 + 已锁定到具体 app。
+    /// 「AI 补充发现」是否可用：已配置模型 + 已锁定到具体 app。
     ///
-    /// 返回 nil 表示这轮不走 AI。三条缺一即整步跳过，行为与未接 AI 时完全一致。
+    /// 返回 nil 表示这轮不走 AI。两条缺一即整步跳过，行为与未接 AI 时完全一致。
     /// 只在 `--scan`（只列出）启用；`--uninstall` 是破坏性动作，不采纳模型提议。
     private static func aiProposer(for query: ScanQuery) -> (AppIdentity, AIModelConfig)? {
-        guard Prefs.aiProposeEnabled,
-              let app = query.app,
+        guard let app = query.app,
               let cfg = ModelConfigStore.current.active, cfg.isConfigured
         else { return nil }
         return (app, cfg)

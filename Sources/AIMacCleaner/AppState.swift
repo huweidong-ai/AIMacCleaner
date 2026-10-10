@@ -250,9 +250,9 @@ final class AppState: ObservableObject {
     /// 是否已配置至少一个模型——「问 AI」能跑的前提。
     var modelReady: Bool { modelStore.isConfigured }
 
-    /// 本次扫描是否会进入「AI 补充发现」阶段（开关打开且模型已配置）。
+    /// 本次扫描是否会进入「AI 补充发现」阶段（模型已配置即可）。
     /// scanningView 用它决定要不要显示那一行，避免未启用 AI 时闪一下。
-    var willAskAI: Bool { Prefs.aiProposeEnabled && (activeConfig?.isConfigured ?? false) }
+    var willAskAI: Bool { activeConfig?.isConfigured ?? false }
 
     // ── 「问 AI」对话（Sprint A）──
     //

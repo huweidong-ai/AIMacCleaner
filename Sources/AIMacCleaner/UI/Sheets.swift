@@ -316,6 +316,8 @@ struct FeedbackSheet: View {
 
     private static let repoIssueURL = "https://github.com/huweidong-ai/AIMacCleaner/issues/new"
     private static let feedbackMail = "aimaccleaner@duck.com"
+    /// 保住正在使用的系统邮件服务：`perform` 之后若立刻释放，邮件撰写窗口可能来不及弹出。
+    private static var retainedMailService: NSSharingService?
 
     init(target: Artifact? = nil, editingEntry: FeedbackEntry? = nil) {
         self.target = target
@@ -598,7 +600,10 @@ struct FeedbackSheet: View {
             return
         }
 
-        let url: URL?
+        // 打不开（没装邮件客户端 / 没有默认浏览器 / 正文过长被系统拒绝）就退回剪贴板，
+        // 至少让用户手上有一份可以贴出去的原文，而不是点了没反应。
+        var fellBackToClipboard = false
+
         switch channel {
         case .github:
             var comps = URLComponents(string: Self.repoIssueURL)
@@ -606,21 +611,36 @@ struct FeedbackSheet: View {
                 URLQueryItem(name: "title", value: title),
                 URLQueryItem(name: "body", value: body)
             ]
-            url = comps?.url
+            if let url = comps?.url {
+                fellBackToClipboard = !NSWorkspace.shared.open(url)
+            } else {
+                fellBackToClipboard = true
+            }
+
         case .mail:
-            var comps = URLComponents()
-            comps.scheme = "mailto"
-            comps.path = Self.feedbackMail
-            comps.queryItems = [
-                URLQueryItem(name: "subject", value: title),
-                URLQueryItem(name: "body", value: body)
-            ]
-            url = comps.url
+            // 用系统邮件服务直接拉起**本机默认邮件客户端**（Mail.app / Outlook / Thunderbird…），
+            // 而不是网页邮箱。相比 `mailto:`：后者有 URL 长度上限，而反馈正文常上千字，
+            // 十有八九被系统拒绝、表现为「点了没反应」。
+            if let service = NSSharingService(named: .composeEmail),
+               service.canPerform(withItems: [body]) {
+                service.recipients = [Self.feedbackMail]
+                service.subject = title
+                Self.retainedMailService = service   // 保住引用，避免窗口还没弹就被释放
+                service.perform(withItems: [body])
+            } else {
+                // 没有可用的邮件客户端 → 退回 `mailto:`；再不行退回剪贴板。
+                var comps = URLComponents()
+                comps.scheme = "mailto"
+                comps.path = Self.feedbackMail
+                comps.queryItems = [
+                    URLQueryItem(name: "subject", value: title),
+                    URLQueryItem(name: "body", value: body)
+                ]
+                fellBackToClipboard = !(comps.url.map { NSWorkspace.shared.open($0) } ?? false)
+            }
         }
-        guard let url else { return }
-        // 打不开（没装邮件客户端 / 没有默认浏览器）就退回剪贴板，
-        // 至少让用户手上有一份可以贴出去的原文，而不是点了没反应。
-        if !NSWorkspace.shared.open(url) {
+
+        if fellBackToClipboard {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString("\(title)\n\n\(body)", forType: .string)
         }
