@@ -323,6 +323,66 @@ struct FeedbackSheet: View {
     /// 保住正在使用的系统邮件服务：`perform` 之后若立刻释放，邮件撰写窗口可能来不及弹出。
     private static var retainedMailService: NSSharingService?
 
+    /// 已知会抢注 `mailto:` 的浏览器。默认「邮件阅读器」若是它们，点「发邮件」开出来的
+    /// 就是浏览器里的网页邮箱 —— 不是用户要的本机邮箱。
+    private static let browserBundleIds: Set<String> = [
+        "com.apple.Safari", "com.google.Chrome", "com.google.Chrome.canary",
+        "com.microsoft.edgemac", "org.mozilla.firefox", "com.brave.Browser",
+        "company.thebrowser.Browser", "com.vivaldi.Vivaldi",
+        "com.operasoftware.Opera", "org.chromium.Chromium"
+    ]
+
+    /// 默认 `mailto:` 处理器是不是浏览器。抽成纯函数便于自检。
+    nonisolated static func isBrowserMailHandler(bundleId: String?) -> Bool {
+        guard let bundleId else { return false }
+        return browserBundleIds.contains(bundleId)
+    }
+
+    private static func mailtoURL(subject: String, body: String, to address: String) -> URL? {
+        var comps = URLComponents()
+        comps.scheme = "mailto"
+        comps.path = address
+        comps.queryItems = [
+            URLQueryItem(name: "subject", value: subject),
+            URLQueryItem(name: "body", value: body)
+        ]
+        return comps.url
+    }
+
+    /// 打开邮件撰写。返回 `false` 表示没打开（调用方退回剪贴板）。
+    ///
+    /// 为什么这么绕：macOS 把 `mailto:` 交给「默认邮件阅读器」，而它很可能被设成了
+    /// **浏览器里的网页邮箱**（Chrome / Edge 会抢注这个 scheme）—— 于是用户点「发邮件」
+    /// 开出来的是浏览器。这里先看默认处理器：是浏览器就**显式打开本机 Mail.app**；
+    /// 否则用系统邮件服务（真正的邮件客户端，且不受 `mailto:` 长度限制）。
+    private static func composeMail(subject: String, body: String, to address: String) -> Bool {
+        guard let url = mailtoURL(subject: subject, body: body, to: address) else { return false }
+
+        let handlerURL = NSWorkspace.shared.urlForApplication(toOpen: url)
+        let handlerId = handlerURL.flatMap { Bundle(url: $0)?.bundleIdentifier }
+
+        if isBrowserMailHandler(bundleId: handlerId),
+           let mailApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.mail") {
+            // 默认处理器是浏览器 → 用 mailto 内容显式交给 Mail.app 撰写。
+            NSWorkspace.shared.open([url], withApplicationAt: mailApp,
+                                    configuration: NSWorkspace.OpenConfiguration())
+            return true
+        }
+
+        // 正常路径：系统邮件服务（打开用户设置的默认邮件客户端，不受长度限制）。
+        if let service = NSSharingService(named: .composeEmail),
+           service.canPerform(withItems: [body]) {
+            service.recipients = [address]
+            service.subject = subject
+            retainedMailService = service   // 保住引用，避免窗口还没弹就被释放
+            service.perform(withItems: [body])
+            return true
+        }
+
+        // 兜底：交给系统默认处理器。
+        return NSWorkspace.shared.open(url)
+    }
+
     init(target: Artifact? = nil, editingEntry: FeedbackEntry? = nil) {
         self.target = target
         self.editingEntry = editingEntry
@@ -641,26 +701,8 @@ struct FeedbackSheet: View {
             }
 
         case .mail:
-            // 用系统邮件服务直接拉起**本机默认邮件客户端**（Mail.app / Outlook / Thunderbird…），
-            // 而不是网页邮箱。相比 `mailto:`：后者有 URL 长度上限，而反馈正文常上千字，
-            // 十有八九被系统拒绝、表现为「点了没反应」。
-            if let service = NSSharingService(named: .composeEmail),
-               service.canPerform(withItems: [body]) {
-                service.recipients = [Self.feedbackMail]
-                service.subject = title
-                Self.retainedMailService = service   // 保住引用，避免窗口还没弹就被释放
-                service.perform(withItems: [body])
-            } else {
-                // 没有可用的邮件客户端 → 退回 `mailto:`；再不行退回剪贴板。
-                var comps = URLComponents()
-                comps.scheme = "mailto"
-                comps.path = Self.feedbackMail
-                comps.queryItems = [
-                    URLQueryItem(name: "subject", value: title),
-                    URLQueryItem(name: "body", value: body)
-                ]
-                fellBackToClipboard = !(comps.url.map { NSWorkspace.shared.open($0) } ?? false)
-            }
+            // 打开「本机邮箱」而不是网页邮箱 —— 细节见 `composeMail`。
+            fellBackToClipboard = !Self.composeMail(subject: title, body: body, to: Self.feedbackMail)
         }
 
         if fellBackToClipboard {

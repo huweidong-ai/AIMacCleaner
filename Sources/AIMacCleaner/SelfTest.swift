@@ -1378,6 +1378,14 @@ enum SelfTest {
                     ThinkTag.open + "思考" + ThinkTag.close + "\n答案：1 项")
                 return text == "答案：1 项" && calls.isEmpty
             },
+            Check(name: "反馈邮件：默认处理器是浏览器时判定为需改开本机 Mail.app") {
+                // 浏览器抢注 mailto: 时，点「发邮件」会开网页邮箱；这条判定决定要不要改开 Mail.app。
+                FeedbackSheet.isBrowserMailHandler(bundleId: "com.google.Chrome")
+                    && FeedbackSheet.isBrowserMailHandler(bundleId: "com.apple.Safari")
+                    && FeedbackSheet.isBrowserMailHandler(bundleId: "org.mozilla.firefox")
+                    && !FeedbackSheet.isBrowserMailHandler(bundleId: "com.apple.mail")
+                    && !FeedbackSheet.isBrowserMailHandler(bundleId: nil)
+            },
             Check(name: "destructive skill 必须标记 destructive（Agent 不自己删除的底线）") {
                 PlanUninstallSkill().spec.risk == .destructive
             },
