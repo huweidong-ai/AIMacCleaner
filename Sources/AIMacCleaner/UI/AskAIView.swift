@@ -340,38 +340,31 @@ struct AskAIView: View {
     }
 
     private var promptChips: some View {
-        let items: [(String, String)] = [
-            ("sparkles",        L10n.t("看看装了哪些 AI 工具，能清理吗", "Check installed AI tools for cleanup")),
-            ("wand.and.rays",   L10n.t("扫一遍所有残留", "Scan all leftovers")),
-            ("waveform.path.ecg", L10n.t("列出后台进程", "List background processes")),
-            ("bolt.fill",       L10n.t("ChatGPT 占的空间有多大？", "How much space does ChatGPT take?")),
-            ("magnifyingglass", L10n.t("看看有什么可以清理的", "See what can be cleaned up")),
-            ("leaf",            L10n.t("给某个应用瘦身（只清缓存）", "Slim an app (caches only)")),
-            ("arrow.counterclockwise", L10n.t("把某个应用彻底重置（等同新装）", "Fully reset an app (like a fresh install)")),
-            ("macwindow",       L10n.t("macOS 工具使用指南", "macOS tools guide"))
-        ]
+        // 建议词从 suggestions.json 读取（首次启动自动生成默认模板），
+        // 改文案/增删条目不用改代码 —— 细节见 PromptSuggestionStore。
+        let suggestions = PromptSuggestionStore.load()
         return FlowRow(spacing: 10) {
-            ForEach(items, id: \.1) { icon, text in
+            ForEach(suggestions) { s in
                 Button {
-                    if text == L10n.t("macOS 工具使用指南", "macOS tools guide") {
+                    if s.action == "macTools" {
                         // 这条 chip 直接给出介绍并带「打开面板」按钮，
                         // 不需要走模型，避免模型把它当成普通清理请求去调工具。
                         let guide = L10n.t(
                             "AI Mac Cleaner 在侧边栏底部放了一个「macOS 工具」入口，集合了常用的系统小工具：截图、窗口管理、剪贴板、文件与隐私等。点下方按钮即可打开工具面板。",
                             "AI Mac Cleaner provides a \"macOS Tools\" entry at the bottom of the sidebar, grouping common system utilities: screenshots, window management, clipboard, files, and privacy. Tap the button below to open the toolkit."
                         )
-                        state.appendChat(AIMessage(role: .me, text: text))
+                        state.appendChat(AIMessage(role: .me, text: s.displayText))
                         state.appendChat(AIMessage(role: .ai, text: guide, redirect: .macTools))
                     } else {
                         // 只填入、不发送：建议词是起点不是终点，用户往往要改一改
                         //（换个 app 名、加个限定）再发。直接发出去等于替他做主。
                         inputFocused = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            input = text
+                            input = s.displayText
                         }
                     }
                 } label: {
-                    Label(text, systemImage: icon)
+                    Label(s.displayText, systemImage: s.icon)
                         .font(.system(size: 12))
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
