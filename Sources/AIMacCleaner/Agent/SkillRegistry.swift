@@ -30,6 +30,7 @@ enum SkillRegistry {
         ListProcessesSkill(),
         ReviewPlanSkill(),
         PlanUninstallSkill(),
+        PlanSlimSkill(),
         ShowHistorySkill()
     ]
 
@@ -56,6 +57,7 @@ enum SkillRegistry {
         case "list", "apps":                      return "list_apps"
         case "history":                           return "show_history"
         case "plan", "dry_run", "dryrun":         return "plan_uninstall"
+        case "slim", "reset":                     return "plan_slim"
         default:                                  return nil
         }
     }

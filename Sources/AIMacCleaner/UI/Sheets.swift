@@ -285,8 +285,10 @@ struct ResultSheet: View {
 struct FeedbackSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    /// 针对某一条痕迹的反馈；从侧栏进入时为 nil（泛化反馈）。
-    let target: Artifact?
+    /// 相关痕迹（一条或多条）。反馈是「针对这个 app / 这组残留」给的，
+    /// 只贴其中一条会丢掉上下文——维护者据此无法还原全貌，所以全部带上。
+    /// 第一条作为主对象（卡片与标题用），其余一并列进正文。
+    let targets: [Artifact]
     /// 二次编辑：传入已有记录会预填表单，提交时更新而非新建。
     let editingEntry: FeedbackEntry?
 
@@ -310,7 +312,10 @@ struct FeedbackSheet: View {
     @State private var reason: Reason? = nil
     /// 用户点了提交却还没选问题类型 —— 用来显示一行「请先选择」的提示。
     @State private var reasonMissing = false
+    /// 补充说明：**必填**。只给「问题类型 + 环境」时维护者无从排查，
+    /// 手动发邮件追问也问不出上下文；未填就提交会被拦下并提示。
     @State private var note: String = ""
+    @State private var noteMissing = false
     @State private var channel: Channel = .github
     @State private var includeDiagnostics = true
     @State private var showPreview = false
@@ -383,10 +388,13 @@ struct FeedbackSheet: View {
         return NSWorkspace.shared.open(url)
     }
 
-    init(target: Artifact? = nil, editingEntry: FeedbackEntry? = nil) {
-        self.target = target
+    init(targets: [Artifact] = [], editingEntry: FeedbackEntry? = nil) {
+        self.targets = targets
         self.editingEntry = editingEntry
     }
+
+    /// 主对象：用于卡片与标题。编辑旧记录时没有 targets，回退到记录的 `targetName`。
+    private var primaryTarget: Artifact? { targets.first }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -394,7 +402,7 @@ struct FeedbackSheet: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    if let target { targetCard(target) }
+                    if let primaryTarget { targetCard(primaryTarget) }
                     fieldLabel(L10n.t("问题类型（必填）", "What went wrong (required)"))
                     reasonPicker
                     if reasonMissing {
@@ -403,14 +411,25 @@ struct FeedbackSheet: View {
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Theme.riskUncertainText)
                     }
-                    fieldLabel(L10n.t("补充说明（可选）", "Details (optional)"))
+                    fieldLabel(L10n.t("补充说明（必填）", "Details (required)"))
                     TextEditor(text: $note)
                         .font(.system(size: 12))
                         .frame(height: 76)
-                        .onChange(of: note) { _, _ in touched = true }
+                        .onChange(of: note) { _, _ in
+                            touched = true
+                            noteMissing = false
+                        }
                         .padding(5)
                         .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.divider, lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 6)
+                            .stroke(noteMissing ? Theme.riskUncertainText : Theme.divider, lineWidth: 1))
+                    if noteMissing {
+                        Text(L10n.t("请说明具体哪里不对（例如它其实是哪个应用的、为什么不该删），否则我们无法核实。",
+                                    "Please describe what’s actually wrong (e.g. which app it belongs to, why it shouldn’t be deleted) — otherwise we can’t verify it."))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.riskUncertainText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     fieldLabel(L10n.t("提交到", "Send via"))
                     channelPicker
                     Toggle(isOn: $includeDiagnostics) {
@@ -612,9 +631,9 @@ struct FeedbackSheet: View {
         return "~" + String(path.dropFirst(home.count))
     }
 
-    /// 标题里的对象名：编辑时用记录里保存的 targetName；新建时用当前 target。
+    /// 标题里的对象名：编辑时用记录里保存的 targetName；新建时用主对象的末段路径。
     private var targetNameForTitle: String? {
-        editingEntry?.targetName ?? target.map { ($0.path as NSString).lastPathComponent }
+        editingEntry?.targetName ?? primaryTarget.map { ($0.path as NSString).lastPathComponent }
     }
 
     /// 问题类型的展示文案；未选时给一个占位（预览会用到，提交前一定会先要求选择）。
@@ -631,22 +650,21 @@ struct FeedbackSheet: View {
         var lines: [String] = []
         lines.append("## \(L10n.t("问题类型", "Issue type"))")
         lines.append(reasonLabel)
-        if let target {
+        if !targets.isEmpty {
             lines.append("")
-            lines.append("## \(L10n.t("命中路径", "Matched path"))")
+            lines.append("## \(L10n.t("相关痕迹", "Related traces"))")
             lines.append("```")
-            lines.append(Self.maskHome(target.path))
-            lines.append("\(L10n.t("类别", "Category")): \(target.category.rawValue)")
-            lines.append("\(L10n.t("风险", "Risk")): \(target.risk.displayName)")
-            lines.append("\(L10n.t("大小", "Size")): \(SizeFormat.human(target.size))")
-            if let meta = target.meta { lines.append("\(L10n.t("说明", "Meta")): \(meta)") }
+            for a in targets {
+                var row = "\(Self.maskHome(a.path))  ·  \(a.category.rawValue)  ·  \(a.risk.displayName)  ·  \(SizeFormat.human(a.size))"
+                if let meta = a.meta { row += "  ·  \(meta)" }
+                lines.append(row)
+            }
             lines.append("```")
         }
-        if !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            lines.append("")
-            lines.append("## \(L10n.t("补充说明", "Details"))")
-            lines.append(note)
-        }
+        // 补充说明是必填项，正文里始终带上（提交前已校验非空）。
+        lines.append("")
+        lines.append("## \(L10n.t("补充说明", "Details"))")
+        lines.append(note.trimmingCharacters(in: .whitespacesAndNewlines))
         if includeDiagnostics {
             let os = ProcessInfo.processInfo.operatingSystemVersion
             lines.append("")
@@ -657,12 +675,18 @@ struct FeedbackSheet: View {
         return lines.joined(separator: "\n")
     }
 
-    /// 提交。返回 `false` 表示被拦下（问题类型没选），此时**不要**关闭弹窗。
+    /// 提交。返回 `false` 表示被拦下（问题类型没选 / 补充说明没填），此时**不要**关闭弹窗。
     @discardableResult
     private func submit() -> Bool {
         // 问题类型是必填：未选就提示并拦下，不打开浏览器/邮件、也不关闭弹窗。
         guard let selected = reason else {
             reasonMissing = true
+            return false
+        }
+        // 补充说明同样是必填：只有「问题类型 + 环境」的话，维护者无法据此核实。
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedNote.isEmpty else {
+            noteMissing = true
             return false
         }
         let title = titleText()
@@ -676,7 +700,7 @@ struct FeedbackSheet: View {
                 targetName: existing.targetName,
                 reason: selected.displayName,
                 reasonRaw: selected.rawValue,
-                note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+                note: trimmedNote,
                 channel: channel == .github ? "github" : "mail",
                 title: title
             ))
@@ -713,10 +737,10 @@ struct FeedbackSheet: View {
         FeedbackStore.shared.record(FeedbackEntry(
             id: UUID(),
             date: Date(),
-            targetName: target.map { ($0.path as NSString).lastPathComponent },
+            targetName: primaryTarget.map { ($0.path as NSString).lastPathComponent },
             reason: selected.displayName,
             reasonRaw: selected.rawValue,
-            note: note.trimmingCharacters(in: .whitespacesAndNewlines),
+            note: trimmedNote,
             channel: channel == .github ? "github" : "mail",
             title: title
         ))
@@ -934,10 +958,10 @@ struct FeedbackHistorySheet: View {
             if new == nil { entries = FeedbackStore.shared.all() }
         }
         .sheet(isPresented: $showComposer) {
-            FeedbackSheet(target: nil)
+            FeedbackSheet(targets: [])
         }
         .sheet(item: $editingEntry) { e in
-            FeedbackSheet(target: nil, editingEntry: e)
+            FeedbackSheet(targets: [], editingEntry: e)
         }
         .alert(L10n.t("确认清空？", "Clear all feedback?"), isPresented: $showClearConfirm) {
             Button(L10n.t("取消", "Cancel"), role: .cancel) { }

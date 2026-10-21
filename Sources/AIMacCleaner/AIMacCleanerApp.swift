@@ -193,10 +193,10 @@ struct AIMacCleanerApp: App {
           --include-userdata       同时清理用户数据 / also remove user data
           --no-package-managers    跳过 brew/npm/pipx/mas / skip package managers
 
-        Agent 只能通过 11 个 skill 干活（--skills 可看全部）：没有通用 shell、不联网，
+        Agent 只能通过 12 个 skill 干活（--skills 可看全部）：没有通用 shell、不联网，
         只能在白名单目录内读元数据和极短文件头（最多 512 字节）用于判断归属。
         所有 skill 都不会删除文件，删除只发生在你确认之后。
-        The agent works only through 11 skills (see --skills): no shell, no network; it may read
+        The agent works only through 12 skills (see --skills): no shell, no network; it may read
         metadata and tiny file heads (512 bytes max) inside allow-listed dirs to verify ownership.
         No skill deletes anything; removal happens only after you confirm.
 

@@ -236,3 +236,104 @@ struct PlanUninstallSkill: AgentSkill {
                            redirect: .apps, awaitingApproval: true)
     }
 }
+
+// MARK: - plan_slim
+
+/// `ai-mac-cleaner --reset <target> --dry-run`
+///
+/// 「瘦身 / 重置」的计划 skill：**app 本体保留**，只清它留在用户目录里的数据。
+/// 与 `plan_uninstall` 的本质差异在筛选口径（复用 `SlimMode` 的语义，与 GUI 完全一致）：
+/// - 两种档位都只留 `mode.eligibleCategories`（数据类），安装物 / 自启动 / 同厂商产品绝不进清单；
+/// - `cache`（轻量瘦身）进一步剔除 `.userData`，不会掉登录；
+/// - `full`（彻底重置）包含用户数据，逼近「刚装好第一次打开」，确认弹窗里有强警告。
+struct PlanSlimSkill: AgentSkill {
+    let spec = SkillSpec(
+        name: "plan_slim",
+        cli: "--reset <target> --dry-run",
+        summaryZh: "为某个应用生成瘦身/重置计划：只清它留在用户目录里的数据，app 本体保留。mode=cache 只清缓存（不掉登录），mode=full 连配置/登录态一起清（等同新装）。只预演，不删除。",
+        summaryEn: "Draft a slim/reset plan for an app: clears only the data it leaves in your home directory; the app itself stays. mode=cache clears rebuildable caches only (you stay signed in), mode=full also clears config/login state (like a fresh install). Preview only, nothing is deleted.",
+        args: [
+            SkillArg(name: "target", required: true,
+                     desc: L10n.t("应用名或关键词", "App name or keyword")),
+            SkillArg(name: "mode", required: false,
+                     desc: L10n.t("cache=轻量瘦身（默认）；full=彻底重置", "cache=light slim (default); full=full reset"),
+                     options: ["cache", "full"])
+        ],
+        risk: .destructive
+    )
+
+    func invoke(_ args: SkillArgs, session: AgentSession) async -> SkillResult {
+        guard let target = args["target"] else {
+            return .failure(L10n.t("plan_slim 需要 target 参数", "plan_slim requires a target argument"))
+        }
+        let mode: SlimMode = args.string("mode", default: "cache").lowercased() == "full" ? .fullReset : .cacheOnly
+
+        // 解析 + 扫描与 plan_uninstall 同一套：复用会话缓存，扫描只付一次钱。
+        var artifacts: [Artifact]
+        var resolvedName = target
+        var matched: AppIdentity?
+        if let last = session.lastTarget,
+           last.lowercased() == target.lowercased() || target.lowercased().contains(last.lowercased()),
+           !session.lastArtifacts.isEmpty {
+            artifacts = session.lastArtifacts
+            resolvedName = last
+        } else {
+            let query = AppState.resolveQuery(from: target)
+            matched = query.app
+            resolvedName = query.displayTarget
+            var found: [Artifact] = []
+            for scanner in CLIScan.allScanners {
+                found.append(contentsOf: await scanner.scan(query: query))
+            }
+            var seen = Set<String>()
+            found = found.filter { seen.insert($0.path).inserted }
+            artifacts = found
+            session.lastTarget = resolvedName
+            session.lastArtifacts = found
+        }
+        guard let app = matched else {
+            let msg = L10n.t(
+                "没有找到名为 \(resolvedName) 的已安装应用，无法瘦身。瘦身只对还装着的 app 有意义；要清残留请用卸载。",
+                "No installed app named \(resolvedName) — cannot slim. Slimming only applies to installed apps; use uninstall for leftovers.")
+            return SkillResult(ok: true, summary: msg, observation: msg)
+        }
+
+        // 筛选口径与 GUI 的 `slim(app:mode:)` 完全一致（见 SlimMode 的逐条注释）。
+        var planned = artifacts.filter { mode.eligibleCategories.contains($0.category) }
+        if !mode.includesUserData {
+            planned = planned.filter { $0.risk != .userData }
+        }
+        guard !planned.isEmpty else {
+            let msg = L10n.t(
+                "\(app.displayName) 在这一档下没有可清理的数据项。",
+                "Nothing to clear for \(app.displayName) at this level.")
+            return SkillResult(ok: true, summary: msg, observation: msg)
+        }
+        // 勾选口径由 GUI 落地时套用（applySlimPlan），这里保持扫描原样即可。
+
+        let plannedSize = planned.reduce(Int64(0)) { $0 + $1.size }
+        let verb = mode == .cacheOnly
+            ? L10n.t("瘦身计划", "Slim plan")
+            : L10n.t("重置计划", "Reset plan")
+        var summary = L10n.t(
+            "\(verb)（预演，未执行）：\(app.displayName) 共 \(planned.count) 项 / \(SizeFormat.human(plannedSize))，app 本体保留。",
+            "\(verb) (preview, not executed): \(app.displayName), \(planned.count) items / \(SizeFormat.human(plannedSize)). The app itself stays.")
+        if mode == .fullReset {
+            summary += L10n.t(" 含登录态/配置，执行后会退出登录。",
+                              " Includes login state/config; executing signs you out.")
+        }
+
+        var obs = summary
+        if let bid = app.bundleId {
+            obs += "\n" + L10n.t("锁定应用：\(app.displayName) [\(bid)]", "Resolved app: \(app.displayName) [\(bid)]")
+        }
+        obs += "\n" + AgentFormat.topPaths(planned, limit: 10)
+        obs += "\n" + L10n.t(
+            "【重要】这只是计划。你没有执行删除的权限 —— 请让用户到「应用」页核对清单后点确认。",
+            "[IMPORTANT] This is only a plan. You cannot execute deletions — ask the user to review the list in the Apps tab and confirm.")
+
+        return SkillResult(ok: true, summary: summary, observation: obs,
+                           effect: .slimPlan(target: app.displayName, app: app, mode: mode, artifacts: planned),
+                           redirect: .apps, awaitingApproval: true)
+    }
+}

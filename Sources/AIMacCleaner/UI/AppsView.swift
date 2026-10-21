@@ -86,7 +86,7 @@ struct AppsView: View {
                         elevatableFailures: elevatable)
         }
         .sheet(isPresented: $showFeedback) {
-            FeedbackSheet(target: state.artifacts.first)
+            FeedbackSheet(targets: state.artifacts)
         }
         .sheet(isPresented: $showSettings) {
             AIModelSettingsSheet()

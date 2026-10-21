@@ -120,6 +120,9 @@ enum SkillEffect {
     case none
     /// 扫描了某个目标，得到一批痕迹。
     case appScan(target: String, app: AppIdentity?, artifacts: [Artifact])
+    /// 瘦身 / 重置计划：按档位筛好的可清理项。宿主落地为「应用」页的瘦身模式清单，
+    /// 用户核对勾选后在确认弹窗里执行 —— skill 本身永远不删除。
+    case slimPlan(target: String, app: AppIdentity?, mode: SlimMode, artifacts: [Artifact])
     /// 残留扫描结果。
     case leftovers([LeftoverGroup])
     /// 进程快照。

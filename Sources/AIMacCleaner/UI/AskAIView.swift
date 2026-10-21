@@ -346,6 +346,8 @@ struct AskAIView: View {
             ("waveform.path.ecg", L10n.t("列出后台进程", "List background processes")),
             ("bolt.fill",       L10n.t("ChatGPT 占的空间有多大？", "How much space does ChatGPT take?")),
             ("magnifyingglass", L10n.t("看看有什么可以清理的", "See what can be cleaned up")),
+            ("leaf",            L10n.t("给某个应用瘦身（只清缓存）", "Slim an app (caches only)")),
+            ("arrow.counterclockwise", L10n.t("把某个应用彻底重置（等同新装）", "Fully reset an app (like a fresh install)")),
             ("macwindow",       L10n.t("macOS 工具使用指南", "macOS tools guide"))
         ]
         return FlowRow(spacing: 10) {

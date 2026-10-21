@@ -45,7 +45,7 @@ struct LeftoversView: View {
                         elevatableFailures: elevatable)
         }
         .sheet(isPresented: $showFeedback) {
-            FeedbackSheet(target: state.leftoverGroups.first?.artifacts.first)
+            FeedbackSheet(targets: state.leftoverGroups.flatMap { $0.artifacts })
         }
         .sheet(isPresented: $showSettings) {
             AIModelSettingsSheet()

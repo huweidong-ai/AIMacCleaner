@@ -55,6 +55,8 @@ final class AgentBridge: ObservableObject {
             break
         case .appScan(let target, let app, let artifacts):
             state.applyScanResult(target: target, app: app, artifacts: artifacts)
+        case .slimPlan(let target, let app, let mode, let artifacts):
+            state.applySlimPlan(target: target, app: app, mode: mode, artifacts: artifacts)
         case .leftovers(let groups):
             state.applyLeftovers(groups)
         case .processes(let list):

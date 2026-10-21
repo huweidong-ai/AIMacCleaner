@@ -943,6 +943,26 @@ final class AppState: ObservableObject {
         snapshotCurrentAnalysis()
     }
 
+    /// 把 `plan_slim` 的瘦身/重置计划落到「应用」页。
+    ///
+    /// 与 `slim(app:mode:)` 的区别：扫描已在 skill 层（非 MainActor）完成，
+    /// 这里只做落地 —— 套上档位的默认勾选与展示口径，让用户在确认弹窗里执行。
+    func applySlimPlan(target: String, app: AppIdentity?, mode: SlimMode, artifacts: [Artifact]) {
+        if matchedApp?.bundlePath != app?.bundlePath { snapshotCurrentAnalysis() }
+        searchText = target
+        matchedApp = app
+        var found = artifacts
+        for i in found.indices {
+            found[i].selected = mode.defaultSelected(risk: found[i].risk)
+        }
+        slimMode = mode
+        self.artifacts = found
+        plan = RemovalPlan(targetName: "\(app?.displayName ?? target) · \(mode.title)", artifacts: found)
+        aiReviewPhaseApps = .idle
+        aiProposeOutcome = .idle
+        snapshotCurrentAnalysis()
+    }
+
     func applyLeftovers(_ groups: [LeftoverGroup]) {
         leftoverGroups = groups
         hasScannedLeftovers = true

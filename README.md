@@ -135,7 +135,7 @@ AI Mac Cleaner scans across 16 categories:
 
 ## AI Agent Skills
 
-The built-in agent has 11 skills it can call:
+The built-in agent has 12 skills it can call:
 
 | Skill | CLI | Description |
 |-------|-----|-------------|
@@ -149,9 +149,10 @@ The built-in agent has 11 skills it can call:
 | `list_processes` | `--ps` | List running background processes |
 | `review_plan` | `--review <target>` | Review a pending uninstall plan |
 | `plan_uninstall` | `--uninstall <target> --dry-run` | Draft an uninstall plan for review |
+| `plan_slim` | `--reset <target> --dry-run` | Draft a slim/reset plan (app stays installed) |
 | `show_history` | `--history` | Show past uninstall history |
 
-Eight of the eleven are **read-only** — they inspect and report. The remaining three (`propose_paths`, `review_plan`, `plan_uninstall`) only change state *within a draft you then review*; nothing is removed from disk without your confirmation.
+Eight of the twelve are **read-only** — they inspect and report. The remaining four (`propose_paths`, `review_plan`, `plan_uninstall`, `plan_slim`) only change state *within a draft you then review*; nothing is removed from disk without your confirmation.
 
 ---
 
