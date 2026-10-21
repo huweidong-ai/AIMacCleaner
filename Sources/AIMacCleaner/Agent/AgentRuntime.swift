@@ -640,6 +640,9 @@ struct StreamingLLMBrain: AgentBrain {
                     }
                 })
         } catch {
+            // 用户点了「停止生成」：任务已取消，不要再退回非流式重试 ——
+            // 那会把刚被用户叫停的请求又原样发一遍。
+            if Task.isCancelled { return .unavailable(nil) }
             // 流式失败 ≠ 模型不可用：可能只是这个端点不支持 SSE、长回复被
             // max_tokens 截断导致帧不完整、或网关偶发抽风。退到非流式再试一次
             // ——宁可「不流式」，也不要「白跑一轮工具后告诉用户模型挂了」。
@@ -732,7 +735,8 @@ enum AgentProtocol {
     /// - 正文里裸写的 `{ "skill": … }` 对象（漏写围栏）也认。
     static func parse(_ raw: String) -> (text: String, calls: [SkillCall]) {
         // 推理模型的思考段（think 标签）不进最终回答：它属于「深度思考」，由 reasoning 承载。
-        let raw = ThinkTag.split(raw).text
+        // strip 兜住孤立标签（思考走 reasoning_content 时 content 里常残留孤立的 `</think>`）。
+        let raw = ThinkTag.strip(ThinkTag.split(raw).text)
         var calls: [SkillCall] = []
         var kept: [String] = []
         var cursor = raw.startIndex
@@ -768,7 +772,9 @@ enum AgentProtocol {
     /// 处理办法：遇到围栏起始就截断（调用块总在末尾），行首是 `{` 的行一律丢掉。
     static func visibleStreamingText(_ raw: String) -> String {
         // 先摘掉思考段（think 标签，含流式途中未闭合的）：思考属于「深度思考」，不该出现在正文区。
-        var text = ThinkTag.split(raw).text
+        // split 只认成对标签；有的端点把思考走 reasoning_content、content 里却残留孤立的
+        // `</think>`（没有开标签）—— 再用 strip 把这类孤儿标签也摘掉，否则原样上屏。
+        var text = ThinkTag.strip(ThinkTag.split(raw).text)
         if let fence = text.range(of: "```") {
             text = String(text[text.startIndex..<fence.lowerBound])
         }

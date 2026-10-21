@@ -739,11 +739,11 @@ struct AskAIView: View {
                     .frame(height: ComposerMetrics.footerHeight)
             }
 
-            // 右侧：按钮列，文字不可输入；展开钮在上，发送钮在下，中间留白。
+            // 右侧：按钮列，文字不可输入；展开钮在上，发送/停止钮在下，中间留白。
             VStack(spacing: 0) {
                 expandButton
                 Spacer()
-                sendButton
+                if state.chatIsThinking { stopButton } else { sendButton }
             }
             .padding(.leading, 8)
         }
@@ -809,6 +809,20 @@ struct AskAIView: View {
         }
         .buttonStyle(.plain)
         .disabled(!canSend)
+    }
+
+    /// 停止钮：流式进行中替代发送钮。取消当前任务后按「已停止」收尾，
+    /// 已收到的草稿不会落进正式聊天记录。
+    private var stopButton: some View {
+        Button { state.stopChatStream() } label: {
+            Image(systemName: "stop.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 26, height: 26)
+                .background(Theme.destructive, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .help(L10n.t("停止生成", "Stop generating"))
     }
 
     /// 按 `Character` 计数：一个汉字 = 1，一个 emoji 字素簇 = 1。
@@ -920,7 +934,7 @@ struct AskAIView: View {
         // 那一条从这一刻起就不该再影响模型。
         let memory = state.memoryPromptBlock
 
-        Task {
+        let task = Task {
             let runtime = AgentRuntime(config: state.activeConfig, bridge: bridge, memory: memory)
             let session = bridge.makeSession(leftoverScope: scope, reviewScope: reviewScope)
             // 走流式：思考与正文逐帧到达，工具调用实时上屏。
@@ -936,16 +950,25 @@ struct AskAIView: View {
                             state.pushTextDelta(s)
                         case .toolStarted(_, let command):
                             state.streamingToolCommand = command
-                        case .toolFinished, .turnStarted:
+                        case .turnStarted:
+                            state.beginStreamTurn()
+                        case .toolFinished:
                             break
                         case .finished(let r):
-                            var body = r.answer
-                            if let note = r.note { body += "\n\n" + note }
-                            state.appendChat(AIMessage(role: .ai, text: body,
-                                                       steps: r.steps,
-                                                       redirect: r.redirect,
-                                                       awaitingApproval: r.awaitingApproval,
-                                                       reasoning: r.reasoning.isEmpty ? nil : r.reasoning))
+                            if Task.isCancelled {
+                                // 用户点了「停止」：不把运行时兜底的报错文案当回答落盘，
+                                // 落一条系统回执说明是主动停止。
+                                state.appendChat(AIMessage(role: .system,
+                                                           text: L10n.t("已停止生成。", "Generation stopped.")))
+                            } else {
+                                var body = r.answer
+                                if let note = r.note { body += "\n\n" + note }
+                                state.appendChat(AIMessage(role: .ai, text: body,
+                                                           steps: r.steps,
+                                                           redirect: r.redirect,
+                                                           awaitingApproval: r.awaitingApproval,
+                                                           reasoning: r.reasoning.isEmpty ? nil : r.reasoning))
+                            }
                             state.chatIsThinking = false
                             bridge.reset()
                         }
@@ -954,18 +977,25 @@ struct AskAIView: View {
 
             // 兜底：模型不可用（.unavailable）时 runStream 不一定走到 .finished。
             if state.chatIsThinking {
-                var body = run.answer
-                if let note = run.note { body += "\n\n" + note }
-                state.appendChat(AIMessage(role: .ai, text: body,
-                                           steps: run.steps,
-                                           redirect: run.redirect,
-                                           awaitingApproval: run.awaitingApproval,
-                                           reasoning: run.reasoning.isEmpty ? nil : run.reasoning))
+                if Task.isCancelled {
+                    state.appendChat(AIMessage(role: .system,
+                                               text: L10n.t("已停止生成。", "Generation stopped.")))
+                } else {
+                    var body = run.answer
+                    if let note = run.note { body += "\n\n" + note }
+                    state.appendChat(AIMessage(role: .ai, text: body,
+                                               steps: run.steps,
+                                               redirect: run.redirect,
+                                               awaitingApproval: run.awaitingApproval,
+                                               reasoning: run.reasoning.isEmpty ? nil : run.reasoning))
+                }
                 state.chatIsThinking = false
                 bridge.reset()
             }
+            state.chatStreamTask = nil
             state.endStreaming()
         }
+        state.chatStreamTask = task
     }
 
     /// `/new`（含 `/clear` 别名）与头部「新会话」按钮共用的同一条路径 ——

@@ -195,6 +195,29 @@ final class AppState: ObservableObject {
         streamingToolCommand = nil
     }
 
+    /// 新一轮决策开始：清掉上一轮的**正文草稿**（深度思考跨轮累计，不动）。
+    ///
+    /// 多轮 Agent 每轮都会先流式吐一段「本轮打算做什么」的草稿、再跟工具调用块；
+    /// 不清的话各轮草稿全叠进同一个气泡 —— 真机见过同一段开场白重复八遍，
+    /// 看起来像输出失控，其实是八轮的草稿摞在一起。
+    func beginStreamTurn() {
+        flushStreamBuffers()
+        streamingText = ""
+    }
+
+    /// 进行中的「问 AI」流式任务句柄。停止按钮靠它取消 ——
+    /// `URLSession` 的逐行读取在任务取消时会抛错，运行时随即收尾。
+    /// 放在 AppState 而不是视图的 @State：视图随切 tab 销毁重建，
+    /// 句柄放视图里的话，切个页回来就再也停不了那一轮了。
+    @Published var chatStreamTask: Task<Void, Never>?
+
+    /// 用户点了「停止生成」。取消后运行时会把已收到的内容按停止收尾，
+    /// 不会把半截草稿落进正式聊天记录。
+    func stopChatStream() {
+        chatStreamTask?.cancel()
+        chatStreamTask = nil
+    }
+
     @Published var lastError: String?
     @Published var lastResult: RemovalExecutor.Outcome?
     /// 本次扫描锁定到的 app（关键词模式下为 nil）
@@ -1042,7 +1065,8 @@ final class AppState: ObservableObject {
                     case .reasoningDelta(let s): self.pushReasoningDelta(s)
                     case .textDelta(let s):      self.pushTextDelta(s)
                     case .toolStarted(_, let command): self.streamingToolCommand = command
-                    case .toolFinished, .turnStarted, .finished: break
+                    case .turnStarted: self.beginStreamTurn()
+                    case .toolFinished, .finished: break
                     }
                 }
             })
