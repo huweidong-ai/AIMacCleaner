@@ -57,6 +57,9 @@ struct AskAIView: View {
     // 对话状态（messages / isThinking）住在 AppState 里，不在这里。
     // 这个 View 会随着切 tab 被销毁重建，@State 活不过一次往返。
     @State private var input = ""
+    /// 输入框上方的常驻建议词条是否显示。@AppStorage：用户收起后记住偏好，
+    /// 随时可从输入框左下角的灯泡按钮再打开。
+    @AppStorage("askai.showSuggestionStrip") private var showSuggestionStrip = true
     /// 从残留页深链进来时携带的来源约束（看哪一档就判断哪一档）。
     /// 首次发送时交给 Agent session，发送后置 nil。
     @State private var pendingLeftoverScope: LeftoverSource?
@@ -346,23 +349,7 @@ struct AskAIView: View {
         return FlowRow(spacing: 10) {
             ForEach(suggestions) { s in
                 Button {
-                    if s.action == "macTools" {
-                        // 这条 chip 直接给出介绍并带「打开面板」按钮，
-                        // 不需要走模型，避免模型把它当成普通清理请求去调工具。
-                        let guide = L10n.t(
-                            "AI Mac Cleaner 在侧边栏底部放了一个「macOS 工具」入口，集合了常用的系统小工具：截图、窗口管理、剪贴板、文件与隐私等。点下方按钮即可打开工具面板。",
-                            "AI Mac Cleaner provides a \"macOS Tools\" entry at the bottom of the sidebar, grouping common system utilities: screenshots, window management, clipboard, files, and privacy. Tap the button below to open the toolkit."
-                        )
-                        state.appendChat(AIMessage(role: .me, text: s.displayText))
-                        state.appendChat(AIMessage(role: .ai, text: guide, redirect: .macTools))
-                    } else {
-                        // 只填入、不发送：建议词是起点不是终点，用户往往要改一改
-                        //（换个 app 名、加个限定）再发。直接发出去等于替他做主。
-                        inputFocused = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            input = s.displayText
-                        }
-                    }
+                    applySuggestion(s)
                 } label: {
                     Label(s.displayText, systemImage: s.icon)
                         .font(.system(size: 12))
@@ -373,7 +360,7 @@ struct AskAIView: View {
                         .foregroundStyle(.primary)
                 }
                 .buttonStyle(.plain)
-                .help(text == L10n.t("macOS 工具使用指南", "macOS tools guide")
+                .help(s.action == "macTools"
                       ? L10n.t("查看 macOS 工具介绍", "View macOS tools guide")
                       : L10n.t("填入输入框，可修改后按回车发送",
                              "Fills the input box — edit it, then press Return"))
@@ -381,6 +368,27 @@ struct AskAIView: View {
         }
         .padding(.horizontal, 12)
         .frame(maxWidth: ComposerMetrics.maxWidth)
+    }
+
+    /// 建议词点击的统一行为（首屏大胶囊与输入框旁的常驻胶囊条共用）：
+    /// 带动作的直接执行（如打开 macOS 工具介绍）；其余**只填入、不发送** ——
+    /// 建议词是起点不是终点，用户往往要改一改（换个 app 名、加个限定）再发。
+    private func applySuggestion(_ s: PromptSuggestion) {
+        if s.action == "macTools" {
+            // 这条 chip 直接给出介绍并带「打开面板」按钮，
+            // 不需要走模型，避免模型把它当成普通清理请求去调工具。
+            let guide = L10n.t(
+                "AI Mac Cleaner 在侧边栏底部放了一个「macOS 工具」入口，集合了常用的系统小工具：截图、窗口管理、剪贴板、文件与隐私等。点下方按钮即可打开工具面板。",
+                "AI Mac Cleaner provides a \"macOS Tools\" entry at the bottom of the sidebar, grouping common system utilities: screenshots, window management, clipboard, files, and privacy. Tap the button below to open the toolkit."
+            )
+            state.appendChat(AIMessage(role: .me, text: s.displayText))
+            state.appendChat(AIMessage(role: .ai, text: guide, redirect: .macTools))
+        } else {
+            inputFocused = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                input = s.displayText
+            }
+        }
     }
 
     // 未配置模型时的醒目提示卡：点一下直接去设置。
@@ -580,6 +588,13 @@ struct AskAIView: View {
                 .zIndex(1)
             }
 
+            // 常驻建议词条：首屏的大胶囊只在空态出现，问完一个问题就没了 ——
+            // 想接着问下一个只能凭记忆或滚回顶部。这里把建议词常驻在输入框上方，
+            // 点任何一条都填进输入框（可编辑后再发）。放大输入框时让位收起。
+            if showSuggestionStrip && !inputExpanded {
+                suggestionStrip
+            }
+
             Divider()
                 .opacity(0.6)
 
@@ -756,9 +771,46 @@ struct AskAIView: View {
             .stroke(inputFocused ? Theme.accentBorder : Theme.divider, lineWidth: 1))
     }
 
-    /// 底部工具栏：字数限制；后续可在此扩展其他功能按钮。
+    /// 输入框上方的常驻建议词条（横向滚动的小号胶囊）。
+    private var suggestionStrip: some View {
+        let suggestions = PromptSuggestionStore.load()
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(suggestions) { s in
+                    Button { applySuggestion(s) } label: {
+                        Label(s.displayText, systemImage: s.icon)
+                            .font(.system(size: 11))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Theme.bgSurface, in: Capsule())
+                            .overlay(Capsule().stroke(Theme.divider, lineWidth: 1))
+                            .foregroundStyle(.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L10n.t("填入输入框，可修改后按回车发送",
+                                 "Fills the input box — edit it, then press Return"))
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+    }
+
+    /// 底部工具栏：建议词开关 + 字数限制；后续可在此扩展其他功能按钮。
     private var composerFooter: some View {
         HStack {
+            Button {
+                withAnimation(.easeOut(duration: 0.12)) { showSuggestionStrip.toggle() }
+            } label: {
+                Image(systemName: "lightbulb")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(showSuggestionStrip ? Theme.accent : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(showSuggestionStrip
+                  ? L10n.t("收起建议词条", "Hide suggestions")
+                  : L10n.t("显示建议词条", "Show suggestions"))
             Spacer()
             Text(counterText)
                 .font(.system(size: 9.5))
