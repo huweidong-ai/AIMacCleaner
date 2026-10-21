@@ -98,10 +98,14 @@ protocol AgentBrain {
     ///   - transcript: 本次运行中已经执行过的 skill 及其观测
     ///   - turnsRemaining: 本轮**之后**还剩几次工具调用机会。0 表示这是最后一轮，
     ///     大脑必须直接给出结论、不再安排调用 —— 否则用户只会拿到「一堆步骤 + 没有答案」的兜底。
+    ///   - installedApps: 本机已安装应用名单（宿主注入）。nil = CLI 等拿不到的场景。
+    ///     有了它，模型反问用户「想处理哪个应用？」时举例只会从真实清单里挑，
+    ///     不会编出 Chrome、Docker 这种本机没装的 app 让用户白试。
     func decide(goal: String,
                 history: [(role: String, content: String)],
                 transcript: [(call: SkillCall, result: SkillResult)],
-                turnsRemaining: Int) async -> BrainDecision
+                turnsRemaining: Int,
+                installedApps: [String]?) async -> BrainDecision
 }
 
 // MARK: - 运行期事件（流式）
@@ -179,7 +183,8 @@ struct AgentRuntime {
 
         for turn in 0..<maxTurns {
             let decision = await brain.decide(goal: goal, history: history, transcript: transcript,
-                                              turnsRemaining: maxTurns - 1 - turn)
+                                              turnsRemaining: maxTurns - 1 - turn,
+                                              installedApps: session.installedAppNames)
 
             switch decision {
             case .finish(let text):
@@ -260,7 +265,8 @@ struct AgentRuntime {
         for turn in 0..<maxTurns {
             await onEvent(.turnStarted(turn + 1))
             let decision = await brain.decide(goal: goal, history: history, transcript: transcript,
-                                              turnsRemaining: maxTurns - 1 - turn)
+                                              turnsRemaining: maxTurns - 1 - turn,
+                                              installedApps: session.installedAppNames)
 
             switch decision {
             case .finish(let text):
@@ -431,7 +437,8 @@ struct LLMBrain: AgentBrain {
     func decide(goal: String,
                 history: [(role: String, content: String)],
                 transcript: [(call: SkillCall, result: SkillResult)],
-                turnsRemaining: Int) async -> BrainDecision {
+                turnsRemaining: Int,
+                installedApps: [String]?) async -> BrainDecision {
         var messages = history
         messages.append((role: "user", content: goal))
         if !transcript.isEmpty {
@@ -440,6 +447,7 @@ struct LLMBrain: AgentBrain {
         }
 
         let system = Self.systemPrompt(memory: memory) + "\n" + Self.budgetNote(turnsRemaining: turnsRemaining)
+            + "\n" + Self.installedAppsNote(installedApps)
 
         let reply: String
         do {
@@ -581,6 +589,24 @@ struct LLMBrain: AgentBrain {
             """)
     }
 
+    /// 本机已装应用名单的提示块。nil / 空 = 拿不到（CLI 等场景），一个字都不加。
+    ///
+    /// 没有它，模型被反问「想处理哪个应用？」时会**编例子**：「比如 Chrome、微信、
+    /// Cursor、Docker」—— 本机没装的 app 用户会当真拿去试，白跑一圈
+    /// 「没有找到该应用」。喂真实名单 + 强约束，举例只能从里面挑。
+    static func installedAppsNote(_ names: [String]?) -> String {
+        guard let names, !names.isEmpty else { return "" }
+        let shown = names.prefix(60).joined(separator: "、")
+        let more = names.count > 60 ? L10n.t("等", "…") : ""
+        return L10n.t(
+            "【本机已安装的应用（共 \(names.count) 个）】\(shown)\(more)。" +
+            "向用户举例或建议要处理哪个应用时，**只能**从这个名单里挑；" +
+            "绝不提名单之外的应用名 —— 本机没装的 app 用户会当真去试。",
+            "[Installed apps on this machine (\(names.count) total)] \(shown)\(more). " +
+            "When suggesting which app to work on, pick ONLY from this list; " +
+            "never name an app that isn't in it — the user will take it literally.")
+    }
+
     /// 把已执行的调用回放成 assistant 消息，让模型知道「这是我上一步做的」。
     static func replayCalls(_ transcript: [(call: SkillCall, result: SkillResult)]) -> String {
         let lines = transcript.map { entry -> String in
@@ -617,7 +643,8 @@ struct StreamingLLMBrain: AgentBrain {
     func decide(goal: String,
                 history: [(role: String, content: String)],
                 transcript: [(call: SkillCall, result: SkillResult)],
-                turnsRemaining: Int) async -> BrainDecision {
+                turnsRemaining: Int,
+                installedApps: [String]?) async -> BrainDecision {
         var messages = history
         messages.append((role: "user", content: goal))
         if !transcript.isEmpty {
@@ -627,6 +654,7 @@ struct StreamingLLMBrain: AgentBrain {
 
         let system = LLMBrain.systemPrompt(memory: memory)
             + "\n" + LLMBrain.budgetNote(turnsRemaining: turnsRemaining)
+            + "\n" + LLMBrain.installedAppsNote(installedApps)
 
         let result: LLMStream.Result
         do {

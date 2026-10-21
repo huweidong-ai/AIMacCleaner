@@ -292,9 +292,14 @@ struct PlanSlimSkill: AgentSkill {
             session.lastArtifacts = found
         }
         guard let app = matched else {
-            let msg = L10n.t(
+            var msg = L10n.t(
                 "没有找到名为 \(resolvedName) 的已安装应用，无法瘦身。瘦身只对还装着的 app 有意义；要清残留请用卸载。",
                 "No installed app named \(resolvedName) — cannot slim. Slimming only applies to installed apps; use uninstall for leftovers.")
+            // 本机名单在手就把真实的候选递过去：别让模型再编一个不存在的 app 当例子。
+            if let names = session.installedAppNames, !names.isEmpty {
+                let shown = names.prefix(8).joined(separator: "、")
+                msg += L10n.t(" 本机装着的比如：\(shown)。", " Installed apps include: \(shown).")
+            }
             return SkillResult(ok: true, summary: msg, observation: msg)
         }
 

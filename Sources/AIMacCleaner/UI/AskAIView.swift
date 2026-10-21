@@ -989,6 +989,9 @@ struct AskAIView: View {
         let task = Task {
             let runtime = AgentRuntime(config: state.activeConfig, bridge: bridge, memory: memory)
             let session = bridge.makeSession(leftoverScope: scope, reviewScope: reviewScope)
+            // 把本机已装应用名单喂给模型：反问「给哪个应用瘦身？」时举例只会挑真实存在的，
+            // 不会编出 Docker 这种本机没装的 app 让用户白试一轮。
+            await bridge.fillInstalledAppNames(session)
             // 走流式：思考与正文逐帧到达，工具调用实时上屏。
             // 与旧的阻塞调用共用同一套决策/白名单逻辑，结论不会因为流式而变。
             let run = await runtime.runStream(

@@ -93,6 +93,21 @@ final class AgentBridge: ObservableObject {
         } ?? []
         session.reviewLeftoverFilter = leftoverScope
         session.reviewScope = reviewScope
+        // 应用清单已就绪就直接用；为空（首次启动还没进过应用页）留给
+        // `fillInstalledAppNames` 在后台现取，避免在这里卡主线程。
+        if !state.allApps.isEmpty {
+            session.installedAppNames = state.allApps.map(\.displayName)
+        }
         return session
+    }
+
+    /// 给 session 补上本机已装应用名单。`InventoryCache` 带缓存，
+    /// 首次冷启动之外只是一次读盘。
+    func fillInstalledAppNames(_ session: AgentSession) async {
+        if let existing = session.installedAppNames, !existing.isEmpty { return }
+        let names = await Task.detached(priority: .utility) {
+            InventoryCache.shared.allApps().map(\.displayName)
+        }.value
+        session.installedAppNames = names
     }
 }

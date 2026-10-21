@@ -1054,6 +1054,7 @@ final class AppState: ObservableObject {
             bridge.attach(self)
             let runtime = AgentRuntime(config: cfg, bridge: bridge, memory: memoryPromptBlock)
             let session = bridge.makeSession(leftoverScope: leftoverScope, reviewScope: reviewScope)
+            await bridge.fillInstalledAppNames(session)
             // 走流式，并把增量**转发到**「问 AI」的进行中气泡：用户点「去看 AI 怎么说」
             // 切过去时，看到的是正在跑的过程（深度思考逐字出、工具一条条上屏），
             // 而不是一个停在空屏上等结论的转圈。

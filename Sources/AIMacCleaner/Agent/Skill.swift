@@ -232,6 +232,13 @@ enum ReviewScope: String, CaseIterable, Identifiable, Hashable {
 /// 不存在并发写，因此用 `@unchecked Sendable` 跨 MainActor 边界传递
 /// （GUI 入口把 session 交给 `AgentRuntime.run`，CLI 入口在 detached task 内自建）。
 final class AgentSession: @unchecked Sendable {
+    /// 本机已安装应用的名单（由宿主注入，CLI 路径可为 nil）。
+    ///
+    /// 为什么要有：模型不知道用户机器上装了什么，被反问「给哪个应用瘦身？」时
+    /// 会顺手编例子 ——「Chrome、Cursor、Docker」这种本机根本没装的 app 会被
+    /// 用户当真拿去试，白跑一圈「没有找到该应用」。把真实名单喂进 system prompt，
+    /// 举例就只能从里面挑。
+    var installedAppNames: [String]?
     /// 上一次 `scan_app` 锁定的目标名。
     var lastTarget: String?
     /// 上一次 `scan_app` 锁定的 app 身份。`propose_paths` 需要它来构建
