@@ -591,7 +591,10 @@ struct AskAIView: View {
             // 常驻建议词条：首屏的大胶囊只在空态出现，问完一个问题就没了 ——
             // 想接着问下一个只能凭记忆或滚回顶部。这里把建议词常驻在输入框上方，
             // 点任何一条都填进输入框（可编辑后再发）。放大输入框时让位收起。
-            if showSuggestionStrip && !inputExpanded {
+            // 空态本身已经显示同一批建议的大胶囊，再显示词条条就完全重复了，
+            // 因此空态下隐藏，开始对话后才出现。
+            if showSuggestionStrip && !inputExpanded
+                && (state.chatHasConversation || state.chatIsThinking) {
                 suggestionStrip
             }
 
