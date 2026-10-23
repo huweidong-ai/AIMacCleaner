@@ -593,13 +593,12 @@ struct FeedbackSheet: View {
 
     private var footer: some View {
         SheetActionBar {
+        } trailing: {
             Button(L10n.t("预览提交内容", "Preview")) {
                 showPreview = true
             }
-            .controlSize(.small)
             .help(L10n.t("先摊开将要提交的标题与正文原文，确认无误再发送。",
                          "Shows the exact title and body that will be submitted, so you can check first."))
-        } trailing: {
             Button(L10n.t("取消", "Cancel")) { attemptDismiss() }
                 .keyboardShortcut(.cancelAction)
             Button(L10n.t("提交反馈", "Send")) {

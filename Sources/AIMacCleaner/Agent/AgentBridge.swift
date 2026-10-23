@@ -95,7 +95,7 @@ final class AgentBridge: ObservableObject {
         session.reviewScope = reviewScope
         // 应用清单已就绪就直接用；为空（首次启动还没进过应用页）留给
         // `fillInstalledAppNames` 在后台现取，避免在这里卡主线程。
-        if !state.allApps.isEmpty {
+        if let state, !state.allApps.isEmpty {
             session.installedAppNames = state.allApps.map(\.displayName)
         }
         return session

@@ -8,7 +8,7 @@ import Foundation
 ///
 /// 文件不存在时自动写入一份**默认模板**：用户打开就能看懂格式、照着改。
 /// JSON 解析失败（手滑改坏）时静默回退到内置默认值——首屏不能因为一个配置文件白屏。
-struct PromptSuggestion: Identifiable, Decodable {
+struct PromptSuggestion: Identifiable, Codable {
     let icon: String
     /// 中文文案。英文走 `textEn`，没给就复用中文。
     let text: String
