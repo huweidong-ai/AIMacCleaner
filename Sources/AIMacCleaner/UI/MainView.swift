@@ -420,8 +420,8 @@ private struct SideLink: View {
 /// 3 秒一刷肉眼完全跟得上，mach 调用本身也只是微秒级系统调用。
 /// 口径与活动监视器一致：已用 = 活跃 + 联动 + 压缩器占用。
 struct MemoryCard: View {
-    /// 取当前内存占用。失败（极少）返回 nil，卡片整体隐藏。
-    private static func usage() -> (used: Int64, total: Int64)? {
+    /// 取当前内存占用与可用量。失败（极少）返回 nil，卡片整体隐藏。
+    private static func usage() -> (used: Int64, total: Int64, available: Int64)? {
         var stats = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<natural_t>.stride)
         let kr = withUnsafeMutablePointer(to: &stats) {
@@ -434,7 +434,10 @@ struct MemoryCard: View {
         let used = Int64(UInt64(stats.active_count + stats.wire_count + stats.compressor_page_count) * pageSize)
         let total = Int64(ProcessInfo.processInfo.physicalMemory)
         guard total > 0, used > 0 else { return nil }
-        return (used, total)
+        // 可用 = 空闲 + 非活跃 + 可清除。非活跃页内容仍在盘上可即时回收，
+        // 活动监视器的「已使用 / 内存压力」口径下它们都算可用侧。
+        let available = Int64(UInt64(stats.free_count + stats.inactive_count + stats.purgeable_count) * pageSize)
+        return (used, total, available)
     }
 
     var body: some View {
@@ -466,6 +469,11 @@ struct MemoryCard: View {
                     }
                 }
                 .frame(height: 5)
+                // 与磁盘卡同款参照行：让「色条 = 已用、灰色 = 剩余」读法有个落点。
+                Text(L10n.t("剩 \(SizeFormat.human(max(0, u.available))) 可用",
+                            "\(SizeFormat.human(max(0, u.available))) available"))
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(.tertiary)
             }
             .padding(9)
             .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
