@@ -323,14 +323,14 @@ struct FeedbackSheet: View {
     @State private var touched = false
     @State private var showDiscard = false
 
-    private static let repoIssueURL = "https://github.com/huweidong-ai/AIMacCleaner/issues/new"
-    private static let feedbackMail = "aimaccleaner@duck.com"
+    static let repoIssueURL = "https://github.com/huweidong-ai/AIMacCleaner/issues/new"
+    static let feedbackMail = "aimaccleaner@duck.com"
     /// 保住正在使用的系统邮件服务：`perform` 之后若立刻释放，邮件撰写窗口可能来不及弹出。
-    private static var retainedMailService: NSSharingService?
+    static var retainedMailService: NSSharingService?
 
     /// 已知会抢注 `mailto:` 的浏览器。默认「邮件阅读器」若是它们，点「发邮件」开出来的
     /// 就是浏览器里的网页邮箱 —— 不是用户要的本机邮箱。
-    private static let browserBundleIds: Set<String> = [
+    static let browserBundleIds: Set<String> = [
         "com.apple.Safari", "com.google.Chrome", "com.google.Chrome.canary",
         "com.microsoft.edgemac", "org.mozilla.firefox", "com.brave.Browser",
         "company.thebrowser.Browser", "com.vivaldi.Vivaldi",
@@ -343,7 +343,7 @@ struct FeedbackSheet: View {
         return browserBundleIds.contains(bundleId)
     }
 
-    private static func mailtoURL(subject: String, body: String, to address: String) -> URL? {
+    static func mailtoURL(subject: String, body: String, to address: String) -> URL? {
         var comps = URLComponents()
         comps.scheme = "mailto"
         comps.path = address
@@ -360,7 +360,7 @@ struct FeedbackSheet: View {
     /// **浏览器里的网页邮箱**（Chrome / Edge 会抢注这个 scheme）—— 于是用户点「发邮件」
     /// 开出来的是浏览器。这里先看默认处理器：是浏览器就**显式打开本机 Mail.app**；
     /// 否则用系统邮件服务（真正的邮件客户端，且不受 `mailto:` 长度限制）。
-    private static func composeMail(subject: String, body: String, to address: String) -> Bool {
+    static func composeMail(subject: String, body: String, to address: String) -> Bool {
         guard let url = mailtoURL(subject: subject, body: body, to: address) else { return false }
 
         let handlerURL = NSWorkspace.shared.urlForApplication(toOpen: url)
@@ -740,6 +740,323 @@ struct FeedbackSheet: View {
             reason: selected.displayName,
             reasonRaw: selected.rawValue,
             note: trimmedNote,
+            channel: channel == .github ? "github" : "mail",
+            title: title
+        ))
+        return true
+    }
+}
+
+// MARK: - AI 回答反馈
+
+/// 「AI 这次答得不好」的反馈入口。
+///
+/// 与 `FeedbackSheet`（针对扫描规则误报）的区别：这里是**对话质量**反馈，
+/// 所以核心载体是整段对话记录 —— 没有上下文，维护者没法判断 AI 到底答错在哪。
+/// 默认把对话记录附进正文（可在弹窗里取消勾选），走和误报反馈一样的
+/// GitHub Issue / 邮件两条通道，提交前同样能预览原文。
+struct AIChatFeedbackSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    /// 要附带的对话记录。空数组（还没聊过）时默认不勾选、正文也不带。
+    let messages: [AIMessage]
+    let editingEntry: FeedbackEntry?
+
+    enum Reason: String, CaseIterable, Identifiable {
+        case wrongAnswer, misunderstood, badAction, lowQuality, other
+        var id: String { rawValue }
+        var displayName: String {
+            switch self {
+            case .wrongAnswer:  return L10n.t("答非所问", "Answered the wrong question")
+            case .misunderstood:return L10n.t("没理解我的需求", "Misunderstood what I wanted")
+            case .badAction:    return L10n.t("操作不正确 / 有风险", "Took a wrong / risky action")
+            case .lowQuality:   return L10n.t("回答质量差", "Low-quality answer")
+            case .other:        return L10n.t("其他", "Other")
+            }
+        }
+    }
+
+    enum Channel { case github, mail }
+
+    @State private var reason: Reason? = nil
+    @State private var reasonMissing = false
+    @State private var note: String = ""
+    @State private var noteMissing = false
+    @State private var channel: Channel = .github
+    /// 是否把对话记录附进反馈正文。有对话时默认勾选；无对话时默认不勾。
+    @State private var includeChat: Bool
+    @State private var showPreview = false
+    @State private var touched = false
+    @State private var showDiscard = false
+
+    init(messages: [AIMessage], editingEntry: FeedbackEntry? = nil) {
+        self.messages = messages
+        self.editingEntry = editingEntry
+        _includeChat = State(initialValue: !messages.isEmpty)
+    }
+
+    private var reasonLabel: String {
+        reason?.displayName ?? L10n.t("（未选择问题类型）", "(no issue type selected)")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    fieldLabel(L10n.t("问题类型（必填）", "What went wrong (required)"))
+                    reasonPicker
+                    if reasonMissing {
+                        Text(L10n.t("请先选择一个「问题类型」再提交。",
+                                    "Please pick a “What went wrong” value before sending."))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.riskUncertainText)
+                    }
+                    fieldLabel(L10n.t("补充说明（必填）", "Details (required)"))
+                    TextEditor(text: $note)
+                        .font(.system(size: 12))
+                        .frame(height: 76)
+                        .onChange(of: note) { _, _ in
+                            touched = true
+                            noteMissing = false
+                        }
+                        .padding(5)
+                        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6)
+                            .stroke(noteMissing ? Theme.riskUncertainText : Theme.divider, lineWidth: 1))
+                    if noteMissing {
+                        Text(L10n.t("请说明具体哪里答得不好（例如它误解了什么、你想要什么结果），否则我们没法定位。",
+                                    "Please describe what was wrong (e.g. what it misunderstood, what you expected) — otherwise we can’t locate the issue."))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.riskUncertainText)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    // 对话记录开关：这是本反馈的核心，明确告诉用户会带什么。
+                    Toggle(isOn: $includeChat) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.t("附带对话记录", "Include chat transcript"))
+                                .font(.system(size: 12))
+                            Text(L10n.t("把当前对话原文附进反馈，便于我们定位 AI 答错的地方。可在预览里逐字确认。",
+                                        "Attaches the full conversation so we can see where the AI went wrong. Review it in the preview."))
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                    .disabled(messages.isEmpty)
+                    .onChange(of: includeChat) { _, _ in touched = true }
+                    fieldLabel(L10n.t("提交到", "Send via"))
+                    channelPicker
+                }
+                .padding(16)
+            }
+            Divider()
+            footer
+        }
+        .frame(width: 520, height: 560)
+        .sheet(isPresented: $showPreview) {
+            FeedbackPreviewSheet(titleLine: titleText(), bodyMarkdown: bodyText())
+        }
+        .interactiveDismissDisabled(true)
+        .alert(L10n.t("放弃未提交的反馈？", "Discard feedback?"), isPresented: $showDiscard) {
+            Button(L10n.t("继续编辑", "Keep editing"), role: .cancel) {}
+            Button(L10n.t("放弃", "Discard"), role: .destructive) { dismiss() }
+        } message: {
+            Text(L10n.t("你填写的内容尚未提交，关闭后将丢失。", "Your draft will be lost if you close without sending."))
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Theme.accentSubtle)
+                .frame(width: 30, height: 30)
+                .overlay(Image(systemName: "bubble.left.and.text.bubble.right")
+                    .font(.system(size: 13)).foregroundStyle(Theme.accent))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.t("反馈 AI 回答", "Report an AI answer"))
+                    .font(.system(size: 14, weight: .semibold))
+                Text(L10n.t("AI 答得不好？把对话记录一起发来，我们据此改进。",
+                            "The AI answered poorly? Send the conversation along so we can improve it."))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+    }
+
+    private func fieldLabel(_ t: String) -> some View {
+        Text(t)
+            .font(.system(size: 10.5, weight: .bold))
+            .kerning(0.5)
+            .foregroundStyle(.tertiary)
+    }
+
+    private var reasonPicker: some View {
+        FlowRow(spacing: 6) {
+            ForEach(Reason.allCases) { r in
+                Button {
+                    reason = r
+                    reasonMissing = false
+                    touched = true
+                } label: {
+                    Text(r.displayName)
+                        .font(.system(size: 11.5))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .foregroundStyle(reason == r ? Theme.accent : Color.secondary)
+                        .background(reason == r ? Theme.accentSubtle : Color.secondary.opacity(0.08),
+                                    in: Capsule())
+                        .overlay(Capsule().stroke(reason == r ? Theme.accentBorder : .clear, lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var channelPicker: some View {
+        VStack(spacing: 6) {
+            channelRow(.github, icon: "chevron.left.forwardslash.chevron.right",
+                       title: "GitHub Issue",
+                       subtitle: L10n.t("公开可追踪，自动预填标题与详情", "Public and trackable; title and body prefilled"))
+            channelRow(.mail, icon: "envelope",
+                       title: L10n.t("发邮件", "Email"),
+                       subtitle: L10n.t("\(FeedbackSheet.feedbackMail) · 不想公开时用",
+                                        "\(FeedbackSheet.feedbackMail) · when you’d rather not go public"))
+        }
+    }
+
+    private func channelRow(_ c: Channel, icon: String, title: String, subtitle: String) -> some View {
+        Button {
+            channel = c
+            touched = true
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(channel == c ? Theme.accent : Color.secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.system(size: 12, weight: .medium))
+                    Text(subtitle).font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: channel == c ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(channel == c ? Theme.accent : Color.secondary.opacity(0.4))
+            }
+            .padding(9)
+            .background(channel == c ? Theme.accentSubtle : Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .stroke(channel == c ? Theme.accentBorder : Theme.divider, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var footer: some View {
+        SheetActionBar {
+        } trailing: {
+            Button(L10n.t("预览提交内容", "Preview")) {
+                showPreview = true
+            }
+            .help(L10n.t("先摊开将要提交的标题与正文原文，确认无误再发送。",
+                         "Shows the exact title and body that will be submitted, so you can check first."))
+            Button(L10n.t("取消", "Cancel")) { attemptDismiss() }
+                .keyboardShortcut(.cancelAction)
+            Button(L10n.t("提交反馈", "Send")) {
+                if submit() { dismiss() }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.accent)
+            .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    private func attemptDismiss() {
+        if touched {
+            showDiscard = true
+        } else {
+            dismiss()
+        }
+    }
+
+    // MARK: - 内容拼装
+
+    private func titleText() -> String {
+        "\(L10n.t("[AI反馈]", "[AI feedback]")) \(reasonLabel)"
+    }
+
+    private func bodyText() -> String {
+        var lines: [String] = []
+        lines.append("## \(L10n.t("问题类型", "Issue type"))")
+        lines.append(reasonLabel)
+        lines.append("")
+        lines.append("## \(L10n.t("补充说明", "Details"))")
+        lines.append(note.trimmingCharacters(in: .whitespacesAndNewlines))
+        if includeChat && !messages.isEmpty {
+            lines.append("")
+            lines.append("## \(L10n.t("对话记录", "Conversation"))")
+            lines.append("<details>")
+            lines.append(L10n.t("<summary>展开对话原文</summary>", "<summary>Expand the full conversation</summary>"))
+            lines.append("")
+            lines.append(ChatTranscript.string(from: messages))
+            lines.append("</details>")
+        }
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        lines.append("")
+        lines.append("## \(L10n.t("环境", "Environment"))")
+        lines.append("- AI Mac Cleaner \(AIMacCleanerApp.version)")
+        lines.append("- macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion)")
+        return lines.joined(separator: "\n")
+    }
+
+    @discardableResult
+    private func submit() -> Bool {
+        guard let selected = reason else {
+            reasonMissing = true
+            return false
+        }
+        let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedNote.isEmpty else {
+            noteMissing = true
+            return false
+        }
+        let title = titleText()
+        let body = bodyText()
+
+        var fellBackToClipboard = false
+        switch channel {
+        case .github:
+            var comps = URLComponents(string: FeedbackSheet.repoIssueURL)
+            comps?.queryItems = [
+                URLQueryItem(name: "title", value: title),
+                URLQueryItem(name: "body", value: body)
+            ]
+            if let url = comps?.url {
+                fellBackToClipboard = !NSWorkspace.shared.open(url)
+            } else {
+                fellBackToClipboard = true
+            }
+        case .mail:
+            fellBackToClipboard = !FeedbackSheet.composeMail(subject: title, body: body, to: FeedbackSheet.feedbackMail)
+        }
+
+        if fellBackToClipboard {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("\(title)\n\n\(body)", forType: .string)
+        }
+        FeedbackStore.shared.record(FeedbackEntry(
+            id: UUID(),
+            date: Date(),
+            targetName: nil,
+            reason: selected.displayName,
+            reasonRaw: selected.rawValue,
+            note: trimmedNote + (includeChat && !messages.isEmpty
+                                 ? L10n.t("（含对话记录）", " (with chat transcript)") : ""),
             channel: channel == .github ? "github" : "mail",
             title: title
         ))

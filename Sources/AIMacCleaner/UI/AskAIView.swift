@@ -75,6 +75,11 @@ struct AskAIView: View {
     @State private var showSkills = false
     @State private var showMemory = false
     @State private var showNewChatConfirm = false
+    /// 「反馈 AI 回答」弹窗：把当前对话记录作为核心载体一起提交。
+    @State private var showAIFeedback = false
+    /// 导出对话记录后的轻提示（成功 / 失败 / 取消）。
+    @State private var exportToast: String? = nil
+    @State private var exportToastTone: Bool = false
     @State private var slashSelection = 0
     @State private var slashDismissed = false
     /// 输入框右上角放大/缩小：粘贴大段文本时点开，输入框变高方便阅读，再点收起。
@@ -134,6 +139,22 @@ struct AskAIView: View {
                         Label(L10n.t("在 Finder 中显示对话记录", "Reveal chat history in Finder"),
                               systemImage: "folder")
                     }
+                    // 有对话才出现这两项：空态下「导出」「反馈 AI」都没有对象，列出来只会误导。
+                    if state.chatHasConversation {
+                        Divider()
+                        Button {
+                            exportChat()
+                        } label: {
+                            Label(L10n.t("导出对话记录", "Export chat"),
+                                  systemImage: "square.and.arrow.up")
+                        }
+                        Button {
+                            showAIFeedback = true
+                        } label: {
+                            Label(L10n.t("反馈 AI 回答", "Report AI answer"),
+                                  systemImage: "bubble.left.and.text.bubble.right")
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .font(.system(size: 13))
@@ -169,6 +190,9 @@ struct AskAIView: View {
     .sheet(isPresented: $showSettings) { AIModelSettingsSheet() }
     .sheet(isPresented: $showSkills) { SkillCatalogSheet() }
     .sheet(isPresented: $showMemory) { MemorySheet() }
+    .sheet(isPresented: $showAIFeedback) { AIChatFeedbackSheet(messages: state.chatMessages) }
+    .overlay(alignment: .bottom) { exportToastOverlay }
+    .animation(.easeOut(duration: 0.18), value: exportToast)
     .alert(L10n.t("开始新会话", "Start a new chat?"), isPresented: $showNewChatConfirm) {
         Button(L10n.t("取消", "Cancel"), role: .cancel) {}
         Button(L10n.t("清空并开始新会话", "Clear and start new"), role: .destructive) {
@@ -1061,6 +1085,48 @@ struct AskAIView: View {
     private func runNewChat() {
         state.clearChat()
         bridge.reset()
+    }
+
+    /// 导出当前对话记录：弹保存面板存成 Markdown。结果用底部轻提示反馈，
+    /// 取消不提示（用户本就有意取消，弹个「已取消」反而烦）。
+    private func exportChat() {
+        switch ChatTranscript.export(state.chatMessages) {
+        case .some(true):
+            flashExport(L10n.t("对话记录已导出", "Chat exported"))
+        case .some(false):
+            flashExport(L10n.t("导出失败，文件可能无法写入", "Export failed"),
+                        isError: true)
+        case .none:
+            break  // 用户取消，静默
+        }
+    }
+
+    @ViewBuilder
+    private var exportToastOverlay: some View {
+        if let exportToast {
+            HStack(spacing: 6) {
+                Image(systemName: exportToastTone ? "xmark.circle.fill" : "checkmark.circle.fill")
+                Text(exportToast)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(exportToastTone ? Theme.destructive : Theme.success,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+            .padding(.bottom, 48)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+
+    private func flashExport(_ msg: String, isError: Bool = false) {
+        exportToast = msg
+        exportToastTone = isError
+        let token = msg
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            if exportToast == token { exportToast = nil }
+        }
     }
 
     /// `/reset`：打上下文锚点。屏幕记录与落盘都保留，只是模型不再看到锚点之前的内容。
