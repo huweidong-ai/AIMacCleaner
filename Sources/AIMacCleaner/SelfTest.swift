@@ -1257,15 +1257,15 @@ enum SelfTest {
             // 2) 未知指令一律被白名单拒掉（Agent 只有项目自己的 CLI 这一种外部能力）
             // 3) 高危 skill 只出计划不出手，Agent 永远拿不到「真删」
 
-            Check(name: "SkillRegistry 注册了 12 个 skill") {
+            Check(name: "SkillRegistry 注册了 13 个 skill") {
                 // 和 SkillRegistry.cliListing 文案、AskAIView 的计数必须一致。
-                SkillRegistry.all.count == 12
+                SkillRegistry.all.count == 13
             },
             Check(name: "每个 skill 的 cli 都对应真实 CLI flag（防假成功）") {
                 // Skill.swift 的硬约束之一：每个 skill 必须对应一条真实存在的
                 // AI Mac Cleaner CLI 命令。这里拿注册表里的 cli 和 --help 对表。
                 let usage = AIMacCleanerApp.usage
-                let expectedFlags = ["--list", "--scan", "--orphans", "--ps",
+                let expectedFlags = ["--list", "--scan", "--check-installs", "--orphans", "--ps",
                                      "--review", "--history", "--uninstall", "--reset",
                                      "--trace-roots", "--search", "--inspect", "--propose"]
                 return expectedFlags.allSatisfy { usage.contains($0) }

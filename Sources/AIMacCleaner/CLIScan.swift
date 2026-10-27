@@ -12,6 +12,7 @@ enum CLIScan {
             ProcessScanner(),
             LibraryDataScanner(),
             ContainerScanner(),
+            BrowserPWAScanner(),
             DotfileScanner(),
             ShellConfigScanner(),
             AuthTokenScanner(),

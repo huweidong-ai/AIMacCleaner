@@ -229,9 +229,12 @@ struct MainView: View {
             brand
             nav
             Spacer(minLength: 8)
-            DiskCard(reclaimable: reclaimableBytes)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+            VStack(spacing: 6) {
+                MemoryCard()
+                DiskCard(reclaimable: reclaimableBytes)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 10)
             footLinks
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -411,6 +414,66 @@ private struct SideLink: View {
     }
 }
 
+/// 内存用量卡片：与磁盘卡同款样式，挂在它上面，合成侧栏的「机器健康状况」区。
+///
+/// 内存是动态值，但**不需要为它上高频刷新**：用量曲线本来就是平滑的，
+/// 3 秒一刷肉眼完全跟得上，mach 调用本身也只是微秒级系统调用。
+/// 口径与活动监视器一致：已用 = 活跃 + 联动 + 压缩器占用。
+struct MemoryCard: View {
+    /// 取当前内存占用。失败（极少）返回 nil，卡片整体隐藏。
+    private static func usage() -> (used: Int64, total: Int64)? {
+        var stats = vm_statistics64_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<natural_t>.stride)
+        let kr = withUnsafeMutablePointer(to: &stats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(mach_host_self(), HOST_VM_INFO64, $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return nil }
+        let pageSize = UInt64(vm_kernel_page_size)
+        let used = Int64(UInt64(stats.active_count + stats.wire_count + stats.compressor_page_count) * pageSize)
+        let total = Int64(ProcessInfo.processInfo.physicalMemory)
+        guard total > 0, used > 0 else { return nil }
+        return (used, total)
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 3)) { _ in
+            content
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if let u = Self.usage(), u.total > 0 {
+            let usedRatio = Double(u.used) / Double(u.total)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(L10n.t("内存", "Memory"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                    Spacer(minLength: 4)
+                    Text(L10n.t("\(SizeFormat.human(u.used)) 已用", "\(SizeFormat.human(u.used)) used"))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.secondary.opacity(0.18))
+                        Capsule()
+                            .fill(usedRatio > 0.85 ? Theme.riskUserData : (usedRatio > 0.7 ? Theme.warning : Theme.accent))
+                            .frame(width: max(2, geo.size.width * usedRatio))
+                    }
+                }
+                .frame(height: 5)
+            }
+            .padding(9)
+            .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.divider, lineWidth: 1))
+        }
+    }
+}
+
 /// 启动磁盘用量卡片。存在的意义：让「删掉这些能腾出多少」有个参照系 ——
 /// 单看「1.4 GB」没有概念，看到「还剩 28 GB」就有了。
 struct DiskCard: View {
@@ -428,14 +491,17 @@ struct DiskCard: View {
 
     var body: some View {
         if let cap = capacity, cap.total > 0 {
-            let usedRatio = 1.0 - Double(cap.free) / Double(cap.total)
+            // 口径与内存卡统一：条和主数值都表示「已用」，剩余量作参照放条下方小字。
+            // （此前右侧标「可用」、条却填「已用」，读起来拧巴——用户实测反馈。）
+            let usedBytes = max(0, cap.total - cap.free)
+            let usedRatio = Double(usedBytes) / Double(cap.total)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(L10n.t("启动磁盘", "Startup disk"))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
                     Spacer(minLength: 4)
-                    Text(L10n.t("\(SizeFormat.human(cap.free)) 可用", "\(SizeFormat.human(cap.free)) free"))
+                    Text(L10n.t("\(SizeFormat.human(usedBytes)) 已用", "\(SizeFormat.human(usedBytes)) used"))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -448,11 +514,17 @@ struct DiskCard: View {
                     }
                 }
                 .frame(height: 5)
-                if reclaimable > 0 {
-                    Text(.init(L10n.t("本次可回收 **\(SizeFormat.human(reclaimable))**",
-                                      "**\(SizeFormat.human(reclaimable))** reclaimable")))
+                HStack(spacing: 0) {
+                    Text(L10n.t("剩 \(SizeFormat.human(cap.free)) 可用",
+                                "\(SizeFormat.human(cap.free)) free"))
                         .font(.system(size: 10))
-                        .foregroundStyle(Theme.accent)
+                        .foregroundStyle(.secondary)
+                    if reclaimable > 0 {
+                        Text(.init(L10n.t(" · 本次可回收 **\(SizeFormat.human(reclaimable))**",
+                                          " · **\(SizeFormat.human(reclaimable))** reclaimable")))
+                            .font(.system(size: 10))
+                            .foregroundStyle(Theme.accent)
+                    }
                 }
             }
             .padding(9)
