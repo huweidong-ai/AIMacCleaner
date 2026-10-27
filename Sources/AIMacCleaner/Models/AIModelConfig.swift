@@ -94,6 +94,84 @@ struct AIModelConfig: Codable, Equatable, Identifiable {
         }
     }
 
+    /// 服务商预设：常用大模型厂商的 Base URL + 默认模型名。
+    ///
+    /// 存在的理由：用户配 DeepSeek / GLM / Kimi 这类厂商时，被迫先去查文档抄
+    /// Base URL，还要知道模型名叫什么。预设让用户**只填 Key**，地址与模型自动带出。
+    /// 预设不持久化 —— 档里存的仍是 provider + baseURL + model，预设只是填表捷径，
+    /// 所以以后厂商改地址/模型名，老配置不受影响。
+    enum Preset: String, CaseIterable, Identifiable {
+        case openai, anthropic
+        case deepseek, zhipu, moonshot, qwen, siliconflow, openrouter, ollama
+        case customOpenAI, customAnthropic
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .openai:          return "OpenAI"
+            case .anthropic:       return "Anthropic"
+            case .deepseek:        return "DeepSeek 深度求索"
+            case .zhipu:           return "智谱 GLM"
+            case .moonshot:        return "Moonshot Kimi"
+            case .qwen:            return "通义千问 Qwen"
+            case .siliconflow:     return "硅基流动 SiliconFlow"
+            case .openrouter:      return "OpenRouter"
+            case .ollama:          return L10n.t("Ollama（本地）", "Ollama (local)")
+            case .customOpenAI:    return L10n.t("自定义（OpenAI 兼容）", "Custom (OpenAI-compatible)")
+            case .customAnthropic: return L10n.t("自定义（Anthropic 兼容）", "Custom (Anthropic-compatible)")
+            }
+        }
+
+        var baseURL: String {
+            switch self {
+            case .openai:          return "https://api.openai.com/v1"
+            case .anthropic:       return "https://api.anthropic.com/v1"
+            case .deepseek:        return "https://api.deepseek.com/v1"
+            case .zhipu:           return "https://open.bigmodel.cn/api/paas/v4"
+            case .moonshot:        return "https://api.moonshot.cn/v1"
+            case .qwen:            return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            case .siliconflow:     return "https://api.siliconflow.cn/v1"
+            case .openrouter:      return "https://openrouter.ai/api/v1"
+            case .ollama:          return "http://localhost:11434/v1"
+            case .customOpenAI:    return "https://api.openai.com/v1"
+            case .customAnthropic: return "https://api.anthropic.com/v1"
+            }
+        }
+
+        /// 预设的推荐模型名（仅填表用，用户可改）。
+        var model: String {
+            switch self {
+            case .openai:          return "gpt-4o-mini"
+            case .anthropic:       return "claude-3-5-sonnet-20241022"
+            case .deepseek:        return "deepseek-chat"
+            case .zhipu:           return "glm-4-flash"
+            case .moonshot:        return "moonshot-v1-8k"
+            case .qwen:            return "qwen-plus"
+            case .siliconflow:     return "deepseek-ai/DeepSeek-V3"
+            case .openrouter:      return "openai/gpt-4o-mini"
+            case .ollama:          return "llama3.1"
+            case .customOpenAI:    return "gpt-4o-mini"
+            case .customAnthropic: return "claude-3-5-sonnet-20241022"
+            }
+        }
+
+        var provider: Provider {
+            self == .anthropic || self == .customAnthropic ? .customAnthropic : .customOpenAI
+        }
+
+        /// 自定义档：只切协议、重置官方默认值，不预设具体厂商。
+        var isCustom: Bool { self == .customOpenAI || self == .customAnthropic }
+
+        /// 反查：现有档对应哪个预设（按协议 + Base URL 精确匹配）。
+        /// 自定义档放最后，保证先命中具体厂商。
+        static func matching(_ cfg: AIModelConfig?) -> Preset? {
+            guard let cfg else { return nil }
+            return allCases.first {
+                $0.provider == cfg.provider && $0.baseURL == cfg.effectiveBaseURL
+            }
+        }
+    }
+
     // MARK: - 派生
 
     /// 用户是否真正填齐了调用所需字段。

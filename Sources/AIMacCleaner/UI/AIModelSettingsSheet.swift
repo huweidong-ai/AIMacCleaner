@@ -14,9 +14,6 @@ struct AIModelSettingsSheet: View {
 
     @State private var store: ModelConfigStore
     @State private var selectedID: UUID?
-    /// 哪些档当前把「协议」做成二选一（仅新增的档，或手动点了「切换」的档）。
-    /// 已有档默认只显示已选协议（静态标签），不再一进来就给二选一。
-    @State private var editableProtocolIDs: Set<UUID> = []
     @State private var testing = false
     @State private var status: String = ""
     /// 用户是否已改动配置。关闭时若有未保存改动，先弹二次确认，避免误丢 API Key 等。
@@ -130,22 +127,21 @@ struct AIModelSettingsSheet: View {
                                     .textFieldStyle(.roundedBorder)
                             }
 
-                            section(title: L10n.t("协议", "Provider")) {
-                                if editableProtocolIDs.contains(p.id) {
-                                    // 新增档：给二选一，方便一上来就选协议。
-                                    HStack(spacing: 10) {
-                                        providerButton(.customOpenAI)
-                                        providerButton(.customAnthropic)
+                            section(title: L10n.t("服务商（选常用的自动填好地址与模型）",
+                                                  "Provider (common presets fill URL & model)")) {
+                                Picker("", selection: presetBinding) {
+                                    ForEach(AIModelConfig.Preset.allCases) { preset in
+                                        Text(preset.displayName).tag(preset)
                                     }
-                                } else {
-                                    // 已有档（点历史清单进入）：只显示已选协议，不暴露切换入口。
-                                    Text(p.provider.shortLabel)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 7)
-                                        .background(Theme.accent.opacity(0.1))
-                                        .foregroundStyle(Theme.accent)
-                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+                                .frame(maxWidth: 280, alignment: .leading)
+                                if let preset = AIModelConfig.Preset.matching(editing), preset == .ollama {
+                                    Text(L10n.t("Ollama 需先在终端 ollama pull 拉取模型再填模型名。",
+                                                "Run `ollama pull` in Terminal first, then fill the model name."))
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.tertiary)
                                 }
                             }
 
@@ -241,32 +237,6 @@ struct AIModelSettingsSheet: View {
         }
     }
 
-    /// 带边框的协议卡片：整张卡片可点，选中高亮 + 勾选。
-    /// 切到某协议时，**只重置当前档**的 Base URL / 模型为该协议默认值，
-    /// 不会动别的档，也不会把别的档的 key 带过来。
-    private func providerButton(_ p: AIModelConfig.Provider) -> some View {
-        let selected = editing?.provider == p
-        return Button {
-            selectProvider(p)
-        } label: {
-            HStack(spacing: 7) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? Theme.accent : .secondary)
-                Text(p.displayName)
-                    .font(.system(size: 12, weight: selected ? .semibold : .regular))
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-            .padding(.horizontal, 12)
-        }
-        .buttonStyle(.plain)
-        .background(selected ? Theme.accent.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
-        .overlay(RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? Theme.accent : Color.secondary.opacity(0.25), lineWidth: selected ? 1.5 : 1))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
     // MARK: - 档操作
 
     private func addProfile() {
@@ -276,8 +246,6 @@ struct AIModelSettingsSheet: View {
                               model: AIModelConfig.Provider.customOpenAI.defaultModel)
         store.profiles.append(p)
         selectedID = p.id
-        // 新增档默认进入「协议二选一」状态，方便一上来就选协议。
-        editableProtocolIDs.insert(p.id)
     }
 
     private func deleteProfile(_ id: UUID) {
@@ -293,14 +261,29 @@ struct AIModelSettingsSheet: View {
         store.activeID = id
     }
 
-    /// 切换当前档的协议，并只重置**该档**的 Base URL / 模型默认值。
-    private func selectProvider(_ p: AIModelConfig.Provider) {
-        guard let idx = store.profiles.firstIndex(where: { $0.id == selectedID }) else { return }
-        store.profiles[idx].provider = p
-        store.profiles[idx].baseURL = p.defaultBaseURL
-        store.profiles[idx].model = p.defaultModel
-        // 新增档保持在「二选一」状态，方便同一次编辑里反复切换；
-        // 已有档不在 editableProtocolIDs 里，因此会保持静态标签。
+    /// 「服务商」下拉的绑定。
+    ///
+    /// 读：按当前档的协议 + Base URL 反查预设，命不中（自定义地址）落到「自定义」项。
+    /// 写：把预设的 Base URL / 默认模型写进**当前档**，API Key 不动 ——
+    /// 换厂商时 key 本来就要换，但已经填了 OpenAI 的 key 再切 DeepSeek，
+    /// 也不能把 key 清掉，用户可能只是想对比。
+    private var presetBinding: Binding<AIModelConfig.Preset> {
+        Binding(
+            get: {
+                // 反查命不中（用户手改过 Base URL）时，按协议落到对应「自定义」项。
+                if let p = self.editing {
+                    return AIModelConfig.Preset.matching(p)
+                        ?? (p.provider == .customAnthropic ? .customAnthropic : .customOpenAI)
+                }
+                return .customOpenAI
+            },
+            set: { preset in
+                guard let idx = store.profiles.firstIndex(where: { $0.id == selectedID }) else { return }
+                store.profiles[idx].provider = preset.provider
+                store.profiles[idx].baseURL = preset.baseURL
+                store.profiles[idx].model = preset.model
+            }
+        )
     }
 
     // MARK: - 行为
