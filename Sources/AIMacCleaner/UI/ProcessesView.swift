@@ -161,6 +161,16 @@ struct ProcessesView: View {
             // 内存守卫状态条：常驻，泄漏发生前就拦住
             MemoryGuardianBar()
 
+            // 观察范围：后台服务（可杀清单） / 全部（找内存大户）
+            Picker("", selection: $state.processScope) {
+                ForEach(AppState.ProcessScope.allCases) { scope in
+                    Text(scope.displayName).tag(scope)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 300)
+
             // 搜索栏
             searchBar
 

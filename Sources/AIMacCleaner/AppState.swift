@@ -457,10 +457,39 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 进程 tab 的筛选档：决定列表中显示哪些进程。
-    /// 当前可见进程：仅后台（无 GUI、非系统的用户进程）。
+    /// 进程 tab 的观察范围。
+    ///
+    /// 默认只看后台服务（node / python / docker…）——那是「该不该杀」的清单；
+    /// 「全部（含应用）」加入 GUI 应用，回答「内存到底被谁吃了」——Chrome、
+    /// 微信这类大户平时不在列表里，用户看着「13 GB 已用」却对不上账。
+    enum ProcessScope: String, CaseIterable, Identifiable {
+        case background
+        case all
+        var id: String { rawValue }
+
+        var displayName: String {
+            switch self {
+            case .background: return L10n.t("后台服务", "Background services")
+            case .all:        return L10n.t("全部（含应用）", "All (incl. apps)")
+            }
+        }
+    }
+
+    @Published var processScope: ProcessScope = .background
+
+    /// 当前范围下可见的进程，**按内存降序**：列表第一行就是最大的占用者。
+    /// 次级排序按 CPU——内存相同时更活跃的排前面。
     var visibleProcesses: [LiveProcess] {
-        processes.filter { $0.kind == .background }
+        let base: [LiveProcess]
+        switch processScope {
+        case .background: base = processes.filter { $0.kind == .background }
+        case .all:        base = processes.filter { $0.kind != .system }
+        }
+        return base.sorted {
+            $0.memoryBytes != $1.memoryBytes
+                ? $0.memoryBytes > $1.memoryBytes
+                : $0.cpuPercent > $1.cpuPercent
+        }
     }
 
     let scanners: [any Scanner] = [

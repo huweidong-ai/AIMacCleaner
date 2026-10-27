@@ -230,7 +230,14 @@ struct MainView: View {
             nav
             Spacer(minLength: 8)
             VStack(spacing: 6) {
+                // 点内存卡 → 跳到进程页按内存排序看大户：回答「到底是谁用的多」。
                 MemoryCard()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        state.selectedTab = .processes
+                        state.processScope = .all
+                    }
+                    .help(L10n.t("点按查看占用内存最多的进程", "Click to see the top memory consumers"))
                 DiskCard(reclaimable: reclaimableBytes)
             }
             .padding(.horizontal, 12)
