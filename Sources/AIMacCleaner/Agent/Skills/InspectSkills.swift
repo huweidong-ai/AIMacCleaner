@@ -233,6 +233,147 @@ struct ListProcessesSkill: AgentSkill {
     }
 }
 
+// MARK: - check_installs
+
+/// `ai-mac-cleaner --check-installs <target>`
+///
+/// 为什么要有：内置扫描器认的是「目录名像不像这个 app」，而**安装渠道不在它的字典里**。
+/// 一个东西是 `brew install` 装的（Cellar / Caskroom / brew services）、是 `npm -g` 装的、
+/// 还是注册了 launchd 启动项 —— 只有主动去问对应的包管理器才知道。
+/// 没有这条 skill，模型只能按名字猜路径，用户「我可能是 brew 装的」这种关键线索就用不上。
+/// 全部只读枚举，不动任何东西。
+struct CheckInstallsSkill: AgentSkill {
+    let spec = SkillSpec(
+        name: "check_installs",
+        cli: "--check-installs <target>",
+        summaryZh: "查某个东西在本机的安装渠道：Homebrew（formula/cask/服务）、launchd 启动项、npm / pipx 全局包。判断「是不是 brew 装的」先调它。",
+        summaryEn: "Check how something is installed on this machine: Homebrew (formula/cask/services), launchd agents, npm / pipx globals. Call this to find out whether it came from brew.",
+        args: [
+            SkillArg(name: "target", required: true,
+                     desc: L10n.t("应用名或关键词，如 openclaw、Cursor", "App name or keyword, e.g. openclaw, Cursor"))
+        ],
+        risk: .readOnly
+    )
+
+    func invoke(_ args: SkillArgs, session: AgentSession) async -> SkillResult {
+        guard let target = args["target"] else {
+            return .failure(L10n.t("check_installs 需要 target 参数", "check_installs requires a target argument"))
+        }
+        let tokens = Self.keywords(from: target)
+        guard !tokens.isEmpty else {
+            return .failure(L10n.t("target 里没有可用于匹配的关键词", "No usable keyword in target"))
+        }
+
+        var sections: [String] = []
+        var channels: [String] = []
+
+        // ── Homebrew ──
+        let brew = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+        if let brew {
+            var brewLines: [String] = []
+            // env 包一层：brew 老版本在 list 时也可能触发 auto-update，禁掉避免卡 30s。
+            for (label, listArgs) in [("formula", ["list", "--formula", "--quiet"]),
+                                      ("cask",    ["list", "--cask", "--quiet"])] {
+                if let out = Shell.run("/usr/bin/env", ["HOMEBREW_NO_AUTO_UPDATE=1", brew] + listArgs) {
+                    let hits = Self.matches(in: out, tokens: tokens)
+                    for h in hits { brewLines.append("  brew \(label): \(h)") }
+                }
+            }
+            if let out = Shell.run("/usr/bin/env", ["HOMEBREW_NO_AUTO_UPDATE=1", brew, "services", "list"]) {
+                // 首行是表头（Name Status User File），跳过。
+                let hits = out.split(separator: "\n").dropFirst()
+                    .filter { line in tokens.contains { line.lowercased().contains($0) } }
+                for h in hits { brewLines.append("  brew service: \(h)") }
+            }
+            if brewLines.isEmpty {
+                sections.append(L10n.t("Homebrew：formula / cask / services 里都没有匹配「\(target)」的条目。",
+                                       "Homebrew: no formula / cask / service matches “\(target)”."))
+            } else {
+                channels.append("Homebrew")
+                sections.append(L10n.t("Homebrew：", "Homebrew:") + "\n" + brewLines.joined(separator: "\n"))
+            }
+        } else {
+            sections.append(L10n.t("Homebrew：本机未安装。", "Homebrew: not installed."))
+        }
+
+        // ── launchd ──
+        var launchdLines: [String] = []
+        if let out = Shell.run("/bin/launchctl", ["list"]) {
+            for h in Self.matches(in: out, tokens: tokens) { launchdLines.append("  launchctl: \(h)") }
+        }
+        let fm = FileManager.default
+        let launchDirs = [(fm.homeDirectoryForCurrentUser.path + "/Library/LaunchAgents"),
+                          "/Library/LaunchAgents", "/Library/LaunchDaemons"]
+        for dir in launchDirs {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for name in names where tokens.contains(where: { name.lowercased().contains($0) }) {
+                launchdLines.append("  \(dir)/\(name)")
+            }
+        }
+        if launchdLines.isEmpty {
+            sections.append(L10n.t("launchd：没有匹配的启动项。", "launchd: no matching agents/daemons."))
+        } else {
+            channels.append("launchd")
+            sections.append(L10n.t("launchd（这些 plist 本身也是卸载时要删的，可提交 propose_paths）：",
+                                   "launchd (these plists are uninstall targets too; submit them via propose_paths):")
+                            + "\n" + launchdLines.joined(separator: "\n"))
+        }
+
+        // ── npm / pipx ──
+        for (channel, bin, cmdArgs) in [("npm", "npm", ["ls", "-g", "--depth=0"]),
+                                        ("pipx", "pipx", ["list", "--short"])] {
+            let path = ["/opt/homebrew/bin/\(bin)", "/usr/local/bin/\(bin)"]
+                .first { fm.isExecutableFile(atPath: $0) }
+            guard let path else {
+                sections.append(L10n.t("\(channel)：本机未安装。", "\(channel): not installed."))
+                continue
+            }
+            guard let out = Shell.run(path, cmdArgs), !out.isEmpty else {
+                sections.append(L10n.t("\(channel)：没有匹配的包。", "\(channel): no matching packages."))
+                continue
+            }
+            let hits = Self.matches(in: out, tokens: tokens)
+            if hits.isEmpty {
+                sections.append(L10n.t("\(channel)：没有匹配的包。", "\(channel): no matching packages."))
+            } else {
+                channels.append(channel)
+                sections.append("\(channel):\n" + hits.map { "  \($0)" }.joined(separator: "\n"))
+            }
+        }
+
+        let head = channels.isEmpty
+            ? L10n.t("「\(target)」不是通过 brew / npm / pipx / launchd 管理的（或关键词没匹配上）。它更可能是手动安装、浏览器 PWA 或独立 app。",
+                     "“\(target)” isn't managed by brew / npm / pipx / launchd (or no keyword matched). It's likely manual, a browser PWA, or a standalone app.")
+            : L10n.t("「\(target)」由以下渠道管理：\(channels.joined(separator: "、"))。",
+                     "“\(target)” is managed by: \(channels.joined(separator: ", ")).")
+
+        return SkillResult(ok: true, summary: head,
+                           observation: head + "\n" + sections.joined(separator: "\n"))
+    }
+
+    /// 从目标名提取匹配关键词：按非字母数字切词、去重、丢掉 <3 字符的碎词；
+    /// 多词的再拼一个无分隔符形式（OpenClaw Control → openclawcontrol），
+    /// 兜住 plist / 包名里连写的情况。
+    static func keywords(from target: String) -> [String] {
+        var tokens = target.lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .filter { $0.count >= 3 }
+            .map(String.init)
+        if tokens.count > 1 {
+            tokens.append(tokens.joined())
+        }
+        return Array(Set(tokens))
+    }
+
+    /// 从一段命令输出里挑出含任一关键词的行。
+    static func matches(in output: String, tokens: [String]) -> [String] {
+        output.split(separator: "\n")
+            .filter { line in tokens.contains { line.lowercased().contains($0) } }
+            .map(String.init)
+    }
+}
+
 // MARK: - show_history
 
 /// `ai-mac-cleaner --history`

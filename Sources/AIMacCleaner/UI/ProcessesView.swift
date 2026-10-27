@@ -158,6 +158,9 @@ struct ProcessesView: View {
 
     private var scrollableContent: some View {
         VStack(spacing: 12) {
+            // 内存守卫状态条：常驻，泄漏发生前就拦住
+            MemoryGuardianBar()
+
             // 搜索栏
             searchBar
 

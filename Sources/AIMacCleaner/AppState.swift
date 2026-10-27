@@ -1322,6 +1322,9 @@ final class AppState: ObservableObject {
         restoreChat()
         restoreMemory()
 
+        // 内存守卫：按持久化的设置决定是否启动后台监控（随应用生命周期）。
+        MemoryGuardian.shared.applySettings()
+
         // 完全磁盘访问权限：冷启动检测一次。
         fullDiskAccessGranted = PrivacyAccess.hasFullDiskAccess()
         // app 从后台回到前台（用户在系统设置里授权完切回来）时重测，

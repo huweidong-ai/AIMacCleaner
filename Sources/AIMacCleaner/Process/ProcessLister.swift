@@ -185,6 +185,67 @@ enum ProcessLister {
         return result.sorted { $0.memoryBytes > $1.memoryBytes }
     }
 
+    /// 轻量采样（内存守卫后台轮询用）：单遍 `proc_listpids` + `proc_pidinfo`，
+    /// 不做 CPU 二次采样、不跑 lsof、不取命令行参数 —— 开销远小于 `snapshot()`，
+    /// 每 30 秒跑一次也不会被察觉。分类与保护规则（uid 0 / 系统路径 / 关键进程 /
+    /// 自身）与 `snapshot()` 完全一致，`isKillable` 语义不变。
+    static func lightweightSample() -> [LiveProcess] {
+        let capacity = 8192
+        var pids = [pid_t](repeating: 0, count: capacity)
+        let needed = proc_listpids(UInt32(PROC_ALL_PIDS), UInt32(0), &pids, Int32(MemoryLayout<pid_t>.stride * capacity))
+        guard needed > 0 else { return [] }
+        let count = min(Int(needed) / MemoryLayout<pid_t>.stride, capacity)
+
+        let ownPid = ProcessInfo.processInfo.processIdentifier
+        var result: [LiveProcess] = []
+        result.reserveCapacity(count)
+
+        for i in 0..<count {
+            let pid = pids[i]
+            guard pid > 0 else { continue }
+
+            // BSD 信息缓冲按 snapshot() 同款 256 字节处理（64 字节会被内核判 ENOMEM）。
+            var bsdBuf = [UInt8](repeating: 0, count: 256)
+            let brc = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsdBuf, Int32(bsdBuf.count))
+
+            var task = proc_taskinfo()
+            let trc = proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &task, Int32(MemoryLayout<proc_taskinfo>.size))
+            let mem = trc > 0 ? Int64(task.pti_resident_size) : 0
+
+            let path = Self.executablePath(for: pid)
+            let uid: uid_t
+            let ppid: pid_t
+            if brc > 0 {
+                let bsd = bsdBuf.withUnsafeBytes { $0.bindMemory(to: proc_bsdshortinfo.self).baseAddress!.pointee }
+                uid = bsd.pbsi_uid
+                ppid = pid_t(bsd.pbsi_ppid)
+            } else {
+                uid = 0
+                ppid = 0
+            }
+
+            let comm = path.isEmpty ? "" : (path as NSString).lastPathComponent
+            let kind = Self.classify(path: path, uid: uid)
+            let isKillable = kind != .system
+                && pid != ownPid
+                && pid > 1
+                && !Self.criticalNames.contains(comm)
+
+            result.append(LiveProcess(
+                pid: pid,
+                name: comm.isEmpty ? "pid \(pid)" : comm,
+                comm: comm,
+                executablePath: path,
+                arguments: [],
+                uid: uid, ppid: ppid,
+                memoryBytes: mem, cpuPercent: 0,
+                kind: kind, isKillable: isKillable,
+                ports: []
+            ))
+        }
+        return result.sorted { $0.memoryBytes > $1.memoryBytes }
+    }
+
     // MARK: - 辅助
 
     /// 扫描所有 TCP LISTEN 端口，返回 PID → [端口] 的映射。

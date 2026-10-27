@@ -51,6 +51,30 @@ enum SelfTest {
             Check(name: "字节格式化非空") {
                 !SizeFormat.human(0).isEmpty && !SizeFormat.human(1_500_000).isEmpty
             },
+
+            // ── 内存守卫判定 ──
+            Check(name: "MemoryGuardian 连续 2 次超阈值判定为异常") {
+                MemoryGuardian.isSuspect(memoryBytes: 9_000_000_000, thresholdBytes: 8_000_000_000, streak: 2)
+            },
+            Check(name: "MemoryGuardian 首次超阈值（streak=1）不动手") {
+                !MemoryGuardian.isSuspect(memoryBytes: 9_000_000_000, thresholdBytes: 8_000_000_000, streak: 1)
+            },
+            Check(name: "MemoryGuardian 未超阈值不触发") {
+                !MemoryGuardian.isSuspect(memoryBytes: 2_000_000_000, thresholdBytes: 8_000_000_000, streak: 5)
+            },
+            Check(name: "MemoryGuardian 白名单大小写不敏感") {
+                MemoryGuardian.isWhitelisted("XCODE", whitelist: ["xcode", "node"])
+                    && !MemoryGuardian.isWhitelisted("WeChat", whitelist: ["xcode"])
+            },
+            Check(name: "MemoryGuardian 阈值百分比落在合法区间") {
+                let g = MemoryGuardian.shared
+                g.thresholdPercent = 500   // 超界值应被夹紧到 90
+                let hi = g.thresholdPercent == 90
+                g.thresholdPercent = -3    // 低界应夹紧到 10
+                let lo = g.thresholdPercent == 10
+                g.thresholdPercent = 50    // 恢复默认，避免污染用户设置
+                return hi && lo
+            },
             Check(name: "AIToolLeftovers 注册表健全（非空、字段完整、每条有路径）") {
                 let r = AIToolLeftovers.registry
                 guard !r.isEmpty else { return false }

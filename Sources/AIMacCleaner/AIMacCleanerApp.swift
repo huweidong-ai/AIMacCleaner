@@ -138,6 +138,9 @@ struct AIMacCleanerApp: App {
                                    args: SkillArgs(["path": userArgs[idx + 1]]),
                                    session: session))
         }
+        if let idx = userArgs.firstIndex(of: "--check-installs"), idx + 1 < userArgs.count {
+            exit(CLIAgent.runSkill(name: "check_installs", args: SkillArgs(["target": userArgs[idx + 1]])))
+        }
         if userArgs.contains("--ps") {
             var args: [String: String] = [:]
             if let f = CLIAgent.value(after: "--filter", in: userArgs) { args["filter"] = f }
@@ -181,6 +184,7 @@ struct AIMacCleanerApp: App {
           ai-mac-cleaner --skill <名称> [--args '{...}']    直接调一个 skill / call a skill directly
           ai-mac-cleaner --ps [--filter background|user|system] [--keyword <名>] [--limit <N>]   列出进程 / list processes
           ai-mac-cleaner --review [--scope apps|leftovers]   分析删除清单 / review a removal plan
+          ai-mac-cleaner --check-installs <名称>            查安装渠道（brew/launchd/npm/pipx）/ check install channels
           ai-mac-cleaner --trace-roots                     列出可搜索的痕迹根目录 / list trace roots
           ai-mac-cleaner --search <宽泛词> [--limit <N>]     在痕迹目录里按宽 token 枚举候选 / search traces by broad token
           ai-mac-cleaner --inspect <绝对路径>               查看一个路径的归属线索 / inspect one path

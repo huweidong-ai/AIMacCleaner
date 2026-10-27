@@ -22,6 +22,7 @@ enum SkillRegistry {
     static let all: [AgentSkill] = [
         ListAppsSkill(),
         ScanAppSkill(),
+        CheckInstallsSkill(),
         ListTraceRootsSkill(),
         SearchPathsSkill(),
         InspectPathSkill(),
@@ -51,6 +52,7 @@ enum SkillRegistry {
     private static func alias(for key: String) -> String? {
         switch key {
         case "scan", "uninstall", "clean":        return "scan_app"
+        case "installs", "brew":                  return "check_installs"
         case "leftovers", "orphans":              return "scan_leftovers"
         case "ps", "processes", "list_process":   return "list_processes"
         case "review":                            return "review_plan"
