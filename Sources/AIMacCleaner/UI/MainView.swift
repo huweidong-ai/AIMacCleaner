@@ -468,7 +468,8 @@ struct MemoryCard: View {
                         .foregroundStyle(.secondary)
                 }
                 GeometryReader { geo in
-                    ZStack(alignment: .leading) {
+                    // 色条从右往左延伸：和「已用」数值（右上）同侧，读法更顺。
+                    ZStack(alignment: .trailing) {
                         Capsule().fill(Color.secondary.opacity(0.18))
                         Capsule()
                             .fill(usedRatio > 0.85 ? Theme.riskUserData : (usedRatio > 0.7 ? Theme.warning : Theme.accent))
@@ -521,7 +522,8 @@ struct DiskCard: View {
                         .foregroundStyle(.secondary)
                 }
                 GeometryReader { geo in
-                    ZStack(alignment: .leading) {
+                    // 与内存卡一致：色条从右往左延伸。
+                    ZStack(alignment: .trailing) {
                         Capsule().fill(Color.secondary.opacity(0.18))
                         Capsule()
                             .fill(usedRatio > 0.9 ? Theme.riskUserData : Theme.accent)
