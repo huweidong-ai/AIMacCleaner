@@ -472,8 +472,8 @@ struct MemoryCard: View {
                 // 与磁盘卡同款参照行：让「色条 = 已用、灰色 = 剩余」读法有个落点。
                 Text(L10n.t("剩 \(SizeFormat.human(max(0, u.available))) 可用",
                             "\(SizeFormat.human(max(0, u.available))) available"))
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
             }
             .padding(9)
             .background(Theme.bgSurface, in: RoundedRectangle(cornerRadius: 8))
