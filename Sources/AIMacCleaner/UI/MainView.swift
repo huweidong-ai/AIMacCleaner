@@ -19,6 +19,8 @@ struct MainView: View {
     /// 这里自己管宽度：拖拽把手 clamp 在 100...280，物理上不可能被压扁。
     @State private var sidebarWidth: CGFloat = 235
     @State private var widthAtDragStart: CGFloat = 235
+    /// 内存 Top 排名浮层开关。
+    @State private var showMemoryDetail = false
     /// 实时窗口宽度：由 AppKit NSWindow 的 frame 与 didResize 通知驱动，
     /// 比 GeometryReader 更稳，避免 SwiftUI 在 .contentMinSize 下读到内容固有宽度。
     @State private var windowWidth: CGFloat = 1200
@@ -230,12 +232,15 @@ struct MainView: View {
             nav
             Spacer(minLength: 8)
             VStack(spacing: 6) {
-                // 点内存卡 → 跳到进程页按内存排序看大户：回答「到底是谁用的多」。
+                // 点内存卡 → 弹出 Top 占用排名浮层：好奇心第一时间被满足，
+                // 想细看再一键进进程页。「先给答案，再给入口」。
                 MemoryCard()
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        state.selectedTab = .processes
-                        state.processScope = .all
+                    .onTapGesture { showMemoryDetail = true }
+                    .popover(isPresented: $showMemoryDetail, arrowEdge: .trailing) {
+                        MemoryDetailPopover {
+                            showMemoryDetail = false
+                        }
                     }
                     .help(L10n.t("点按查看占用内存最多的进程", "Click to see the top memory consumers"))
                 DiskCard(reclaimable: reclaimableBytes)
@@ -490,10 +495,105 @@ struct MemoryCard: View {
     }
 }
 
+/// 内存 Top 排名浮层：点侧栏内存卡弹出。
+///
+/// 「12.09 GB 已用」给不了答案，「Chrome 4.2 GB / 微信 2.8 GB …」才给得了。
+/// 列出非系统进程的内存占用 Top 8（从高到低），想细看 / 想动手再一键进进程页。
+/// 数据复用进程页的 `state.processes`：没扫过就提示扫描——不偷偷自动扫，
+/// 枚举全进程 + CPU 采样是有成本的操作，交给用户决定。
+struct MemoryDetailPopover: View {
+    @EnvironmentObject var state: AppState
+    /// 点「查看全部」时收起浮层。
+    let onOpenProcesses: () -> Void
+
+    private var topProcesses: [LiveProcess] {
+        state.processes
+            .filter { $0.kind != .system }
+            .sorted {
+                $0.memoryBytes != $1.memoryBytes
+                    ? $0.memoryBytes > $1.memoryBytes
+                    : $0.cpuPercent > $1.cpuPercent
+            }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(L10n.t("内存占用 Top 8", "Top 8 memory consumers"))
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            if !state.hasScannedProcesses {
+                Text(L10n.t("还没有扫描过进程。扫一次就能看到是谁在吃内存。",
+                            "Processes haven't been scanned yet. Scan once to see who's using the memory."))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await state.scanProcesses() }
+                } label: {
+                    Label(L10n.t("开始扫描", "Start scan"), systemImage: "magnifyingglass")
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+            } else if topProcesses.isEmpty {
+                Text(L10n.t("没有可显示的进程。", "No processes to show."))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            } else {
+                let top = Array(topProcesses.prefix(8))
+                // 行内占比条以第一名为基准归一化，直观看出「第二名差多少」。
+                let maxBytes = max(top[0].memoryBytes, 1)
+                ForEach(Array(top.enumerated()), id: \.element.pid) { idx, p in
+                    HStack(spacing: 8) {
+                        Text("\(idx + 1)")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(idx < 3 ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.tertiary))
+                            .frame(width: 14)
+                        Text(p.name)
+                            .font(.system(size: 11.5))
+                            .lineLimit(1)
+                            .help(p.executablePath)
+                        Spacer(minLength: 8)
+                        // 占比条：相对第一名归一化，直观看出「第二名差多少」。
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.secondary.opacity(0.15))
+                                Capsule()
+                                    .fill(Theme.accent.opacity(idx < 3 ? 0.75 : 0.4))
+                                    .frame(width: max(2, geo.size.width * Double(p.memoryBytes) / Double(maxBytes)))
+                            }
+                        }
+                        .frame(width: 64, height: 4)
+                        Text(SizeFormat.human(p.memoryBytes))
+                            .font(.system(size: 10.5).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 58, alignment: .trailing)
+                    }
+                    .contentShape(Rectangle())
+                }
+
+                Divider()
+
+                Button {
+                    state.selectedTab = .processes
+                    state.processScope = .all
+                    onOpenProcesses()
+                } label: {
+                    Label(L10n.t("查看全部进程", "View all processes"),
+                          systemImage: "chevron.right")
+                        .font(.system(size: 11.5, weight: .medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.accent)
+            }
+        }
+        .padding(14)
+        .frame(width: 320)
+    }
+}
+
 /// 启动磁盘用量卡片。存在的意义：让「删掉这些能腾出多少」有个参照系 ——
 /// 单看「1.4 GB」没有概念，看到「还剩 28 GB」就有了。
-struct DiskCard: View {
-    let reclaimable: Int64
+struct DiskCard: View {    let reclaimable: Int64
 
     private var capacity: (free: Int64, total: Int64)? {
         let url = URL(fileURLWithPath: NSHomeDirectory())
