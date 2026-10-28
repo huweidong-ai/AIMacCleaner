@@ -138,14 +138,17 @@ struct AIModelConfig: Codable, Equatable, Identifiable {
             }
         }
 
-        /// 预设的推荐模型名（仅填表用，用户可改）。
+        /// 预设的推荐模型名（仅填表用，用户可改）。对照 2026-10 各家官方文档：
+        /// DeepSeek 的 deepseek-chat 别名已于 2026-07-24 弃用，改用 v4 系列；
+        /// 智谱旗舰为 GLM-5.3 家族；Kimi 示例用 kimi-k3（旗舰）/ kimi-k2.6（通用档）。
+        /// 厂商迭代很快，过期了改这里的字符串即可——预设不持久化，老配置不受影响。
         var model: String {
             switch self {
             case .openai:          return "gpt-4o-mini"
             case .anthropic:       return "claude-3-5-sonnet-20241022"
-            case .deepseek:        return "deepseek-chat"
-            case .zhipu:           return "glm-4-flash"
-            case .moonshot:        return "moonshot-v1-8k"
+            case .deepseek:        return "deepseek-v4-flash"
+            case .zhipu:           return "glm-5.3-flash"
+            case .moonshot:        return "kimi-k2.6"
             case .qwen:            return "qwen-plus"
             case .siliconflow:     return "deepseek-ai/DeepSeek-V3"
             case .openrouter:      return "openai/gpt-4o-mini"
