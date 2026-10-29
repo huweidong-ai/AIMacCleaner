@@ -139,22 +139,24 @@ struct AIModelConfig: Codable, Equatable, Identifiable {
         }
 
         /// 预设的推荐模型名（仅填表用，用户可改）。对照 2026-10 各家官方文档：
-        /// DeepSeek 的 deepseek-chat 别名已于 2026-07-24 弃用，改用 v4 系列；
-        /// 智谱旗舰为 GLM-5.3 家族；Kimi 示例用 kimi-k3（旗舰）/ kimi-k2.6（通用档）。
+        /// - DeepSeek：deepseek-chat 别名已于 2026-07-24 弃用，改用 v4 系列；
+        /// - 智谱旗舰为 GLM-5.3 家族；Kimi 示例用 kimi-k3（旗舰）/ kimi-k2.6（通用档）；
+        /// - OpenAI 当前档位为 GPT-6 Astra（旗舰）/ GPT-5.6 Terra（均衡）/ Luna（低价），
+        ///   预设取 Terra；Anthropic 当前为 Opus/Sonnet/Haiku 5.5 代，预设取 Sonnet。
         /// 厂商迭代很快，过期了改这里的字符串即可——预设不持久化，老配置不受影响。
         var model: String {
             switch self {
-            case .openai:          return "gpt-4o-mini"
-            case .anthropic:       return "claude-3-5-sonnet-20241022"
+            case .openai:          return "gpt-5.6-terra"
+            case .anthropic:       return "claude-sonnet-5-5"
             case .deepseek:        return "deepseek-v4-flash"
             case .zhipu:           return "glm-5.3-flash"
             case .moonshot:        return "kimi-k2.6"
             case .qwen:            return "qwen-plus"
             case .siliconflow:     return "deepseek-ai/DeepSeek-V3"
-            case .openrouter:      return "openai/gpt-4o-mini"
+            case .openrouter:      return "openai/gpt-5.6-terra"
             case .ollama:          return "llama3.1"
-            case .customOpenAI:    return "gpt-4o-mini"
-            case .customAnthropic: return "claude-3-5-sonnet-20241022"
+            case .customOpenAI:    return "gpt-5.6-terra"
+            case .customAnthropic: return "claude-sonnet-5-5"
             }
         }
 
