@@ -302,29 +302,38 @@ struct MainView: View {
 
     private func icon(for tab: AppState.Tab) -> String {
         switch tab {
-        case .askAI:     return "sparkles"
-        case .apps:      return "square.grid.2x2"
-        case .leftovers: return "wand.and.rays"
-        case .processes: return "waveform.path.ecg"
+        case .askAI:      return "sparkles"
+        case .apps:       return "square.grid.2x2"
+        case .largeFiles: return "internaldrive"
+        case .leftovers:  return "wand.and.rays"
+        case .slimming:   return "scissors"
+        case .processes:  return "waveform.path.ecg"
+        case .startup:    return "power"
+        case .ports:      return "cable.connector"
         }
     }
 
     /// 导航项右侧的计数徽章。没有数字就不显示 —— 空徽章只是噪声。
     private func badge(for tab: AppState.Tab) -> Int? {
         switch tab {
-        case .askAI:     return nil
-        case .apps:      return state.allApps.isEmpty ? nil : state.allApps.count
-        case .leftovers: return state.leftoverGroups.isEmpty ? nil : state.leftoverGroups.count
-        case .processes: return state.processes.isEmpty ? nil : state.visibleProcesses.count
+        case .askAI:      return nil
+        case .apps:       return state.allApps.isEmpty ? nil : state.allApps.count
+        case .largeFiles: return state.largeFiles.isEmpty ? nil : state.largeFiles.count
+        case .leftovers:  return state.leftoverGroups.isEmpty ? nil : state.leftoverGroups.count
+        case .slimming:   return state.matchedApp == nil ? nil : state.artifacts.count
+        case .processes:  return state.processes.isEmpty ? nil : state.visibleProcesses.count
+        case .startup:    return state.startupItems.isEmpty ? nil : state.startupItems.count
+        case .ports:      return state.listeningPorts.isEmpty ? nil : state.listeningPorts.count
         }
     }
 
     /// 侧栏磁盘卡片里的「本次可回收」：当前页面已勾选的量。
     private var reclaimableBytes: Int64 {
         switch state.selectedTab {
-        case .apps:      return state.totalSelectedSize
-        case .leftovers: return state.leftoverSelectedSize
-        default:         return state.totalSelectedSize + state.leftoverSelectedSize
+        case .apps:       return state.totalSelectedSize
+        case .leftovers:  return state.leftoverSelectedSize
+        case .largeFiles: return state.selectedLargeFileSize
+        default:          return state.totalSelectedSize + state.leftoverSelectedSize
         }
     }
 
@@ -333,10 +342,14 @@ struct MainView: View {
     @ViewBuilder
     private var detail: some View {
         switch state.selectedTab {
-        case .askAI:     AskAIView()
-        case .apps:      AppsView()
-        case .leftovers: LeftoversView()
-        case .processes: ProcessesView()
+        case .askAI:      AskAIView()
+        case .apps:       AppsView()
+        case .largeFiles: LargeFilesView()
+        case .leftovers:  LeftoversView()
+        case .slimming:   SlimmingView()
+        case .processes:  ProcessesView()
+        case .startup:    StartupView()
+        case .ports:      PortsView()
         }
     }
 }

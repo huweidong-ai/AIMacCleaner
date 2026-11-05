@@ -416,16 +416,24 @@ final class AppState: ObservableObject {
         // raw value 当稳定 id 用（`Identifiable`、选中态持久化），不本地化。
         case askAI = "askAI"
         case apps = "apps"
+        case largeFiles = "largeFiles"
         case leftovers = "leftovers"
+        case slimming = "slimming"
         case processes = "processes"
+        case startup = "startup"
+        case ports = "ports"
         var id: String { rawValue }
 
         var displayName: String {
             switch self {
             case .askAI:     return L10n.t("问 AI", "Ask AI")
-            case .apps:      return L10n.t("应用", "Apps")
-            case .leftovers: return L10n.t("残留", "Leftovers")
-            case .processes: return L10n.t("进程", "Processes")
+            case .apps:      return L10n.t("应用卸载", "Uninstall")
+            case .largeFiles:return L10n.t("大文件清理", "Large files")
+            case .leftovers: return L10n.t("残留清理", "Leftovers")
+            case .slimming:  return L10n.t("应用瘦身", "App slim")
+            case .processes: return L10n.t("进程管理", "Processes")
+            case .startup:   return L10n.t("启动项", "Startup")
+            case .ports:     return L10n.t("端口", "Ports")
             }
         }
     }
@@ -916,6 +924,14 @@ final class AppState: ObservableObject {
                 await scanLeftovers()
             case .processes:
                 await scanProcesses()
+            case .largeFiles:
+                await scanLargeFiles()
+            case .slimming:
+                if let app = matchedApp, let mode = slimMode { await slim(app: app, mode: mode) }
+            case .startup:
+                await scanStartupItems()
+            case .ports:
+                await scanPorts()
             case .askAI:
                 break
             }
@@ -1329,6 +1345,215 @@ final class AppState: ObservableObject {
     func setPlanWithSelections() {
         guard let plan = plan else { return }
         self.plan = RemovalPlan(targetName: plan.targetName, artifacts: artifacts)
+    }
+
+    // MARK: - 大文件清理
+
+    @Published var largeFiles: [LargeFileItem] = []
+    @Published private(set) var isScanningLargeFiles = false
+    @Published private(set) var hasScannedLargeFiles = false
+    /// 纳入阈值：体积 ≥ 此值（MB）且最后访问距今 ≥ minAgeDays 天。
+    @Published var largeFileThresholdMB: Int = 100
+    @Published var largeFileMinAgeDays: Int = 30
+
+    var selectedLargeFiles: [LargeFileItem] { largeFiles.filter { $0.selected } }
+    var selectedLargeFileSize: Int64 { selectedLargeFiles.reduce(0) { $0 + $1.size } }
+    var selectedLargeFileCount: Int { selectedLargeFiles.count }
+
+    func scanLargeFiles() async {
+        isScanningLargeFiles = true
+        defer {
+            isScanningLargeFiles = false
+            hasScannedLargeFiles = true
+        }
+        // 先把值取到局部变量，避免在 detached 任务里捕获 MainActor 的 self。
+        let threshold = Int64(largeFileThresholdMB) * 1_048_576
+        let age = largeFileMinAgeDays
+        let list = await Task.detached(priority: .userInitiated) {
+            LargeFileScanner.scan(thresholdBytes: threshold, minAgeDays: age)
+        }.value
+        largeFiles = list
+    }
+
+    func toggleLargeFileSelected(_ id: UUID) {
+        guard let i = largeFiles.firstIndex(where: { $0.id == id }) else { return }
+        largeFiles[i].selected.toggle()
+    }
+
+    func setAllLargeFilesSelected(_ on: Bool) {
+        for i in largeFiles.indices { largeFiles[i].selected = on }
+    }
+
+    /// 把选中的大文件 / 缓存文件夹移到废纸篓，返回成功移入的项数，随后自动重扫。
+    @discardableResult
+    func deleteSelectedLargeFiles() -> Int {
+        let n = LargeFileScanner.trash(selectedLargeFiles)
+        Task { await scanLargeFiles() }
+        return n
+    }
+
+    // MARK: - 应用瘦身
+
+    /// 选一个已装 app，扫描其「只清数据」的可清理项（复用 slim 流程，结果落在 artifacts）。
+    func slimApp(_ app: AppIdentity, mode: SlimMode) async {
+        await slim(app: app, mode: mode)
+    }
+
+    /// 执行瘦身清理：复用卸载执行器（plan 只含数据类项，绝不碰 app 本体），
+    /// 用户数据进废纸篓（可恢复）。返回成功清理的项数，随后自动重扫刷新。
+    @discardableResult
+    func runSlimCleanup() -> Int {
+        guard let app = matchedApp, let mode = slimMode, let plan = plan else { return 0 }
+        let selected = artifacts.filter(\.selected)
+        let executor = RemovalExecutor(plan: plan, selected: selected, trashUserData: true)
+        let outcome = executor.execute()
+        // 文件系统变了：刷新 app 列表，并重扫该 app 的瘦身结果。
+        invalidateInventory()
+        Task { await slim(app: app, mode: mode) }
+        return outcome.successCount
+    }
+
+    /// 瘦身结果里某一项的勾选切换（重赋值数组以确保 @Published 触发）。
+    func slimToggleSelected(_ id: UUID) {
+        guard let i = artifacts.firstIndex(where: { $0.id == id }) else { return }
+        var copy = artifacts
+        copy[i].selected.toggle()
+        artifacts = copy
+    }
+
+    func slimSetAllSelected(_ on: Bool) {
+        var copy = artifacts
+        for i in copy.indices { copy[i].selected = on }
+        artifacts = copy
+    }
+
+    var slimSelectedCount: Int { artifacts.filter(\.selected).count }
+    var slimSelectedSize: Int64 { artifacts.filter(\.selected).reduce(0) { $0 + $1.size } }
+
+    // MARK: - 启动项管理
+
+    @Published var startupItems: [StartupItem] = []
+    @Published private(set) var isScanningStartup = false
+    @Published private(set) var hasScannedStartup = false
+
+    func scanStartupItems() async {
+        isScanningStartup = true
+        defer {
+            isScanningStartup = false
+            hasScannedStartup = true
+        }
+        let list = await Task.detached(priority: .userInitiated) {
+            StartupItemScanner.scan()
+        }.value
+        startupItems = list
+    }
+
+    func toggleStartupSelected(_ id: UUID) {
+        guard let i = startupItems.firstIndex(where: { $0.id == id }) else { return }
+        startupItems[i].selected.toggle()
+    }
+
+    func setAllStartupSelected(_ on: Bool) {
+        for i in startupItems.indices { startupItems[i].selected = on }
+    }
+
+    /// 禁用 / 启用选中且可管理的启动项，返回成功数量。
+    @discardableResult
+    func applyStartupEnabled(_ enabled: Bool) -> Int {
+        let targets = startupItems.filter { $0.selected && $0.domain.manageable }
+        var ok = 0
+        var copy = startupItems
+        for item in targets {
+            if StartupItemScanner.setEnabled(item, enabled: enabled) {
+                ok += 1
+                // 同步内存里的状态，避免重扫前界面不刷新。
+                if let i = copy.firstIndex(where: { $0.id == item.id }) {
+                    copy[i].isEnabled = enabled
+                    copy[i].selected = false
+                }
+            }
+        }
+        startupItems = copy
+        return ok
+    }
+
+    /// 把选中的启动项移到废纸篓，返回成功数量。
+    @discardableResult
+    func removeSelectedStartupItems() -> Int {
+        let targets = startupItems.filter { $0.selected && $0.domain.manageable }
+        var ok = 0
+        for item in targets {
+            if StartupItemScanner.remove(item) { ok += 1 }
+        }
+        if ok > 0 { startupItems.removeAll { $0.selected && $0.domain.manageable } }
+        return ok
+    }
+
+    /// 单个启动项的禁用 / 启用（重命名 .plist ↔ .plist.disabled）。
+    @discardableResult
+    func setStartupItemEnabled(_ id: UUID, enabled: Bool) -> Bool {
+        guard let idx = startupItems.firstIndex(where: { $0.id == id }) else { return false }
+        let item = startupItems[idx]
+        guard item.domain.manageable else { return false }
+        let ok = StartupItemScanner.setEnabled(item, enabled: enabled)
+        if ok {
+            var copy = startupItems
+            copy[idx].isEnabled = enabled
+            startupItems = copy
+        }
+        return ok
+    }
+
+    /// 单个启动项移到废纸篓。
+    @discardableResult
+    func removeStartupItem(_ id: UUID) -> Bool {
+        guard let idx = startupItems.firstIndex(where: { $0.id == id }) else { return false }
+        let item = startupItems[idx]
+        guard item.domain.manageable else { return false }
+        let ok = StartupItemScanner.remove(item)
+        if ok { startupItems.remove(at: idx) }
+        return ok
+    }
+
+    // MARK: - 端口查看器
+
+    @Published var listeningPorts: [ListeningPort] = []
+    @Published private(set) var isScanningPorts = false
+    @Published private(set) var hasScannedPorts = false
+    @Published var selectedPortIds: Set<UUID> = []
+
+    func scanPorts() async {
+        isScanningPorts = true
+        defer {
+            isScanningPorts = false
+            hasScannedPorts = true
+        }
+        let list = await Task.detached(priority: .userInitiated) {
+            PortScanner.scan()
+        }.value
+        listeningPorts = list
+        selectedPortIds.removeAll()
+    }
+
+    func togglePortSelected(_ id: UUID) {
+        if selectedPortIds.contains(id) { selectedPortIds.remove(id) }
+        else { selectedPortIds.insert(id) }
+    }
+
+    func setAllPortsSelected(_ on: Bool) {
+        if on { selectedPortIds = Set(listeningPorts.map(\.id)) }
+        else { selectedPortIds.removeAll() }
+    }
+
+    /// 结束选中端口占用的进程，返回成功结束的数量，随后自动重扫。
+    @discardableResult
+    func killSelectedPortProcesses() -> Int {
+        let pids = listeningPorts.filter { selectedPortIds.contains($0.id) }.map(\.pid)
+        guard !pids.isEmpty else { return 0 }
+        let n = ProcessTerminator.terminate(pids: pids)
+        selectedPortIds.removeAll()
+        Task { await scanPorts() }
+        return n
     }
 
     init() {
