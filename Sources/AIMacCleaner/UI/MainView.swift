@@ -272,17 +272,47 @@ struct MainView: View {
     }
 
     private var nav: some View {
-        VStack(spacing: 2) {
-            ForEach(AppState.Tab.allCases) { tab in
-                NavItem(tab: tab,
-                        icon: icon(for: tab),
-                        badge: badge(for: tab),
-                        isActive: state.selectedTab == tab) {
-                    state.selectedTab = tab
-                }
+        VStack(alignment: .leading, spacing: 2) {
+            // 「问 AI」是助手入口而非清理工具，置顶并单独用强调色区分。
+            navRow(.askAI, assistant: true)
+
+            navGroup(L10n.t("磁盘空间", "Disk space")) {
+                navRow(.apps)
+                navRow(.largeFiles)
+                navRow(.leftovers)
+            }
+            navGroup(L10n.t("内存", "Memory")) {
+                navRow(.processes)
+            }
+            navGroup(L10n.t("系统管控", "System control")) {
+                navRow(.startup)
+                navRow(.ports)
             }
         }
         .padding(.horizontal, 12)
+    }
+
+    private func navRow(_ tab: AppState.Tab, assistant: Bool = false) -> some View {
+        NavItem(tab: tab,
+                icon: icon(for: tab),
+                badge: badge(for: tab),
+                isActive: state.selectedTab == tab,
+                isAssistant: assistant) {
+            state.selectedTab = tab
+        }
+    }
+
+    /// 侧栏分组小标题：纯视觉分隔、不折叠（Finder / 系统设置同款低密度做法）。
+    private func navGroup(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .padding(.leading, 9)
+                .padding(.top, 12)
+                .padding(.bottom, 2)
+            content()
+        }
     }
 
     private var footLinks: some View {
@@ -306,7 +336,6 @@ struct MainView: View {
         case .apps:       return "square.grid.2x2"
         case .largeFiles: return "internaldrive"
         case .leftovers:  return "wand.and.rays"
-        case .slimming:   return "scissors"
         case .processes:  return "waveform.path.ecg"
         case .startup:    return "power"
         case .ports:      return "cable.connector"
@@ -320,7 +349,6 @@ struct MainView: View {
         case .apps:       return state.allApps.isEmpty ? nil : state.allApps.count
         case .largeFiles: return state.largeFiles.isEmpty ? nil : state.largeFiles.count
         case .leftovers:  return state.leftoverGroups.isEmpty ? nil : state.leftoverGroups.count
-        case .slimming:   return state.matchedApp == nil ? nil : state.artifacts.count
         case .processes:  return state.processes.isEmpty ? nil : state.visibleProcesses.count
         case .startup:    return state.startupItems.isEmpty ? nil : state.startupItems.count
         case .ports:      return state.listeningPorts.isEmpty ? nil : state.listeningPorts.count
@@ -346,7 +374,6 @@ struct MainView: View {
         case .apps:       AppsView()
         case .largeFiles: LargeFilesView()
         case .leftovers:  LeftoversView()
-        case .slimming:   SlimmingView()
         case .processes:  ProcessesView()
         case .startup:    StartupView()
         case .ports:      PortsView()
@@ -361,6 +388,7 @@ private struct NavItem: View {
     let icon: String
     let badge: Int?
     let isActive: Bool
+    let isAssistant: Bool
     let action: () -> Void
 
     @State private var hovering = false
@@ -383,13 +411,17 @@ private struct NavItem: View {
                                     in: Capsule())
                 }
             }
-            .foregroundStyle(isActive ? Theme.accent : Color.primary.opacity(0.78))
+            .foregroundStyle(
+                isAssistant ? AnyShapeStyle(.white)
+                : (isActive ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.78)))
+            )
             .padding(.horizontal, 9)
             .frame(height: 32)
             .background(background)
             .overlay(alignment: .leading) {
                 // 选中态左侧的一小段竖条：比整块底色更轻，也更好定位。
-                if isActive {
+                // 问 AI 用实底强调色，不再叠加竖条。
+                if isActive && !isAssistant {
                     Capsule()
                         .fill(Theme.accent)
                         .frame(width: 2.5, height: 17)
@@ -404,7 +436,10 @@ private struct NavItem: View {
 
     @ViewBuilder
     private var background: some View {
-        if isActive {
+        if isAssistant {
+            // 问 AI 用强调色实底 + 白字，明确它是「助手」而非「清理工具」。
+            RoundedRectangle(cornerRadius: 6).fill(Theme.accent)
+        } else if isActive {
             RoundedRectangle(cornerRadius: 6).fill(Theme.accentSubtle)
         } else if hovering {
             RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.045))

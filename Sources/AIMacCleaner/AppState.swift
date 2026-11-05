@@ -418,7 +418,6 @@ final class AppState: ObservableObject {
         case apps = "apps"
         case largeFiles = "largeFiles"
         case leftovers = "leftovers"
-        case slimming = "slimming"
         case processes = "processes"
         case startup = "startup"
         case ports = "ports"
@@ -430,7 +429,6 @@ final class AppState: ObservableObject {
             case .apps:      return L10n.t("应用卸载", "Uninstall")
             case .largeFiles:return L10n.t("大文件清理", "Large files")
             case .leftovers: return L10n.t("残留清理", "Leftovers")
-            case .slimming:  return L10n.t("应用瘦身", "App slim")
             case .processes: return L10n.t("进程管理", "Processes")
             case .startup:   return L10n.t("启动项", "Startup")
             case .ports:     return L10n.t("端口", "Ports")
@@ -926,8 +924,6 @@ final class AppState: ObservableObject {
                 await scanProcesses()
             case .largeFiles:
                 await scanLargeFiles()
-            case .slimming:
-                if let app = matchedApp, let mode = slimMode { await slim(app: app, mode: mode) }
             case .startup:
                 await scanStartupItems()
             case .ports:

@@ -253,12 +253,21 @@ struct AppsView: View {
     private var resultPane: some View {
         if state.isScanning {
             scanningView
+        } else if let app = state.matchedApp, !hasVisibleResults {
+            // 已选中某 app 但还没出结果：给出显眼的「瘦身」入口，
+            // 让瘦身在应用卸载页内可达，不再依赖右键菜单。
+            slimEntryPane(app: app)
         } else if !hasVisibleResults {
             scannerShowcase
         } else {
             VStack(spacing: 0) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        // 选中某 app 且还没进入瘦身模式时，结果区顶部常驻一个瘦身入口：
+                        // 让「不想卸载、只想清缓存」的用户一眼能切过去，不必右键。
+                        if state.slimMode == nil, let app = state.matchedApp {
+                            slimQuickEntry(app: app)
+                        }
                         summaryCard
                         // 瘦身模式：先讲清这一档会动什么、不会动什么（尤其「不会卸载 app」），
                         // 再让人看清单。放在分组之前，避免用户先看到一堆路径再被告知后果。
@@ -297,6 +306,94 @@ struct AppsView: View {
                 bottomBar
             }
         }
+    }
+
+    /// 选中某 app、但尚未出扫描/瘦身结果时的入口卡片。
+    ///
+    /// 「应用瘦身」原本只藏在右键菜单里，用户很难发现，而且和侧栏独立的「应用瘦身」
+    /// tab 形成重复入口。这里把它提升为**选中 app 后首屏就可见**的显眼操作，
+    /// 与「扫描以便卸载」并列 —— 瘦身因此自然地成为「应用卸载」页的子流程，
+    /// 不再需要侧栏平级的独立入口。
+    private func slimEntryPane(app: AppIdentity) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "scissors")
+                .font(.system(size: 44))
+                .foregroundStyle(Theme.accent)
+            Text(L10n.t("给 \(app.displayName) 瘦个身", "Slim down \(app.displayName)"))
+                .font(.title3)
+                .fontWeight(.semibold)
+            Text(L10n.t("只清这个应用的缓存与用户数据，不卸载应用、不动登录态。选一个档位开始。",
+                        "Clear only this app's caches and user data — no uninstall, sign-in stays. Pick a mode."))
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 460)
+
+            VStack(spacing: 10) {
+                Button {
+                    Task { await state.slim(app: app, mode: .cacheOnly) }
+                } label: {
+                    Label(L10n.t("轻量瘦身（只清缓存）", "Light slim (caches only)"), systemImage: "leaf")
+                }
+                .controlSize(.large)
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.accent)
+
+                Button {
+                    Task { await state.slim(app: app, mode: .fullReset) }
+                } label: {
+                    Label(L10n.t("彻底重置（等同新装）", "Full reset (like a fresh install)"), systemImage: "arrow.counterclockwise")
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
+
+                Divider()
+                    .frame(maxWidth: 320)
+
+                Button {
+                    Task { await state.scan(app: app, useCache: false) }
+                } label: {
+                    Label(L10n.t("扫描以便卸载", "Scan for uninstall"), systemImage: "magnifyingglass")
+                }
+                .controlSize(.large)
+                .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
+    }
+
+    /// 选中 app、已进入结果页时，结果区顶部常驻的「应用瘦身」入口：
+    /// 让不想卸载、只打算清缓存的用户一眼能切到瘦身，无需右键。
+    private func slimQuickEntry(app: AppIdentity) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "scissors")
+                .foregroundStyle(Theme.accent)
+                .font(.system(size: 13))
+            Text(L10n.t("不想卸载，只想清掉它的缓存与残留数据？",
+                        "Rather keep the app but clear its caches and leftovers?"))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Button {
+                Task { await state.slim(app: app, mode: .cacheOnly) }
+            } label: {
+                Label(L10n.t("轻量瘦身", "Light slim"), systemImage: "leaf")
+            }
+            .controlSize(.small)
+            .buttonStyle(.borderedProminent)
+            .tint(Theme.accent)
+            Button {
+                Task { await state.slim(app: app, mode: .fullReset) }
+            } label: {
+                Label(L10n.t("彻底重置", "Full reset"), systemImage: "arrow.counterclockwise")
+            }
+            .controlSize(.small)
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Theme.bgCanvas, in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// 扫描中：把「正在调用 N 个扫描器」细化成「一个一个跑、每个显示找到了几项」。
