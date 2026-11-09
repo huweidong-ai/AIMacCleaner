@@ -421,6 +421,7 @@ final class AppState: ObservableObject {
         case processes = "processes"
         case startup = "startup"
         case ports = "ports"
+        case shredder = "shredder"
         var id: String { rawValue }
 
         var displayName: String {
@@ -432,6 +433,7 @@ final class AppState: ObservableObject {
             case .processes: return L10n.t("进程管理", "Processes")
             case .startup:   return L10n.t("启动项", "Startup")
             case .ports:     return L10n.t("端口", "Ports")
+            case .shredder:  return L10n.t("文件粉碎", "Shredder")
             }
         }
     }
@@ -928,6 +930,8 @@ final class AppState: ObservableObject {
                 await scanStartupItems()
             case .ports:
                 await scanPorts()
+            case .shredder:
+                break
             case .askAI:
                 break
             }
@@ -1550,6 +1554,127 @@ final class AppState: ObservableObject {
         selectedPortIds.removeAll()
         Task { await scanPorts() }
         return n
+    }
+
+    // MARK: - 文件粉碎
+
+    @Published var shredItems: [Shredder.ShredItem] = []
+    @Published private(set) var isShredding = false
+
+    var selectedShredCount: Int { shredItems.filter { $0.selected }.count }
+
+    /// 把拖入的 URL 加进待粉碎列表（去重；已删除/粉碎中的不再加入）。
+    func addShredItems(_ urls: [URL]) {
+        var seen = Set(shredItems.map { $0.path })
+        for u in urls {
+            guard !seen.contains(u.path) else { continue }
+            let (size, count) = Shredder.measure(u)
+            let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            shredItems.append(Shredder.ShredItem(url: u,
+                                                name: u.lastPathComponent,
+                                                path: u.path,
+                                                isDirectory: isDir,
+                                                size: size,
+                                                fileCount: count,
+                                                selected: true))
+            seen.insert(u.path)
+        }
+    }
+
+    func removeShredItem(_ id: UUID) {
+        shredItems.removeAll { $0.id == id }
+    }
+
+    func clearShredItems() {
+        shredItems.removeAll()
+    }
+
+    func toggleShredSelected(_ id: UUID) {
+        guard let i = shredItems.firstIndex(where: { $0.id == id }) else { return }
+        shredItems[i].selected.toggle()
+    }
+
+    func setAllShredSelected(_ on: Bool) {
+        for i in shredItems.indices { shredItems[i].selected = on }
+    }
+
+    /// 覆写并删除选中项，返回成功删除的数量。后台线程执行，主线程回报进度。
+    @discardableResult
+    func shredSelected() async -> Int {
+        let targets = shredItems.filter { $0.selected && $0.status == .idle }
+        guard !targets.isEmpty else { return 0 }
+        isShredding = true
+        defer { isShredding = false }
+        return await withCheckedContinuation { cont in
+            let group = DispatchGroup()
+            var ok = 0
+            let lock = NSLock()
+            for item in targets {
+                setShredStatus(item.id, .shredding)
+                let id = item.id
+                let url = item.url
+                let size = item.size
+                group.enter()
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        var acc: Int64 = 0
+                        try Shredder.shred(url,
+                                          grandTotal: max(size, 1),
+                                          accumulator: &acc) { p in
+                            let prog = p
+                            Task { @MainActor in self.setShredProgress(id, prog) }
+                        }
+                        Task { @MainActor in
+                            if let i = self.shredItems.firstIndex(where: { $0.id == id }) {
+                                self.shredItems.remove(at: i)
+                            }
+                        }
+                        lock.lock(); ok += 1; lock.unlock()
+                    } catch Shredder.ShredError.needsElevation(let path) {
+                        // 普通删除权限不足 → 在主线程提权删除（弹管理员密码框）。
+                        var elevatedOK = false
+                        var elevatedMsg = L10n.t("提权删除失败", "Elevation failed")
+                        DispatchQueue.main.sync {
+                            let res = PrivilegedDeleter.delete([path])
+                            elevatedOK = res.first?.success ?? false
+                            elevatedMsg = res.first?.message
+                                ?? L10n.t("提权删除失败", "Elevation failed")
+                        }
+                        if elevatedOK {
+                            Task { @MainActor in
+                                if let i = self.shredItems.firstIndex(where: { $0.id == id }) {
+                                    self.shredItems.remove(at: i)
+                                }
+                            }
+                            lock.lock(); ok += 1; lock.unlock()
+                        } else {
+                            Task { @MainActor in self.setShredFailed(id, elevatedMsg) }
+                        }
+                    } catch {
+                        let msg = error.localizedDescription
+                        Task { @MainActor in self.setShredFailed(id, msg) }
+                    }
+                    group.leave()
+                }
+            }
+            group.notify(queue: .main) { cont.resume(returning: ok) }
+        }
+    }
+
+    private func setShredStatus(_ id: UUID, _ s: Shredder.ShredItem.Status) {
+        guard let i = shredItems.firstIndex(where: { $0.id == id }) else { return }
+        shredItems[i].status = s
+    }
+
+    private func setShredProgress(_ id: UUID, _ p: Double) {
+        guard let i = shredItems.firstIndex(where: { $0.id == id }) else { return }
+        shredItems[i].progress = p
+    }
+
+    private func setShredFailed(_ id: UUID, _ msg: String) {
+        guard let i = shredItems.firstIndex(where: { $0.id == id }) else { return }
+        shredItems[i].status = .failed
+        shredItems[i].message = msg
     }
 
     init() {

@@ -287,6 +287,7 @@ struct MainView: View {
             navGroup(L10n.t("系统管控", "System control")) {
                 navRow(.startup)
                 navRow(.ports)
+                navRow(.shredder)
             }
         }
         .padding(.horizontal, 12)
@@ -339,6 +340,7 @@ struct MainView: View {
         case .processes:  return "waveform.path.ecg"
         case .startup:    return "power"
         case .ports:      return "cable.connector"
+        case .shredder:   return "flame.fill"
         }
     }
 
@@ -352,6 +354,7 @@ struct MainView: View {
         case .processes:  return state.processes.isEmpty ? nil : state.visibleProcesses.count
         case .startup:    return state.startupItems.isEmpty ? nil : state.startupItems.count
         case .ports:      return state.listeningPorts.isEmpty ? nil : state.listeningPorts.count
+        case .shredder:   return nil
         }
     }
 
@@ -377,6 +380,7 @@ struct MainView: View {
         case .processes:  ProcessesView()
         case .startup:    StartupView()
         case .ports:      PortsView()
+        case .shredder:   ShredderView()
         }
     }
 }
