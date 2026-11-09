@@ -95,6 +95,10 @@ struct Shredder {
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else {
             throw ShredError.notFound(url.path)
         }
+        // 先清除不可变标志（uchg）：macOS 的「锁定」标志会同时阻止覆写与删除，
+        // 即便是属主 / root 也会被拒绝，所以必须在覆写之前解锁，否则后面全步都走不通。
+        // 普通用户对自己文件的 uchg 有清除权限，无需提权。
+        _ = clearImmutableFlag(url)
         if isDir.boolValue {
             let children = try fm.contentsOfDirectory(at: url,
                                                      includingPropertiesForKeys: nil)
@@ -170,6 +174,27 @@ struct Shredder {
                 }
             }
             fh.synchronizeFile() // 落盘，避免覆写停留在页缓存
+        }
+    }
+
+    /// 清除不可变标志（uchg）。macOS 的「锁定」标志（Finder 里勾了「已锁定」）会让文件
+    /// 无法被覆写或删除，连属主 / root 都不行，必须先解锁。
+    /// - 普通用户对自己拥有的文件有清除 uchg 的权限，无需提权。
+    /// - 目录用 `-R` 递归，连同子项一起解锁，确保后续覆写子文件能进行。
+    /// - 返回是否执行成功（失败也不致命：后续删除若仍失败会走提权删除分支）。
+    @discardableResult
+    static func clearImmutableFlag(_ url: URL) -> Bool {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/chflags")
+        proc.arguments = ["-R", "nouchg", url.path]
+        proc.standardOutput = nil
+        proc.standardError = nil
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            return proc.terminationStatus == 0
+        } catch {
+            return false
         }
     }
 }
