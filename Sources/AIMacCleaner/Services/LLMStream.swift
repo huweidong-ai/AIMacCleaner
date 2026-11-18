@@ -37,6 +37,8 @@ enum LLMStream {
         var reasoning: String = ""
         /// 端点是否真的流式返回。false = 退化成一次性（补发了一次全量）。
         var streamed: Bool = false
+        /// 本次调用累计用量；端点没返回时全 0。
+        var usage = TokenUsage()
     }
 
     enum Failure: LocalizedError {
@@ -62,12 +64,24 @@ enum LLMStream {
                     messages: [(role: String, content: String)],
                     system: String,
                     onEvent: @Sendable (Event) async -> Void) async throws -> Result {
+        try await run(config: config, messages: messages, system: system,
+                      allowCache: true, onEvent: onEvent)
+    }
+
+    /// `allowCache`：内部参数。Anthropic 官方端点若嫌 cache_control 参数不兼容返回 400，
+    /// 递归调用一次去掉该字段重试，保证第三方网关/旧版端点不受影响。
+    private static func run(config: AIModelConfig,
+                            messages: [(role: String, content: String)],
+                            system: String,
+                            allowCache: Bool,
+                            onEvent: @Sendable (Event) async -> Void) async throws -> Result {
         guard !config.apiKey.isEmpty else { throw LLMError.missingKey }
 
         let request: URLRequest
         let anthropic = config.provider.isAnthropicProtocol
         if anthropic {
-            request = try anthropicRequest(config: config, messages: messages, system: system)
+            request = try anthropicRequest(config: config, messages: messages, system: system,
+                                           useCache: allowCache && config.isOfficialAnthropicEndpoint)
         } else {
             request = try openAIRequest(config: config, messages: messages, system: system)
         }
@@ -79,6 +93,10 @@ enum LLMStream {
             for try await line in bytes.lines {
                 raw += line
                 if raw.count > 400 { break }
+            }
+            if status == 400, allowCache, anthropic, config.isOfficialAnthropicEndpoint {
+                return try await run(config: config, messages: messages, system: system,
+                                     allowCache: false, onEvent: onEvent)
             }
             throw Failure.http(status, raw)
         }
@@ -97,6 +115,7 @@ enum LLMStream {
             for try await line in bytes.lines {
                 body += line + "\n"
                 let (c, r) = Self.parseStreamFrame(line, anthropic: anthropic)
+                sse.usage.add(Self.parseUsageLine(line, anthropic: anthropic))
                 if !r.isEmpty { sse.reasoning += r; await onEvent(.reasoning(r)) }
                 if !c.isEmpty { sse.text += c; await onEvent(.text(c)) }
             }
@@ -108,12 +127,14 @@ enum LLMStream {
             if !text.isEmpty { await onEvent(.text(text)) }
             result.text = text
             result.reasoning = reasoning
+            result.usage = Self.parseUsageBody(body, anthropic: anthropic)
             return result
         }
 
         result.streamed = true
         for try await line in bytes.lines {
             let (c, r) = Self.parseStreamFrame(line, anthropic: anthropic)
+            result.usage.add(Self.parseUsageLine(line, anthropic: anthropic))
             if !r.isEmpty { result.reasoning += r; await onEvent(.reasoning(r)) }
             if !c.isEmpty { result.text += c; await onEvent(.text(c)) }
         }
@@ -159,6 +180,19 @@ enum LLMStream {
         return (c, r)
     }
 
+    /// 从一行 SSE 里取 usage（容错，缺字段返回全 0）。
+    static func parseUsageLine(_ line: String, anthropic: Bool) -> TokenUsage {
+        TokenUsage.parseFrame(line, anthropic: anthropic)
+    }
+
+    /// 从一次性响应的 JSON 正文里取 usage。
+    static func parseUsageBody(_ body: String, anthropic: Bool) -> TokenUsage {
+        guard let data = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return TokenUsage() }
+        return TokenUsage.parse(obj, anthropic: anthropic)
+    }
+
     // MARK: - 请求构造
 
     private static func openAIRequest(config: AIModelConfig,
@@ -182,20 +216,33 @@ enum LLMStream {
         ])
     }
 
+    /// Anthropic 消息端点：base 里若已带 `/v1`（官方默认值就是如此），先去掉再补，
+    /// 否则会拼成 `/v1/v1/messages`。自定义路径（如 `/api/coding`）原样保留。
+    static func anthropicMessagesURL(_ base: String) -> URL? {
+        let trimmed = base.hasSuffix("/v1") ? String(base.dropLast(3)) : base
+        return URL(string: trimmed + "/v1/messages")
+    }
+
     private static func anthropicRequest(config: AIModelConfig,
                                          messages: [(role: String, content: String)],
-                                         system: String) throws -> URLRequest {
-        // 与 LLMClient.anthropicBaseURL 同源：保留 base path，交给 /v1/messages 收尾。
-        guard let url = URL(string: config.effectiveBaseURL + "/v1/messages") else {
+                                         system: String,
+                                         useCache: Bool) throws -> URLRequest {
+        guard let url = anthropicMessagesURL(config.effectiveBaseURL) else {
             throw Failure.badURL
         }
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": config.effectiveModel,
             "stream": true,
             "max_tokens": 2048,
             "system": system,
             "messages": messages.map { ["role": $0.role, "content": $0.content] }
         ]
+        // 官方 Anthropic 支持顶层 cache_control（system 字符串形式即可）；
+        // 只对官方域名加，兼容端点保持原样。OpenAI 的 Chat Completions 缓存是
+        // 自动的，只要稳定前缀，无需任何字段。
+        if useCache {
+            payload["cache_control"] = ["type": "ephemeral"]
+        }
         return try post(url: url, body: payload, headers: [
             "Content-Type": "application/json",
             "x-api-key": config.apiKey,

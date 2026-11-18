@@ -314,7 +314,8 @@ struct LLMClient {
         c.scheme = scheme
         c.host = host
         c.port = u.port
-        c.path = u.path
+        // SDK 会自己补 /v1/messages：base 已带 /v1 时要去掉，否则变 /v1/v1/messages。
+        c.path = u.path.hasSuffix("/v1") ? String(u.path.dropLast(3)) : u.path
         return c.string ?? "https://api.anthropic.com"
     }
 }

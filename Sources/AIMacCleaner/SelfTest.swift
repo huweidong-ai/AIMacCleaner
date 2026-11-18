@@ -1257,9 +1257,9 @@ enum SelfTest {
             // 2) 未知指令一律被白名单拒掉（Agent 只有项目自己的 CLI 这一种外部能力）
             // 3) 高危 skill 只出计划不出手，Agent 永远拿不到「真删」
 
-            Check(name: "SkillRegistry 注册了 13 个 skill") {
+            Check(name: "SkillRegistry 注册了 14 个 skill（含 describe_skill）") {
                 // 和 SkillRegistry.cliListing 文案、AskAIView 的计数必须一致。
-                SkillRegistry.all.count == 13
+                SkillRegistry.all.count == 14
             },
             Check(name: "每个 skill 的 cli 都对应真实 CLI flag（防假成功）") {
                 // Skill.swift 的硬约束之一：每个 skill 必须对应一条真实存在的
@@ -1267,9 +1267,70 @@ enum SelfTest {
                 let usage = AIMacCleanerApp.usage
                 let expectedFlags = ["--list", "--scan", "--check-installs", "--orphans", "--ps",
                                      "--review", "--history", "--uninstall", "--reset",
-                                     "--trace-roots", "--search", "--inspect", "--propose"]
+                                     "--trace-roots", "--search", "--inspect", "--propose",
+                                     "--skill"]
                 return expectedFlags.allSatisfy { usage.contains($0) }
                     && SkillRegistry.all.count == expectedFlags.count
+            },
+
+            // ══ Token 优化（2026-11：skill 按需加载 / 上下文压缩 / 用量可视化）══
+            Check(name: "紧凑 skill 目录比完整 manifest 短，且覆盖全部 skill") {
+                let brief = SkillRegistry.briefCatalog
+                let full = SkillRegistry.manifest
+                return brief.count * 3 / 2 < full.count
+                    && SkillRegistry.names.allSatisfy { brief.contains($0) }
+            },
+            Check(name: "describe_skill 是只读元 skill，声明里带 name 参数") {
+                guard let s = SkillRegistry.resolve("describe_skill") else { return false }
+                return s.spec.risk == .readOnly
+                    && s.spec.args.contains { $0.name == "name" && $0.required }
+                    && s.spec.manifestLine.contains("name")
+            },
+            Check(name: "早期工具观测被折叠、最近两条保留全文") {
+                let calls = ["list_apps", "scan_app", "search_paths", "inspect_path"].map {
+                    SkillCall(name: $0, args: SkillArgs())
+                }
+                let transcript = calls.map { (call: $0, result: SkillResult(
+                    ok: true, summary: "结果摘要\($0.name)", observation: "详情正文\($0.name)")) }
+                let block = LLMBrain.compactedObservation(transcript)
+                return block.contains("早前调用摘要")
+                    && !block.contains("详情正文list_apps")
+                    && block.contains("详情正文search_paths")
+                    && block.contains("详情正文inspect_path")
+                    && block.count <= ContextBudget.totalObservationChars + 40
+            },
+            Check(name: "长对话历史摘要只保留要点，短对话不摘要") {
+                let long = (1...10).map { (role: $0 % 2 == 0 ? "assistant" : "user",
+                                          content: "第\($0)轮的完整原文内容") }
+                let digest = ChatPolicy.historyDigest(long)
+                let short = ChatPolicy.historyDigest(Array(long.prefix(4)))
+                return digest.contains("前序对话摘要") && !digest.contains("第10轮")
+                    && digest.count <= 800 + 40 && short.isEmpty
+            },
+            Check(name: "system prompt 跨轮稳定，动态提示只进 runtimeNote") {
+                let a = LLMBrain.systemPrompt()
+                let b = LLMBrain.systemPrompt()
+                let n1 = LLMBrain.runtimeNote(turnsRemaining: 1, installedApps: nil)
+                let n2 = LLMBrain.runtimeNote(turnsRemaining: 0, installedApps: ["微信"])
+                return a == b && n1 != n2 && !n1.contains("skill <")
+            },
+            Check(name: "Anthropic 消息端点不会拼成 /v1/v1/messages") {
+                LLMStream.anthropicMessagesURL("https://api.anthropic.com/v1")?.absoluteString
+                    == "https://api.anthropic.com/v1/messages"
+                    && LLMStream.anthropicMessagesURL("https://gateway.example/api/coding")?.absoluteString
+                    == "https://gateway.example/api/coding/v1/messages"
+            },
+            Check(name: "OpenAI/Anthropic 两协议 usage 归一化与缺字段容错") {
+                let oai = TokenUsage.parse(["usage": ["prompt_tokens": 100, "completion_tokens": 20,
+                    "prompt_tokens_details": ["cached_tokens": 40]]], anthropic: false)
+                let ant = TokenUsage.parse(["usage": ["input_tokens": 80, "output_tokens": 12,
+                    "cache_read_input_tokens": 30, "cache_creation_input_tokens": 5]], anthropic: true)
+                let frame = TokenUsage.parseFrame("data: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}",
+                                                  anthropic: false)
+                let empty = TokenUsage.parse(["choices": []], anthropic: false)
+                return oai.inputTokens == 100 && oai.outputTokens == 20 && oai.cacheReadTokens == 40
+                    && ant.inputTokens == 80 && ant.cacheReadTokens == 30 && ant.cacheWriteTokens == 5
+                    && frame.inputTokens == 7 && frame.outputTokens == 3 && empty.isEmpty
             },
 
             // ── 调查能力（v1.7：给 Agent 补上「翻目录 / 读内容」的手）──
@@ -1891,7 +1952,7 @@ enum SelfTest {
                 else { return false }
                 return list.count == 1 && list[0].role == .me && list[0].text == "只有两个字段"
                     && list[0].steps.isEmpty && list[0].redirect == nil
-                    && !list[0].awaitingApproval && !list[0].isAnchor
+                    && !list[0].awaitingApproval && !list[0].isAnchor && list[0].usage == nil
             },
             Check(name: "AgentStep Codable 往返 + 缺字段兜底") {
                 let s = AgentStep(skill: "plan_uninstall", command: "ai-mac-cleaner --uninstall X",

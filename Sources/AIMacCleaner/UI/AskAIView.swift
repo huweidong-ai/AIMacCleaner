@@ -1049,7 +1049,8 @@ struct AskAIView: View {
                                                            steps: r.steps,
                                                            redirect: r.redirect,
                                                            awaitingApproval: r.awaitingApproval,
-                                                           reasoning: r.reasoning.isEmpty ? nil : r.reasoning))
+                                                           reasoning: r.reasoning.isEmpty ? nil : r.reasoning,
+                                                           usage: r.usage.isEmpty ? nil : r.usage))
                             }
                             state.chatIsThinking = false
                             bridge.reset()
@@ -1069,7 +1070,8 @@ struct AskAIView: View {
                                                steps: run.steps,
                                                redirect: run.redirect,
                                                awaitingApproval: run.awaitingApproval,
-                                               reasoning: run.reasoning.isEmpty ? nil : run.reasoning))
+                                               reasoning: run.reasoning.isEmpty ? nil : run.reasoning,
+                                               usage: run.usage.isEmpty ? nil : run.usage))
                 }
                 state.chatIsThinking = false
                 bridge.reset()
@@ -1584,6 +1586,14 @@ private struct MessageBubble: View {
 
                     bubbleBottomBar
                         .padding(.top, 8)
+
+                    // token 用量：端点返回时才有一行小字，老历史 / 不支持的端点不占位。
+                    if let u = message.usage, !u.isEmpty {
+                        Text(u.displayText)
+                            .font(.system(size: 9.5).monospacedDigit())
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                    }
                 }
                 .padding(12)
                 .background(bubbleBg, in: bubbleShape)

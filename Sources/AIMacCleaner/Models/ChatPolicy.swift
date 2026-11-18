@@ -194,6 +194,23 @@ enum ChatPolicy {
             .map { (role: $0.role == .me ? "user" : "assistant", content: $0.text) }
     }
 
+    /// 长对话的确定性摘要：把最近 N 条之外的历史压成短要点，避免每轮重发
+    /// 全部原文（OpenClaw 的 `/compact` 是付费模型摘要，这里用纯字符串拼接，
+    /// 不增加任何 API 调用成本）。原文仍在屏幕上和本地存档里，不丢数据。
+    ///
+    /// 传进来的 `history` 已经是 `modelHistory` 的派生结果（无 system、首条为 user）。
+    static func historyDigest(_ history: [(role: String, content: String)],
+                              keepRecent: Int = 6) -> String {
+        guard history.count > keepRecent, keepRecent > 0 else { return "" }
+        let old = history.prefix(history.count - keepRecent)
+        let lines = old.map { item -> String in
+            let who = item.role == "user" ? "用户" : "助手"
+            return "\(who)：\(String(item.content.prefix(120)))"
+        }
+        let body = String(lines.joined(separator: "\n").prefix(800))
+        return "【前序对话摘要（原文已折叠）】\n\(body)"
+    }
+
     /// 是否有任何可显示的内容。
     ///
     /// `.me` / `.ai` 始终计入；`.system` 仅当非锚点时计入 ——

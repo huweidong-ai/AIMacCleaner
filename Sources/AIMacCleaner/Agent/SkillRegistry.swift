@@ -20,6 +20,7 @@ enum SkillRegistry {
     /// 模型想真正**发现**漏项，就得先扫一遍、再自己翻目录核对。
     /// `propose_paths` 紧随其后——它是唯一能把路径带进清单的入口。
     static let all: [AgentSkill] = [
+        DescribeSkillSkill(),
         ListAppsSkill(),
         ScanAppSkill(),
         CheckInstallsSkill(),
@@ -64,8 +65,16 @@ enum SkillRegistry {
         }
     }
 
-    /// 给模型的工具清单。加一个 skill，提示词自动跟着变 —— 这是把能力
-    /// 抽象成 skill 层最直接的收益。
+    /// 给模型的**紧凑工具目录**：只有名字 + 一句话摘要，没有参数明细。
+    ///
+    /// 为什么不全量注入 manifest：那 13 个 skill 的参数说明每轮都原样重发，
+    /// 是 agent 固定 token 开销的大头（OpenClaw 的做法也一样：只给 metadata，
+    /// 完整指令按需 read）。模型要调用哪个，先用 `describe_skill` 取它的参数声明。
+    static var briefCatalog: String {
+        specs.map { "- \($0.name)：\($0.summary)" }.joined(separator: "\n")
+    }
+
+    /// 完整工具清单（仍供 CLI / 排障用；提示词不再直接使用）。
     static var manifest: String {
         specs.map(\.manifestLine).joined(separator: "\n")
     }
@@ -100,5 +109,42 @@ enum SkillRegistry {
             if let err = arg.validate(args[arg.name]) { return err }
         }
         return nil
+    }
+}
+
+/// 元 skill：按名字返回另一个 skill 的完整参数声明。
+///
+/// 这是「skill 按需加载」的关键拼图：system prompt 里只放一行行的名字 + 摘要，
+/// 模型确定要用哪个工具时，调一次 describe_skill 拿到参数说明，再发起真正的调用。
+/// 它和其他 skill 一样走白名单与同一条 CLI 通道 —— 没有给模型开任何新执行能力。
+struct DescribeSkillSkill: AgentSkill {
+    let spec = SkillSpec(
+        name: "describe_skill",
+        cli: "--skill <name>",
+        summaryZh: "查某个 skill 的完整参数说明。调用不熟悉的 skill 前先用它确认参数，避免瞎猜。",
+        summaryEn: "Get full parameter details for a skill. Use it before calling an unfamiliar skill.",
+        args: [
+            SkillArg(name: "name", required: true,
+                     desc: L10n.t("skill 名称，必须与工具目录里的名字完全一致", "Exact skill name from the catalog"))
+        ],
+        risk: .readOnly
+    )
+
+    func invoke(_ args: SkillArgs, session: AgentSession) async -> SkillResult {
+        guard let name = args["name"], let target = SkillRegistry.resolve(name) else {
+            return .failure(L10n.t("找不到这个 skill：\(args["name"] ?? "")",
+                                   "Unknown skill: \(args["name"] ?? "")"))
+        }
+        let s = target.spec
+        let sig = s.args.map { $0.required ? "<\($0.name)>" : "[\($0.name)]" }.joined(separator: " ")
+        var detail = "\(s.name) \(sig)\n\(s.summary)\nCLI: \(AgentRuntime.cliBinaryName) \(s.cli)"
+        for a in s.args {
+            let mark = a.required ? L10n.t("必填", "required") : L10n.t("可选", "optional")
+            let options = a.options.isEmpty ? "" : " [\(a.options.joined(separator: "|"))]"
+            detail += "\n- \(a.name) (\(mark)\(options)): \(a.desc)"
+        }
+        return SkillResult(ok: true,
+                           summary: L10n.t("已取得 \(s.name) 的参数说明", "Loaded details for \(s.name)"),
+                           observation: detail)
     }
 }

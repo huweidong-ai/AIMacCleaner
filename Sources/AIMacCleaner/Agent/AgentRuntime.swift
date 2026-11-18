@@ -79,13 +79,16 @@ struct AgentRun {
     var needsConfig: Bool = false
     /// 超轮数之类需要如实告诉用户的附注。
     var note: String? = nil
+    /// 本次运行所有模型调用累计的 token 用量（跨工具调用轮次累加）。
+    var usage = TokenUsage()
 }
 
 // MARK: - 大脑
 
 enum BrainDecision {
-    case call([SkillCall])
-    case finish(String)
+    /// 附带本次模型调用的 token 用量（流式路径有；非流式端点没返回时为 0）。
+    case call([SkillCall], usage: TokenUsage = TokenUsage())
+    case finish(String, usage: TokenUsage = TokenUsage())
     /// 模型不可用。带一句**具体**的说明（如「余额不足，去充值」），
     /// 为 nil 时调用方用通用的 `modelError`。
     case unavailable(String?)
@@ -187,7 +190,8 @@ struct AgentRuntime {
                                               installedApps: session.installedAppNames)
 
             switch decision {
-            case .finish(let text):
+            case .finish(let text, let usage):
+                run.usage.add(usage)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     run.answer = Self.fallbackAnswer(transcript)
@@ -204,7 +208,8 @@ struct AgentRuntime {
                 run.note = Self.modelErrorNote
                 return run
 
-            case .call(let calls):
+            case .call(let calls, let usage):
+                run.usage.add(usage)
                 guard !calls.isEmpty else {
                     run.answer = Self.fallbackAnswer(transcript)
                     return run
@@ -269,7 +274,8 @@ struct AgentRuntime {
                                               installedApps: session.installedAppNames)
 
             switch decision {
-            case .finish(let text):
+            case .finish(let text, let usage):
+                run.usage.add(usage)
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     run.answer = Self.fallbackAnswer(transcript)
@@ -288,7 +294,8 @@ struct AgentRuntime {
                 await onEvent(.finished(run))
                 return run
 
-            case .call(let calls):
+            case .call(let calls, let usage):
+                run.usage.add(usage)
                 guard !calls.isEmpty else {
                     run.answer = Self.fallbackAnswer(transcript)
                     run.reasoning = await sink.text()
@@ -440,14 +447,19 @@ struct LLMBrain: AgentBrain {
                 turnsRemaining: Int,
                 installedApps: [String]?) async -> BrainDecision {
         var messages = history
-        messages.append((role: "user", content: goal))
+        // 旧对话折叠成摘要，只对最近 6 条保留原文 —— 屏幕与存档不受影响。
+        let digest = ChatPolicy.historyDigest(history)
+        if !digest.isEmpty { messages.insert((role: "user", content: digest), at: 0) }
+        // 每轮变化的内容放进末条 user 消息，system 在一次运行内字节级稳定 ——
+        // 这是 prompt cache（OpenAI 自动缓存 / Anthropic cache_control）生效的前提。
+        let note = Self.runtimeNote(turnsRemaining: turnsRemaining, installedApps: installedApps)
+        messages.append((role: "user", content: note.isEmpty ? goal : note + "\n\n" + goal))
         if !transcript.isEmpty {
             messages.append((role: "assistant", content: Self.replayCalls(transcript)))
-            messages.append((role: "user", content: Self.observationBlock(transcript)))
+            messages.append((role: "user", content: Self.compactedObservation(transcript)))
         }
 
-        let system = Self.systemPrompt(memory: memory) + "\n" + Self.budgetNote(turnsRemaining: turnsRemaining)
-            + "\n" + Self.installedAppsNote(installedApps)
+        let system = Self.systemPrompt(memory: memory)
 
         let reply: String
         do {
@@ -490,7 +502,7 @@ struct LLMBrain: AgentBrain {
     /// `memory` 是用户用 `/remember` 写下的长期记忆，**追加在末尾**而不是插在中间：
     /// 越靠后的指令对模型的约束越强，而记忆的定位就是「推翻默认判断」。
     static func systemPrompt(memory: String = "") -> String {
-        let manifest = SkillRegistry.manifest
+        let catalog = SkillRegistry.briefCatalog
         let zhRule = "回答简洁、说人话，用中文。给出关键数字（项数、体积）和风险提示。"
         let enRule = "Be concise and human. Use English. Include key numbers (item count, size) and risks."
 
@@ -498,7 +510,9 @@ struct LLMBrain: AgentBrain {
             你是 AI Mac Cleaner 的清理 Agent。AI Mac Cleaner 是一个 macOS 深度卸载工具，运行在用户本机。
 
             你只能通过下面这些 skill 干活，除此之外没有任何执行能力（没有 shell、不能读写任意文件、不能联网）：
-            \(manifest)
+            \(catalog)
+            下面是简版目录：只列名字和用途。参数不确定时，先调 describe_skill(name: "名字") 取完整声明再调用。
+            不要臆造参数名——工具没有模糊匹配，参数写错会直接失败。
 
             调用方式：在回复末尾附一个代码块，每行一个 JSON 调用。
             ```expunge
@@ -527,8 +541,11 @@ struct LLMBrain: AgentBrain {
             """, """
             You are the cleanup agent for AI Mac Cleaner, a macOS deep-uninstall tool running on the user's own Mac.
 
-            You can only act through the skills below. You have no other execution capability — no shell, no arbitrary file access, no network:
-            \(manifest)
+            You can only act through the skills listed below. You have no other execution capability — no shell, no arbitrary file access, no network:
+            \(catalog)
+            This is a brief catalog: names and purposes only. If unsure about a skill's arguments, call
+            describe_skill(name: "the_name") first to load its full declaration, then call the skill.
+            Never guess argument names — there is no fuzzy matching, and wrong arguments fail outright.
 
             To call a skill, append a fenced block at the end of your reply, one JSON call per line:
             ```expunge
@@ -561,7 +578,15 @@ struct LLMBrain: AgentBrain {
         return block.isEmpty ? base : base + "\n" + memory
     }
 
-    /// 每一轮追加给模型的预算提示（拼在 system 末尾，约束力最强）。
+    /// 每轮变化的提示（预算 + 本机应用名单），只进末条 user 消息。
+    /// system prompt 因此在同一 run 的 8 轮里完全不变，可被上游缓存复用。
+    static func runtimeNote(turnsRemaining: Int, installedApps: [String]?) -> String {
+        [budgetNote(turnsRemaining: turnsRemaining), installedAppsNote(installedApps)]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
+    /// 每一轮追加给模型的预算提示（拼在末条 user 消息里，约束力依然足够）。
     ///
     /// 为什么必须有它：提示词原本从不说「还剩几轮」，模型不知道快超预算，于是一直
     /// `search_paths` / `inspect_path`，把轮数吃满后才被强行收尾 —— 用户只拿到一堆步骤、
@@ -626,6 +651,52 @@ struct LLMBrain: AgentBrain {
                       "Here are the real skill results — continue based on them:\n\n")
             + blocks.joined(separator: "\n\n")
     }
+
+    /// 带预算的观测块：最近 2 条保留全文（各截 1600 字符），更早的折叠成一行
+    /// 「skill 名 + ok/失败 + summary 摘要」。OpenClaw 的做法：工具结果有硬上限、
+    /// 旧结果摘要化，避免每轮把完整 transcript 重发造成 O(n²) 增长。
+    ///
+    /// 摘要是确定性的字符串拼接，**不额外调用模型、不产生 token 费用**。
+    static func compactedObservation(_ transcript: [(call: SkillCall, result: SkillResult)]) -> String {
+        guard !transcript.isEmpty else { return "" }
+        let keepFull = 2
+        let recent = transcript.suffix(keepFull)
+        let older = transcript.prefix(max(0, transcript.count - keepFull))
+
+        var blocks: [String] = []
+        if !older.isEmpty {
+            let lines = older.map { entry -> String in
+                let flag = entry.result.ok ? "ok" : "FAILED"
+                let summary = String(entry.result.summary.prefix(120))
+                return "- \(entry.call.name) [\(flag)]: \(summary)"
+            }
+            // 摘要本身也有上限，防止调用次数多时反而膨胀。
+            var digest = lines.joined(separator: "\n")
+            if digest.count > 800 { digest = String(digest.prefix(800)) + "…" }
+            blocks.append(L10n.t("【早前调用摘要，详情已折叠】\n\(digest)",
+                                 "[Earlier calls, details folded]\n\(digest)"))
+        }
+        for entry in recent {
+            let body = String(entry.result.observation.prefix(1600))
+            blocks.append("### \(entry.call.name)\n\(body)")
+        }
+        let head = L10n.t("以下是 skill 的真实执行结果，请基于它继续：\n\n",
+                          "Here are the real skill results — continue based on them:\n\n")
+        let joined = blocks.joined(separator: "\n\n")
+        return head + (joined.count > 4200 ? String(joined.prefix(4200)) + "…" : joined)
+    }
+}
+
+/// 单次运行内的上下文预算常量（集中在这里，自检可断言）。
+enum ContextBudget {
+    /// 每条完整观测的字符上限。
+    static let observationChars = 1600
+    /// 折叠摘要的总字符上限。
+    static let digestChars = 800
+    /// 整个观测块的总字符上限。
+    static let totalObservationChars = 4200
+    /// 跨消息历史中保留原文的轮数（1 轮 = user + assistant 两条）。
+    static let recentHistoryMessages = 6
 }
 
 // MARK: - 流式大脑
@@ -646,15 +717,16 @@ struct StreamingLLMBrain: AgentBrain {
                 turnsRemaining: Int,
                 installedApps: [String]?) async -> BrainDecision {
         var messages = history
-        messages.append((role: "user", content: goal))
+        let digest = ChatPolicy.historyDigest(history)
+        if !digest.isEmpty { messages.insert((role: "user", content: digest), at: 0) }
+        let note = LLMBrain.runtimeNote(turnsRemaining: turnsRemaining, installedApps: installedApps)
+        messages.append((role: "user", content: note.isEmpty ? goal : note + "\n\n" + goal))
         if !transcript.isEmpty {
             messages.append((role: "assistant", content: LLMBrain.replayCalls(transcript)))
-            messages.append((role: "user", content: LLMBrain.observationBlock(transcript)))
+            messages.append((role: "user", content: LLMBrain.compactedObservation(transcript)))
         }
 
         let system = LLMBrain.systemPrompt(memory: memory)
-            + "\n" + LLMBrain.budgetNote(turnsRemaining: turnsRemaining)
-            + "\n" + LLMBrain.installedAppsNote(installedApps)
 
         let result: LLMStream.Result
         do {
@@ -691,13 +763,13 @@ struct StreamingLLMBrain: AgentBrain {
 
         let (text, calls) = AgentProtocol.parse(result.text)
         if calls.isEmpty {
-            return .finish(text.isEmpty ? result.text : text)
+            return .finish(text.isEmpty ? result.text : text, usage: result.usage)
         }
         // 最后一轮不再执行工具：忽略模型硬塞的调用，把它写的正文当结论（空则走上层兜底）。
         if turnsRemaining <= 0 {
-            return .finish(text)
+            return .finish(text, usage: result.usage)
         }
-        return .call(calls)
+        return .call(calls, usage: result.usage)
     }
 }
 

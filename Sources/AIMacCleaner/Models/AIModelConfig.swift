@@ -179,6 +179,12 @@ struct AIModelConfig: Codable, Equatable, Identifiable {
 
     // MARK: - 派生
 
+    /// 是否直连 Anthropic 官方端点。显式 prompt cache 字段只对官方域名发送；
+    /// 第三方兼容网关一律保持原样，避免未知字段导致 400。
+    var isOfficialAnthropicEndpoint: Bool {
+        URL(string: effectiveBaseURL)?.host?.lowercased() == "api.anthropic.com"
+    }
+
     /// 用户是否真正填齐了调用所需字段。
     var isConfigured: Bool {
         !apiKey.isEmpty && !effectiveModel.isEmpty

@@ -32,6 +32,8 @@ struct AIMessage: Identifiable, Codable, Equatable {
     /// 与 `text` 分开存，而不是拼进正文：思考过程要能折叠起来单独看，
     /// 而且它**不该进下一轮的 history** —— 那是给用户看的推理轨迹，不是对话。
     var reasoning: String? = nil
+    /// 这条回答背后累计的模型 token 用量。老历史没有该键 → nil，界面不显示。
+    var usage: TokenUsage? = nil
 
     /// 消息角色。
     ///
@@ -51,6 +53,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
          awaitingApproval: Bool = false,
          isAnchor: Bool = false,
          reasoning: String? = nil,
+         usage: TokenUsage? = nil,
          createdAt: Date = Date()) {
         self.role = role
         self.text = text
@@ -60,6 +63,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
         self.awaitingApproval = awaitingApproval
         self.isAnchor = isAnchor
         self.reasoning = reasoning
+        self.usage = usage
     }
 
     /// 造一条上下文锚点消息。
@@ -77,7 +81,7 @@ struct AIMessage: Identifiable, Codable, Equatable {
     /// （`let id = UUID()` 的默认值生效，重新生成）。这样既不会触发
     /// "immutable property will not be decoded" 警告，也不用为 id 写任何代码。
     private enum CodingKeys: String, CodingKey {
-        case role, text, steps, redirect, awaitingApproval, isAnchor, createdAt, reasoning
+        case role, text, steps, redirect, awaitingApproval, isAnchor, createdAt, reasoning, usage
     }
 
     /// 手写解码：**全字段 `decodeIfPresent` + 默认值**。
@@ -97,5 +101,6 @@ struct AIMessage: Identifiable, Codable, Equatable {
         createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
         // 老历史没有这个键 → nil，不能因此让整条消息解码失败。
         reasoning = try? c.decodeIfPresent(String.self, forKey: .reasoning)
+        usage = try? c.decodeIfPresent(TokenUsage.self, forKey: .usage)
     }
 }
