@@ -39,6 +39,27 @@ class RemovalExecutor {
         self.skipHistory = skipHistory
     }
 
+    /// 从 npm 全局包路径还原**完整包名**（scoped 包必须带 @scope/ 前缀）。
+    ///
+    /// 之前直接取 `lastPathComponent`：`.../node_modules/@anthropic-ai/claude-code`
+    /// 会得到 `claude-code` —— `npm uninstall -g claude-code` 根本找不到包，
+    /// 而且会留下整个 250 MB 的本体。这是「界面显示已处理、实际没卸干净」的典型假成功。
+    static func npmPackageName(from path: String) -> String {
+        // NpmScanner 在拿不到安装路径时的占位格式：`npm global: <包名>`。
+        if let marker = path.range(of: "npm global: ") {
+            return String(path[marker.upperBound...])
+        }
+        let parts = path.split(separator: "/").map(String.init)
+        guard let nm = parts.lastIndex(of: "node_modules"), nm + 1 < parts.count else {
+            return (path as NSString).lastPathComponent
+        }
+        let first = parts[nm + 1]
+        if first.hasPrefix("@"), nm + 2 < parts.count {
+            return first + "/" + parts[nm + 2]
+        }
+        return first
+    }
+
     struct Outcome {
         let record: HistoryStore.RemovalRecord
         /// 真正被自动删除/处理掉的项数。
@@ -141,7 +162,7 @@ class RemovalExecutor {
                         r = ActionResult(success: false, message: L10n.t("无法解析 cask 名", "Could not parse cask name"))
                     }
                 case .npmGlobal:
-                    let name = (a.path as NSString).lastPathComponent
+                    let name = Self.npmPackageName(from: a.path)
                     if dryRun {
                         log(L10n.t("  · 会执行 npm uninstall -g \(name)",
                                    "  · would run npm uninstall -g \(name)"))

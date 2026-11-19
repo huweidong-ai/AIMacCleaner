@@ -169,6 +169,15 @@ enum SelfTest {
                 return app.bundleIdSuffix == "xinwechat"
                     && ScanQuery(raw: "微信", app: app).keywords.contains("xinwechat")
             },
+            Check(name: "npm 卸载还原 scoped 包名（@scope/name），不能只取末段") {
+                RemovalExecutor.npmPackageName(
+                    from: "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code"
+                ) == "@anthropic-ai/claude-code"
+                    && RemovalExecutor.npmPackageName(
+                        from: "/usr/local/lib/node_modules/typescript"
+                    ) == "typescript"
+                    && RemovalExecutor.npmPackageName(from: "npm global: redis") == "redis"
+            },
             Check(name: "ScanQuery 多词应用名拆出单个实词：能找到 npm 包，不撞通用词") {
                 let app = AppIdentity(bundlePath: "/Users/x/Applications/Claude Code URL Handler.app",
                                       fileName: "Claude Code URL Handler",
