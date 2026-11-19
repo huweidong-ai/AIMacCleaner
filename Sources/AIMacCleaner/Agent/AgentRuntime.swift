@@ -549,7 +549,12 @@ struct LLMBrain: AgentBrain {
                确认属于目标 app 的，再用 propose_paths 提交；入库项一律不勾选，删不删由用户决定。
                ⚠️ 调查某个具体 app 时**必须先 scan_app**：只有它能给出 bundle id、
                并为校验网提供「除该 app 外的其它活 app」。跳过它，propose_paths 会直接拒绝。
-            8. \(zhRule)
+            8. 包管理器渠道（check_installs 命中 brew / npm / pipx）：**不要让用户去终端手敲卸载命令**。
+               用户在界面确认清单后，本工具会自动执行对应包管理器的卸载（含 brew services / launchd 项）。
+               若扫描清单里没有对应包条目，如实说「扫描器未收录」，绝不猜包名、绝不编 `brew uninstall xxx` 让用户自己跑。
+               同时注意 check_installs 的低特异性命中：如「Claude Code」的 code 会撞上 opencode / codexbar，
+               必须核对命中的具体条目名是否与目标真正对应，不能只看「有命中」就下结论。
+            9. \(zhRule)
             """, """
             You are the cleanup agent for AI Mac Cleaner, a macOS deep-uninstall tool running on the user's own Mac.
 
@@ -584,7 +589,14 @@ struct LLMBrain: AgentBrain {
                propose_paths; entries are never checked by default and the user decides what to delete.
                ⚠️ When investigating a specific app you MUST call scan_app first: it is the only way to get the
                bundle id and the "other live apps" context that validation needs. propose_paths is refused without it.
-            8. \(enRule)
+            8. Package-manager hits from check_installs (brew / npm / pipx): **never tell the user to type an
+               uninstall command in Terminal.** After the user confirms the list in the UI, this app runs the
+               matching package-manager uninstall automatically (including brew services / launchd items).
+               If no matching package entry is in the list, say "the scanner didn't pick it up" honestly — never
+               invent a package name or tell the user to run `brew uninstall xxx` themselves. Also verify each
+               check_installs hit: generic words like "code" in "Claude Code" match opencode / codexbar;
+               a hit alone does not prove ownership.
+            9. \(enRule)
             """)
         let block = memory.trimmingCharacters(in: .whitespacesAndNewlines)
         return block.isEmpty ? base : base + "\n" + memory

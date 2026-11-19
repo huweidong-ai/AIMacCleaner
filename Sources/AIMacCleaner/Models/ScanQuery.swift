@@ -48,6 +48,19 @@ struct ScanQuery {
             if compact != n { set.insert(compact) }
         }
 
+        // 单个实词也要下发给扫描器：包名 / CLI 名往往只取名字的一段。
+        // 「Claude Code URL Handler」的包名是 `@anthropic-ai/claude-code`，
+        // 只有整名关键词时 NpmScanner 永远搜不到它——用户还以为工具不支持 npm。
+        // 通用词（code/app/tool…）跳过，避免 opencode / codexbar 这类误命中。
+        let generic = Set(["code", "app", "apps", "tool", "tools", "cli", "helper", "handler",
+                           "service", "manager", "client", "server", "desktop", "mac", "osx"])
+        for n in [app.fileName.lowercased(), app.displayName.lowercased()] {
+            for part in n.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+                let token = String(part)
+                if token.count >= 4 && !generic.contains(token) { set.insert(token) }
+            }
+        }
+
         // 过滤掉过短的关键词，避免 "ai"、"cc" 之类扫出满屏无关项
         let filtered = set.filter { $0.count >= 3 }
         // 若全被过滤（如 app 名就叫 "Go"），保留原始输入兜底

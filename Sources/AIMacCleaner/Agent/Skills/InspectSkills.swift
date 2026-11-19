@@ -352,18 +352,30 @@ struct CheckInstallsSkill: AgentSkill {
                            observation: head + "\n" + sections.joined(separator: "\n"))
     }
 
-    /// 从目标名提取匹配关键词：按非字母数字切词、去重、丢掉 <3 字符的碎词；
-    /// 多词的再拼一个无分隔符形式（OpenClaw Control → openclawcontrol），
-    /// 兜住 plist / 包名里连写的情况。
+    /// 从目标名提取匹配关键词。
+    ///
+    /// 关键教训：「Claude Code」拆出 `code` 这种通用词后，brew list 里的
+    /// codexbar / opencode / xcodes、launchd 里的 CodeBuddy 全部误命中，
+    /// 导致 AI 断言「由 Homebrew 管理」并让用户去手敲 `brew uninstall` —— 全错。
+    /// 通用词（code/app/tool/cli/helper…）一律丢弃；多词再拼连写形式兜住
+    /// `claude-code` / `claudecode` 这类包名。宁可漏报，不能误导卸载。
+    private static let genericTokens: Set<String> = [
+        "app", "apps", "code", "tool", "tools", "cli", "helper", "service", "manager",
+        "client", "server", "desktop", "control", "console", "agent", "mac", "osx", "handler"
+    ]
+
     static func keywords(from target: String) -> [String] {
-        var tokens = target.lowercased()
+        let all = target.lowercased()
             .split { !$0.isLetter && !$0.isNumber }
-            .filter { $0.count >= 3 }
             .map(String.init)
-        if tokens.count > 1 {
-            tokens.append(tokens.joined())
+        var tokens = all.filter { $0.count >= 3 && !genericTokens.contains($0) }
+        // 连写形式要用**原始分词**拼（claude-code → claudecode），
+        // 不能用过滤后的——`code` 被丢掉后就只剩 claude 了。
+        if all.count > 1 {
+            tokens.append(all.joined())
         }
-        return Array(Set(tokens))
+        // 整名去重后若为空（比如目标就叫 "Code"），退回整名，避免完全不查。
+        return Array(Set(tokens.isEmpty ? [target.lowercased()] : tokens))
     }
 
     /// 从一段命令输出里挑出含任一关键词的行。

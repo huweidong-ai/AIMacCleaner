@@ -169,6 +169,18 @@ enum SelfTest {
                 return app.bundleIdSuffix == "xinwechat"
                     && ScanQuery(raw: "微信", app: app).keywords.contains("xinwechat")
             },
+            Check(name: "ScanQuery 多词应用名拆出单个实词：能找到 npm 包，不撞通用词") {
+                let app = AppIdentity(bundlePath: "/Users/x/Applications/Claude Code URL Handler.app",
+                                      fileName: "Claude Code URL Handler",
+                                      displayName: "Claude Code URL Handler",
+                                      bundleId: "com.anthropic.claude-code-url-handler",
+                                      version: "1.0", aliases: [])
+                let q = ScanQuery(raw: "Claude Code", app: app)
+                return q.keywords.contains("claude")
+                    && !q.keywords.contains("code") && !q.keywords.contains("handler")
+                    && q.matches("@anthropic-ai/claude-code")
+                    && !q.matches("chrome_crashpad_handler")
+            },
             Check(name: "ScanQuery app 模式包含 bundle id 和文件名") {
                 let app = AppIdentity(bundlePath: "/Applications/WeChat.app", fileName: "WeChat",
                                       displayName: "微信", bundleId: "com.tencent.xinWeChat",
@@ -1327,6 +1339,14 @@ enum SelfTest {
                 return (off["thinking"] as? [String: String])?["type"] == "disabled"
                     && low["reasoning_effort"] as? String == "low"
                     && other.isEmpty
+            },
+            Check(name: "check_installs 不再把 Claude Code 的 code 当成通用匹配词") {
+                let tokens = CheckInstallsSkill.keywords(from: "Claude Code")
+                let output = "codexbar\nopencode\nxcodes\nclaude-code\nclaude-cli-nodejs\nredis"
+                let hits = CheckInstallsSkill.matches(in: output, tokens: tokens)
+                return !tokens.contains("code")
+                    && tokens.contains("claude") && tokens.contains("claudecode")
+                    && hits.count == 2 && hits.allSatisfy { $0.hasPrefix("claude") }
             },
             Check(name: "同一轮里重复的 skill 调用被去重，不同参数保留") {
                 let a = SkillCall(name: "check_installs", args: SkillArgs(["target": "redis"]))
