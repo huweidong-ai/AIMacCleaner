@@ -1349,10 +1349,16 @@ enum SelfTest {
                     "cache_read_input_tokens": 30, "cache_creation_input_tokens": 5]], anthropic: true)
                 let frame = TokenUsage.parseFrame("data: {\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3}}",
                                                   anthropic: false)
+                // DeepSeek 官方流式末帧真实形状：usage 与最后一个内容 chunk 同帧。
+                let lastChunk = TokenUsage.parseFrame(
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":123,\"completion_tokens\":45,\"total_tokens\":168}}",
+                    anthropic: false)
                 let empty = TokenUsage.parse(["choices": []], anthropic: false)
                 return oai.inputTokens == 100 && oai.outputTokens == 20 && oai.cacheReadTokens == 40
                     && ant.inputTokens == 80 && ant.cacheReadTokens == 30 && ant.cacheWriteTokens == 5
-                    && frame.inputTokens == 7 && frame.outputTokens == 3 && empty.isEmpty
+                    && frame.inputTokens == 7 && frame.outputTokens == 3
+                    && lastChunk.inputTokens == 123 && lastChunk.outputTokens == 45
+                    && empty.isEmpty
             },
 
             // ── 调查能力（v1.7：给 Agent 补上「翻目录 / 读内容」的手）──
