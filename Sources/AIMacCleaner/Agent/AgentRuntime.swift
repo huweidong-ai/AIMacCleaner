@@ -64,6 +64,17 @@ struct AgentStep: Identifiable, Codable, Equatable {
     }
 }
 
+/// 模型偶尔会在一轮里吐两条一模一样的调用（截图里就出现过两次相同的
+/// check_installs）——执行两次纯属浪费时间和观测 token。按 skill 名 + 参数去重，
+/// 保留首次顺序；不同参数的调用一律保留。
+func deduplicatedCalls(_ calls: [SkillCall]) -> [SkillCall] {
+    var seen: Set<String> = []
+    return calls.filter { call in
+        let key = call.name.lowercased() + "|" + call.args.inlineDescription.lowercased()
+        return seen.insert(key).inserted
+    }
+}
+
 /// 一次完整运行的产物。
 struct AgentRun {
     var answer: String
@@ -485,7 +496,8 @@ struct LLMBrain: AgentBrain {
             return .unavailable(nil)
         }
 
-        let (text, calls) = AgentProtocol.parse(reply)
+        let (text, parsed) = AgentProtocol.parse(reply)
+        let calls = deduplicatedCalls(parsed)
         if calls.isEmpty {
             return .finish(text.isEmpty ? reply : text)
         }
@@ -761,7 +773,8 @@ struct StreamingLLMBrain: AgentBrain {
             }
         }
 
-        let (text, calls) = AgentProtocol.parse(result.text)
+        let (text, parsed) = AgentProtocol.parse(result.text)
+        let calls = deduplicatedCalls(parsed)
         if calls.isEmpty {
             return .finish(text.isEmpty ? result.text : text, usage: result.usage)
         }

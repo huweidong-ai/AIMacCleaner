@@ -13,6 +13,19 @@ import Foundation
 /// 「切到 Anthropic 把 OpenAI 的 key 带过去」这种事不会发生，因为它们是
 /// 各自独立的存档，而不是一个共享表单。
 struct AIModelConfig: Codable, Equatable, Identifiable {
+    /// 思考强度。nil = 跟随服务商默认；DeepSeek 官方端点默认关思考（见 effectiveReasoning）。
+    enum ReasoningMode: String, Codable, CaseIterable {
+        case appDefault, off, low
+
+        var displayName: String {
+            switch self {
+            case .appDefault: return L10n.t("服务商默认（可能很费 token）", "Provider default (can be costly)")
+            case .off:        return L10n.t("关闭思考（最省 token）", "No thinking (saves most tokens)")
+            case .low:        return L10n.t("低思考量", "Low thinking")
+            }
+        }
+    }
+
     let id: UUID
     /// 用户自定义的显示名（可空，空则用「协议 · 模型」兜底）。
     var name: String
@@ -20,19 +33,23 @@ struct AIModelConfig: Codable, Equatable, Identifiable {
     var apiKey: String
     var baseURL: String
     var model: String
+    /// Optional：老配置档缺这个键时解码为 nil，不会让历史配置丢失。
+    var reasoningMode: ReasoningMode? = nil
 
     init(id: UUID = UUID(),
          name: String = "",
          provider: Provider = .customOpenAI,
          apiKey: String = "",
          baseURL: String = "",
-         model: String = "") {
+         model: String = "",
+         reasoningMode: ReasoningMode? = nil) {
         self.id = id
         self.name = name
         self.provider = provider
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.model = model
+        self.reasoningMode = reasoningMode
     }
 
     enum Provider: String, Codable, CaseIterable, Identifiable {
@@ -178,6 +195,20 @@ struct AIModelConfig: Codable, Equatable, Identifiable {
     }
 
     // MARK: - 派生
+
+    /// 是否直连 DeepSeek 官方端点（thinking 参数只有官方 v4 支持）。
+    var isOfficialDeepSeekEndpoint: Bool {
+        guard let host = URL(string: effectiveBaseURL)?.host?.lowercased() else { return false }
+        return host == "api.deepseek.com"
+    }
+
+    /// 实际生效的思考强度：用户显式设置优先；DeepSeek 官方端点默认关闭 ——
+    /// 官方 V4 默认 `reasoning_effort=high`，一个普通卸载分析就能吐上万字思考，
+    /// 全是按输出 token 计费的。想恢复可在这里选低或服务默认。
+    var effectiveReasoning: ReasoningMode {
+        if let reasoningMode { return reasoningMode }
+        return isOfficialDeepSeekEndpoint ? .off : .appDefault
+    }
 
     /// 是否直连 Anthropic 官方端点。显式 prompt cache 字段只对官方域名发送；
     /// 第三方兼容网关一律保持原样，避免未知字段导致 400。

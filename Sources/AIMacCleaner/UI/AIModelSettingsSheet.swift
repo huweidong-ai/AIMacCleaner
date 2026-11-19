@@ -161,6 +161,23 @@ struct AIModelSettingsSheet: View {
                                     .textFieldStyle(.roundedBorder)
                             }
 
+                            section(title: L10n.t("思考强度（思考内容按输出 token 计费）",
+                                                  "Thinking level (thoughts are billed as output tokens)")) {
+                                Picker("", selection: binding(\.reasoningMode)) {
+                                    Text(L10n.t("跟随配置档默认", "Profile default")).tag(nil as AIModelConfig.ReasoningMode?)
+                                    ForEach(AIModelConfig.ReasoningMode.allCases, id: \.self) { mode in
+                                        Text(mode.displayName).tag(mode as AIModelConfig.ReasoningMode?)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .labelsHidden()
+                                .frame(maxWidth: 300, alignment: .leading)
+                                Text(L10n.t("DeepSeek 官方端点默认关闭思考（官方 V4 默认 high，会大量消耗 token）。",
+                                            "Thinking is off by default on official DeepSeek (its V4 defaults to high and burns tokens)."))
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(.tertiary)
+                            }
+
                             HStack(spacing: 10) {
                                 Button {
                                     Task { await testConnection() }

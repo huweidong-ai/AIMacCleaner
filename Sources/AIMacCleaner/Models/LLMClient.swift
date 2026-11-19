@@ -87,6 +87,12 @@ struct LLMClient {
                           system: String) async throws -> String {
         guard !config.apiKey.isEmpty else { throw LLMError.missingKey }
 
+        // DeepSeek 官方端点的思考开关 SDK 模型不支持直接传；走裸请求（同样的 OpenAI
+        // 协议，只多两个官方字段），确保流式失败降级时也不会突然吐一万字思考。
+        if config.isOfficialDeepSeekEndpoint, config.effectiveReasoning != .appDefault {
+            return try await lenientComplete(config: config, messages: messages, system: system)
+        }
+
         if config.provider.isAnthropicProtocol {
             return try await completeAnthropic(config: config, messages: messages, system: system)
         } else {
@@ -112,7 +118,7 @@ struct LLMClient {
         guard let url = URL(string: config.effectiveBaseURL + "/chat/completions") else {
             throw LLMError.badURL
         }
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": config.effectiveModel,
             // 比 SDK 那条给得更宽：agent 最后一轮常要复述整份清单，
             // 2048 会把它截断成非法 JSON —— 那正是上面那个 bug 的触发条件。
@@ -122,6 +128,7 @@ struct LLMClient {
                 ["role": $0.role, "content": $0.content]
             })
         ]
+        for (k, v) in LLMStream.reasoningPayload(config) { body[k] = v }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 120

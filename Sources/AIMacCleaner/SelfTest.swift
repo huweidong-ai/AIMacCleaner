@@ -1314,6 +1314,28 @@ enum SelfTest {
                 let n2 = LLMBrain.runtimeNote(turnsRemaining: 0, installedApps: ["微信"])
                 return a == b && n1 != n2 && !n1.contains("skill <")
             },
+            Check(name: "DeepSeek 官方端点默认关闭思考，可显式选低/服务默认") {
+                let cfg = AIModelConfig(provider: .customOpenAI,
+                                        baseURL: "https://api.deepseek.com/v1",
+                                        model: "deepseek-v4-flash")
+                let off = LLMStream.reasoningPayload(cfg)
+                let low = LLMStream.reasoningPayload(AIModelConfig(
+                    provider: .customOpenAI, baseURL: "https://api.deepseek.com/v1",
+                    reasoningMode: .low))
+                let other = LLMStream.reasoningPayload(AIModelConfig(
+                    provider: .customOpenAI, baseURL: "https://api.openai.com/v1"))
+                return (off["thinking"] as? [String: String])?["type"] == "disabled"
+                    && low["reasoning_effort"] as? String == "low"
+                    && other.isEmpty
+            },
+            Check(name: "同一轮里重复的 skill 调用被去重，不同参数保留") {
+                let a = SkillCall(name: "check_installs", args: SkillArgs(["target": "redis"]))
+                let b = SkillCall(name: "check_installs", args: SkillArgs(["target": "redis"]))
+                let c = SkillCall(name: "check_installs", args: SkillArgs(["target": "chrome"]))
+                let out = deduplicatedCalls([a, b, c])
+                return out.count == 2 && out[0].name == "check_installs"
+                    && out[1].args["target"] == "chrome"
+            },
             Check(name: "Anthropic 消息端点不会拼成 /v1/v1/messages") {
                 LLMStream.anthropicMessagesURL("https://api.anthropic.com/v1")?.absoluteString
                     == "https://api.anthropic.com/v1/messages"

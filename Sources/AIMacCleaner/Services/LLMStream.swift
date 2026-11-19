@@ -195,13 +195,25 @@ enum LLMStream {
 
     // MARK: - 请求构造
 
+    /// DeepSeek V4 官方端点思考控制（官方文档 2026-11）：
+    /// `thinking: {"type":"disabled"}` 明确关思考；`reasoning_effort: "low"` 低思考量。
+    /// 只对官方域名发送，第三方中转一律不加未知字段。
+    static func reasoningPayload(_ config: AIModelConfig) -> [String: Any] {
+        guard config.isOfficialDeepSeekEndpoint else { return [:] }
+        switch config.effectiveReasoning {
+        case .off:  return ["thinking": ["type": "disabled"]]
+        case .low:  return ["reasoning_effort": "low"]
+        case .appDefault: return [:]
+        }
+    }
+
     private static func openAIRequest(config: AIModelConfig,
                                       messages: [(role: String, content: String)],
                                       system: String) throws -> URLRequest {
         guard let url = URL(string: config.effectiveBaseURL + "/chat/completions") else {
             throw Failure.badURL
         }
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "model": config.effectiveModel,
             "stream": true,
             "max_tokens": 2048,
@@ -210,6 +222,7 @@ enum LLMStream {
                 ["role": $0.role, "content": $0.content]
             })
         ]
+        for (k, v) in reasoningPayload(config) { payload[k] = v }
         return try post(url: url, body: payload, headers: [
             "Content-Type": "application/json",
             "Authorization": "Bearer " + config.apiKey
