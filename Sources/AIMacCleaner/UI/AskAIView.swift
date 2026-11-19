@@ -1539,6 +1539,8 @@ private struct MessageBubble: View {
     let collapsible: Bool
     @EnvironmentObject var state: AppState
     @State private var isExpanded: Bool
+    /// 执行过程（工具步骤 + 深度思考）默认折叠：正文永远是气泡的主角。
+    @State private var showProcess = false
 
     init(message: AIMessage, initialExpanded: Bool, collapsible: Bool) {
         self.message = message
@@ -1568,17 +1570,25 @@ private struct MessageBubble: View {
             VStack(alignment: isMine ? .trailing : .leading, spacing: 6) {
                 // 气泡本体：执行步骤 + 深度思考 + 正文 + 底部栏
                 VStack(alignment: .leading, spacing: 0) {
-                    // 执行步骤（只有 AI 气泡且有步骤时显示），收进气泡顶部
-                    if !message.steps.isEmpty {
-                        stepsSection
-                            .padding(.bottom, 8)
-                    }
-                    // 深度思考：收在正文**上方**且默认折叠。位置与折叠默认值都是刻意的 ——
-                    // 推理过程通常很长，铺开会把结论挤出屏幕；但它必须可点开，
-                    // 用户要能验证 AI 凭什么这么判（尤其它要替我们决定删什么）。
-                    if let r = message.reasoning, !r.isEmpty {
-                        ReasoningBlock(text: r)
-                            .padding(.bottom, 8)
+                    // 过程摘要条：一行交代「跑过几个工具 / 有没有思考」，默认折叠。
+                    // 正文第一眼可见；想审计 AI 怎么得出这个结论时再点开——
+                    // 这在「AI 替你决定删什么」的场景里是必须保留的透明度。
+                    if !message.steps.isEmpty || !(message.reasoning ?? "").isEmpty {
+                        ProcessSummaryBar(
+                            toolCount: message.steps.count,
+                            hasReasoning: !(message.reasoning ?? "").isEmpty,
+                            expanded: $showProcess
+                        )
+                        .padding(.bottom, showProcess ? 6 : 8)
+
+                        if showProcess {
+                            if !message.steps.isEmpty {
+                                stepsSection.padding(.bottom, 6)
+                            }
+                            if let r = message.reasoning, !r.isEmpty {
+                                ReasoningBlock(text: r).padding(.bottom, 6)
+                            }
+                        }
                     }
 
                     messageText
@@ -1586,14 +1596,6 @@ private struct MessageBubble: View {
 
                     bubbleBottomBar
                         .padding(.top, 8)
-
-                    // token 用量：端点返回时才有一行小字，老历史 / 不支持的端点不占位。
-                    if let u = message.usage, !u.isEmpty {
-                        Text(u.displayText)
-                            .font(.system(size: 9.5).monospacedDigit())
-                            .foregroundStyle(.tertiary)
-                            .textSelection(.enabled)
-                    }
                 }
                 .padding(12)
                 .background(bubbleBg, in: bubbleShape)
@@ -1670,6 +1672,16 @@ private struct MessageBubble: View {
                 Text(L10n.t("AI", "AI"))
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(bubbleFooterFg)
+            }
+
+            // token 用量并入 footer 左侧：和时间/复制同一行，不再单独占一行。
+            // 老历史 / 不支持的端点没有数据时不显示，不留空白。
+            if let u = message.usage, !u.isEmpty {
+                Text(u.displayText)
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(bubbleFooterFg.opacity(0.8))
+                    .lineLimit(1)
+                    .textSelection(.enabled)
             }
 
             if isCollapsible {
@@ -1840,6 +1852,48 @@ private struct MessageBubble: View {
 /// 一步执行记录：命令 + 结果。Agent 做了什么必须原样摆出来。
 /// `inBubble=true` 时用更轻的样式（弱化边框、与气泡底色协调），
 /// `inBubble=false`（思考气泡中）保持稍强的对比。
+/// 一条可点的「过程摘要」：把工具调用次数与思考次数收进一行，
+/// 点开才露出步骤明细 / 深度思考。正文始终是气泡的主角。
+private struct ProcessSummaryBar: View {
+    let toolCount: Int
+    let hasReasoning: Bool
+    @Binding var expanded: Bool
+
+    private var label: String {
+        var parts: [String] = []
+        if toolCount > 0 {
+            parts.append(L10n.t("已调用 \(toolCount) 次工具", "\(toolCount) tool call(s)"))
+        }
+        if hasReasoning { parts.append(L10n.t("1 次深度思考", "1 thinking pass")) }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { expanded.toggle() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .rotationEffect(.degrees(expanded ? 90 : 0))
+                Image(systemName: "gearshape.2")
+                    .font(.system(size: 10.5))
+                Text(label)
+                    .font(.system(size: 10.5, weight: .medium))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .help(expanded
+              ? L10n.t("收起执行过程", "Collapse process")
+              : L10n.t("展开工具调用与深度思考", "Expand tool calls and thinking"))
+    }
+}
+
 private struct StepRow: View {
     let step: AgentStep
     var inBubble: Bool = false
@@ -1851,6 +1905,7 @@ private struct StepRow: View {
                     .font(.system(size: 9.5))
                 Text(step.command)
                     .font(.system(size: 10.5, design: .monospaced))
+                    .lineLimit(1)
                 if step.risk == .destructive {
                     Text(L10n.t("预演", "preview"))
                         .font(.system(size: 9, weight: .semibold))
@@ -1859,6 +1914,21 @@ private struct StepRow: View {
                         .background(Theme.riskUserDataBg, in: RoundedRectangle(cornerRadius: 4))
                         .foregroundStyle(Theme.riskUserDataText)
                 }
+                Spacer(minLength: 2)
+                // 成败状态点：卸载场景里用户最需要一眼确认「工具真的跑成功了吗」。
+                Image(systemName: step.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 10))
+                    .foregroundStyle(step.ok ? .green : .red)
+                    .help(step.ok ? L10n.t("执行成功", "Succeeded") : L10n.t("执行失败", "Failed"))
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(step.command, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.system(size: 9.5))
+                }
+                .buttonStyle(.plain)
+                .help(L10n.t("复制命令", "Copy command"))
             }
             .foregroundStyle(step.ok ? Theme.aiText : Theme.riskUncertainText)
 
