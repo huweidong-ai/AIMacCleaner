@@ -169,6 +169,18 @@ enum SelfTest {
                 return app.bundleIdSuffix == "xinwechat"
                     && ScanQuery(raw: "微信", app: app).keywords.contains("xinwechat")
             },
+            Check(name: "确认弹窗分流计数排除需手动项，与实际执行一致") {
+                let items = [
+                    Artifact(category: .appBundle, path: "/Applications/Foo.app", size: 100, risk: .safe),
+                    Artifact(category: .libraryData, path: "/Users/x/Library/Caches/Foo", size: 20, risk: .userData),
+                    Artifact(category: .shellRc, path: "/Users/x/.zshrc:1", size: 40, risk: .uncertain),
+                    Artifact(category: .pkgReceipt, path: "/var/db/receipts/foo.plist", size: 1, risk: .uncertain)
+                ]
+                let trash = ConfirmSheet.split(artifacts: items, hardDeleteUserData: false)
+                let hard = ConfirmSheet.split(artifacts: items, hardDeleteUserData: true)
+                return trash.direct == 1 && trash.trash == 1 && trash.manual == 2
+                    && hard.direct == 2 && hard.trash == 0 && hard.manual == 2
+            },
             Check(name: "调用前修复 search_paths 参数别名与缺失 token") {
                 let prior = SkillCall(name: "scan_app", args: SkillArgs(["target": "胡先生的龙虾 Control"]))
                 let transcript: [(call: SkillCall, result: SkillResult)] = [

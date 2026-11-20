@@ -50,20 +50,28 @@ struct ConfirmSheet: View {
         self.onConfirm = onConfirm
     }
 
+    /// 执行器不会自动删除的分类：shell rc 只标记「需手动编辑」，
+    /// pkg 收据需要 root 权限，两者都不能算进「直接删除」。
+    /// 这里必须与 RemovalExecutor 的阶段 4 保持一致，否则确认弹窗会假报数量。
+    nonisolated static let manualCategories: Set<ArtifactCategory> = [.shellRc, .pkgReceipt]
+
+    /// 确认弹窗的分流计数。抽成纯函数供自检断言——这正是出过误导文案的地方。
+    /// - direct：真的会被执行器删掉的项（硬删时含用户数据）
+    /// - trash：取消硬删时的用户数据项
+    /// - manual：明确不自动处理、需要用户介入的项
+    nonisolated static func split(artifacts: [Artifact], hardDeleteUserData: Bool) -> (direct: Int, trash: Int, manual: Int) {
+        let manual = artifacts.filter { manualCategories.contains($0.category) }
+        let actionable = artifacts.filter { !manualCategories.contains($0.category) }
+        let userData = actionable.filter { $0.risk == .userData }
+        return (hardDeleteUserData ? actionable.count : actionable.count - userData.count,
+                hardDeleteUserData ? 0 : userData.count,
+                manual.count)
+    }
+
     private var totalSize: Int64 { artifacts.reduce(0) { $0 + $1.size } }
     private var userDataItems: [Artifact] { artifacts.filter { $0.risk == .userData } }
-
-    /// 实际会进「直接删除」通道的项数：
-    /// - 勾选硬删时 = `artifacts.count`（用户数据也跟着直接删，不留任何东西）
-    /// - 取消勾选时 = `artifacts.count - userDataItems.count`（只算非用户数据部分）
-    private var effectiveDirectCount: Int {
-        hardDeleteUserData ? artifacts.count : artifacts.count - userDataItems.count
-    }
-    /// 实际会进「废纸篓」的项数：
-    /// - 勾选硬删时 = 0
-    /// - 取消勾选时 = `userDataItems.count`
-    private var effectiveTrashCount: Int {
-        hardDeleteUserData ? 0 : userDataItems.count
+    private var counts: (direct: Int, trash: Int, manual: Int) {
+        Self.split(artifacts: artifacts, hardDeleteUserData: hardDeleteUserData)
     }
 
     var body: some View {
@@ -75,21 +83,29 @@ struct ConfirmSheet: View {
             // 分流概览：一眼看清「哪些直接删、哪些进废纸篓」。
             VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.t(
-                    "即将卸载 \(artifacts.count) 项（\(SizeFormat.human(totalSize))）：",
-                    "About to uninstall \(artifacts.count) items (\(SizeFormat.human(totalSize))):"))
+                    "即将处理 \(artifacts.count) 项（\(SizeFormat.human(totalSize))）：",
+                    "About to process \(artifacts.count) items (\(SizeFormat.human(totalSize))):"))
                     .font(.callout)
                 HStack(spacing: 12) {
                     Label {
-                        Text(L10n.t("\(effectiveDirectCount) 项直接删除（应用 / 缓存 / 日志，不可恢复）",
-                                    "\(effectiveDirectCount) deleted directly (app, caches, logs — not recoverable)"))
+                        Text(L10n.t("\(counts.direct) 项直接删除（应用 / 缓存 / 日志，不可恢复）",
+                                    "\(counts.direct) deleted directly (app, caches, logs — not recoverable)"))
                     } icon: {
                         Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.destructive)
                     }
                     Label {
-                        Text(L10n.t("\(effectiveTrashCount) 项移到废纸篓（用户数据，可找回）",
-                                    "\(effectiveTrashCount) moved to Trash (user data, recoverable)"))
+                        Text(L10n.t("\(counts.trash) 项移到废纸篓（用户数据，可找回）",
+                                    "\(counts.trash) moved to Trash (user data, recoverable)"))
                     } icon: {
                         Image(systemName: "trash.fill").foregroundStyle(Theme.accent)
+                    }
+                    if counts.manual > 0 {
+                        Label {
+                            Text(L10n.t("\(counts.manual) 项需手动编辑，不会自动删",
+                                        "\(counts.manual) need manual editing — not auto-removed"))
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
+                        }
                     }
                 }
                 .font(.caption)
@@ -130,6 +146,12 @@ struct ConfirmSheet: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer()
+                            // 需手动项单独打标：这一行点了卸载也不会自动处理。
+                            if Self.manualCategories.contains(a.category) {
+                                Text(L10n.t("需手动", "Manual"))
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(Theme.warning)
+                            }
                             // 每行都标风险 pill（色 + 图标 + 字），看清再点。
                             RiskPill(risk: a.risk)
                             Text(SizeFormat.human(a.size))
