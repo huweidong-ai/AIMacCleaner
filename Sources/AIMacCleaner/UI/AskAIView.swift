@@ -347,7 +347,7 @@ struct AskAIView: View {
                     .fill(LinearGradient(colors: [Theme.aiPrimary, Theme.aiDeep],
                                          startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(width: 52, height: 52)
-                Image(systemName: "sparkles")
+                Image(systemName: "robot.fill")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundStyle(.white)
             }
@@ -1050,7 +1050,7 @@ struct AskAIView: View {
                                                            redirect: r.redirect,
                                                            awaitingApproval: r.awaitingApproval,
                                                            reasoning: r.reasoning.isEmpty ? nil : r.reasoning,
-                                                           usage: r.usage.isEmpty ? nil : r.usage))
+                                                           usage: r.usage))
                             }
                             state.chatIsThinking = false
                             bridge.reset()
@@ -1071,7 +1071,7 @@ struct AskAIView: View {
                                                redirect: run.redirect,
                                                awaitingApproval: run.awaitingApproval,
                                                reasoning: run.reasoning.isEmpty ? nil : run.reasoning,
-                                               usage: run.usage.isEmpty ? nil : run.usage))
+                                               usage: run.usage))
                 }
                 state.chatIsThinking = false
                 bridge.reset()
@@ -1676,8 +1676,12 @@ private struct MessageBubble: View {
 
             // token 用量并入 footer 左侧：和时间/复制同一行，不再单独占一行。
             // 老历史 / 不支持的端点没有数据时不显示，不留空白。
-            if let u = message.usage, !u.isEmpty {
-                Text(u.displayText)
+            // 新版回答即使端点没返回 usage 也存了空结构 → 明确告知「未返回」，
+            // 不再让用户以为功能消失了。老历史无该键（nil）则整行不显示。
+            if let u = message.usage {
+                Text(u.isEmpty
+                     ? L10n.t("token 用量未返回", "token usage not reported")
+                     : u.displayText)
                     .font(.system(size: 10).monospacedDigit())
                     .foregroundStyle(bubbleFooterFg.opacity(0.8))
                     .lineLimit(1)
@@ -1803,7 +1807,7 @@ private struct MessageBubble: View {
                   : LinearGradient(colors: [Theme.accent, Theme.accentActive],
                                    startPoint: .topLeading, endPoint: .bottomTrailing))
             .frame(width: 28, height: 28)
-            .overlay(Image(systemName: ai ? "sparkles" : "person.fill")
+            .overlay(Image(systemName: ai ? "robot.fill" : "person.fill")
                 .font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
             .shadow(color: Color.black.opacity(0.08), radius: 1, y: 1)
     }
@@ -2071,7 +2075,7 @@ private struct ThinkingBubble: View {
             .fill(LinearGradient(colors: [Theme.aiPrimary, Theme.aiDeep],
                                 startPoint: .topLeading, endPoint: .bottomTrailing))
             .frame(width: 28, height: 28)
-            .overlay(Image(systemName: "sparkles")
+            .overlay(Image(systemName: "robot.fill")
                 .font(.system(size: 12, weight: .bold)).foregroundStyle(.white))
             .shadow(color: Color.black.opacity(0.08), radius: 1, y: 1)
     }
