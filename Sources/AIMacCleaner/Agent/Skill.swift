@@ -86,6 +86,9 @@ struct SkillArgs {
 
     var isEmpty: Bool { raw.isEmpty }
 
+    /// 原始参数表（供调用前修复使用：把模型写错的参数别名改成正式参数名）。
+    var dictionary: [String: String] { raw }
+
     /// 回显成 CLI 风格，用于 UI 上的「执行了什么」标签。
     var inlineDescription: String {
         raw.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")

@@ -169,6 +169,18 @@ enum SelfTest {
                 return app.bundleIdSuffix == "xinwechat"
                     && ScanQuery(raw: "微信", app: app).keywords.contains("xinwechat")
             },
+            Check(name: "调用前修复 search_paths 参数别名与缺失 token") {
+                let prior = SkillCall(name: "scan_app", args: SkillArgs(["target": "胡先生的龙虾 Control"]))
+                let transcript: [(call: SkillCall, result: SkillResult)] = [
+                    (call: prior, result: SkillResult(ok: true, summary: "", observation: ""))
+                ]
+                let alias = SkillCall(name: "search_paths", args: SkillArgs(["query": "openclaw"]))
+                let missing = SkillCall(name: "search_paths", args: SkillArgs())
+                let other = SkillCall(name: "search_paths", args: SkillArgs(["token": "lobster"]))
+                return repairedCall(alias, transcript: transcript).args["token"] == "openclaw"
+                    && repairedCall(missing, transcript: transcript).args["token"] == "胡先生的龙虾 Control"
+                    && repairedCall(other, transcript: transcript).args["token"] == "lobster"
+            },
             Check(name: "npm 卸载还原 scoped 包名（@scope/name），不能只取末段") {
                 RemovalExecutor.npmPackageName(
                     from: "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code"

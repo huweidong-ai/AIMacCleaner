@@ -75,6 +75,30 @@ func deduplicatedCalls(_ calls: [SkillCall]) -> [SkillCall] {
     }
 }
 
+/// 调用前修复模型最常见的参数错误，避免「search ? / 缺少必填参数 token」这种
+/// 明明能干活却报红的失败步骤。
+///
+/// 只做**确定性**修复，不猜用户意图：
+/// 1. `search_paths` 的 token 写成了 query / keyword / term 等别名 → 改名；
+/// 2. 完全没给 token → 取本轮最近一次 scan_app / check_installs 的 target 兜底；
+/// 3. 其他情况原样返回，照常走参数校验，不掩盖真正的错误。
+func repairedCall(_ call: SkillCall,
+                  transcript: [(call: SkillCall, result: SkillResult)]) -> SkillCall {
+    guard call.name == "search_paths", call.args["token"] == nil else { return call }
+    var args = call.args.dictionary
+    let aliases = ["query", "keyword", "term", "text", "search", "q", "value", "target", "name"]
+    if let alias = aliases.first(where: { args[$0] != nil }),
+       let value = args.removeValue(forKey: alias) {
+        args["token"] = value
+    } else if let target = transcript.reversed().compactMap({ entry -> String? in
+        guard entry.call.name == "scan_app" || entry.call.name == "check_installs" else { return nil }
+        return entry.call.args["target"]
+    }).first {
+        args["token"] = target
+    }
+    return SkillCall(name: call.name, args: SkillArgs(args))
+}
+
 /// 一次完整运行的产物。
 struct AgentRun {
     var answer: String
@@ -225,7 +249,8 @@ struct AgentRuntime {
                     run.answer = Self.fallbackAnswer(transcript)
                     return run
                 }
-                for call in calls {
+                for rawCall in calls {
+                    let call = repairedCall(rawCall, transcript: transcript)
                     let (step, result) = await execute(call, session: session)
                     run.steps.append(step)
                     onStep?(step)
@@ -313,7 +338,8 @@ struct AgentRuntime {
                     await onEvent(.finished(run))
                     return run
                 }
-                for call in calls {
+                for rawCall in calls {
+                    let call = repairedCall(rawCall, transcript: transcript)
                     if let skill = SkillRegistry.resolve(call.name) {
                         await onEvent(.toolStarted(
                             skill: skill.spec.name,
@@ -549,6 +575,7 @@ struct LLMBrain: AgentBrain {
                确认属于目标 app 的，再用 propose_paths 提交；入库项一律不勾选，删不删由用户决定。
                ⚠️ 调查某个具体 app 时**必须先 scan_app**：只有它能给出 bundle id、
                并为校验网提供「除该 app 外的其它活 app」。跳过它，propose_paths 会直接拒绝。
+               ⚠️ search_paths 的必填参数名是 **token**（不是 query / keyword / search）；调用前拿不准就先 describe_skill。
             8. 包管理器渠道（check_installs 命中 brew / npm / pipx）：**不要让用户去终端手敲卸载命令**。
                用户在界面确认清单后，本工具会自动执行对应包管理器的卸载（含 brew services / launchd 项）。
                若扫描清单里没有对应包条目，如实说「扫描器未收录」，绝不猜包名、绝不编 `brew uninstall xxx` 让用户自己跑。
@@ -589,6 +616,7 @@ struct LLMBrain: AgentBrain {
                propose_paths; entries are never checked by default and the user decides what to delete.
                ⚠️ When investigating a specific app you MUST call scan_app first: it is the only way to get the
                bundle id and the "other live apps" context that validation needs. propose_paths is refused without it.
+               ⚠️ search_paths' required argument is **token** (not query / keyword / search); call describe_skill first if unsure.
             8. Package-manager hits from check_installs (brew / npm / pipx): **never tell the user to type an
                uninstall command in Terminal.** After the user confirms the list in the UI, this app runs the
                matching package-manager uninstall automatically (including brew services / launchd items).
